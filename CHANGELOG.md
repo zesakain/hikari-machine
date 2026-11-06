@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Core Memory Allocators (Phase 1.1)**:
+  - Alignment utilities in `<core/align.h>` (`isPowerOfTwo`, `alignUp`, `isAligned`).
+  - `LinearAllocator` in `<core/linear_allocator.h>` providing alignment-aware bump allocation over caller-provided memory with overflow safety.
+  - `ArenaAllocator` in `<core/arena_allocator.h>` providing grouped memory management with scoped checkpoint rollback (`save()`, `restore()`) and bulk reset.
+  - Comprehensive unit test suites in `tests/unit/core/linear_allocator_test.cpp` and `tests/unit/core/arena_allocator_test.cpp`.
 - **Core Error Handling & Assertions (Phase 1.0)**:
   - `ENG_ASSERT` and `ENG_VERIFY` diagnostic assertion macros in `<core/assert.h>`.
   - Allocation-free `Error` and `ErrorCode` types in `<core/error.h>` with source location diagnostics.
