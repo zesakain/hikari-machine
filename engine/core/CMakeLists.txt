@@ -3,6 +3,7 @@
 # Core module library providing foundational engine primitives.
 
 add_library(engine_core STATIC
+    src/arena_allocator.cpp
     src/assert.cpp
     src/linear_allocator.cpp
 )

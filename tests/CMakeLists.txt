@@ -18,3 +18,7 @@ add_test(NAME assert_test COMMAND assert_test)
 add_executable(linear_allocator_test unit/core/linear_allocator_test.cpp)
 target_link_libraries(linear_allocator_test PRIVATE hikari::engine_core)
 add_test(NAME linear_allocator_test COMMAND linear_allocator_test)
+
+add_executable(arena_allocator_test unit/core/arena_allocator_test.cpp)
+target_link_libraries(arena_allocator_test PRIVATE hikari::engine_core)
+add_test(NAME arena_allocator_test COMMAND arena_allocator_test)
