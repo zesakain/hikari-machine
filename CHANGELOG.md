@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Core Error Handling & Assertions (Phase 1.0)**:
+  - `ENG_ASSERT` and `ENG_VERIFY` diagnostic assertion macros in `<core/assert.h>`.
+  - Allocation-free `Error` and `ErrorCode` types in `<core/error.h>` with source location diagnostics.
+  - Exception-free `Result<T, E>` and `Result<void, E>` in `<core/result.h>` supporting move-only types.
+  - `hikari::engine_core` module target exporting `engine/core/include`.
+  - Comprehensive unit test suite in `tests/unit/core/` covering success, failure, move-semantics, and assertion behaviors.
+
 ## [0.1.0] - 2026-11-06
 
 ### Added

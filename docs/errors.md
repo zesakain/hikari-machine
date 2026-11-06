@@ -28,9 +28,13 @@ This catalog documents the structured error codes (`E-xxxx`) and warning codes (
 
 | Code | Severity | Status | Description | Typical Cause | Resolution |
 | :--- | :--- | :--- | :--- | :--- | :--- |
+| `E-0200` | Error | Implemented | Invalid function argument or precondition violation. | Null pointer passed or parameter range violation. | Validate input parameters before calling function. |
+| `E-0201` | Error | Implemented | Generational handle resolution failed. | Accessing an index whose generation has rolled over or expired. | Check entity or asset lifecycle before dereferencing handle. |
+| `E-0202` | Error | Implemented | Memory capacity exhausted in target allocator. | Subsystem arena or pool exhausted without expansion allowance. | Pre-allocate larger capacity or audit memory leaks. |
+| `E-0203` | Error | Implemented | Container index or offset out of bounds. | Access index exceeds size or capacity of target container. | Ensure index is within [0, size). |
+| `E-0204` | Error | Implemented | Operation attempted on invalid or uninitialized state. | Calling method before initialization or after disposal. | Verify lifecycle state transitions. |
+| `E-0205` | Error | Implemented | Requested feature or backend operation not supported. | Feature unsupported on current platform or driver tier. | Query capability flags before dispatching operation. |
 | `W-0201` | Warning | Reserved | Frame allocator high watermark exceeded 80%. | Excess temporary allocations in current frame. | Increase frame allocator capacity or move allocations to arenas. |
-| `E-0201` | Error | Reserved | Generational handle resolution failed. | Accessing an index whose generation has rolled over or expired. | Check entity or asset lifecycle before dereferencing handle. |
-| `E-0202` | Error | Reserved | Out of arena memory capacity. | Subsystem arena exhausted without dynamic expansion allowance. | Pre-allocate larger arena at scene / mode init. |
 
 ---
 
