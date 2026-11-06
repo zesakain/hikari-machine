@@ -1,0 +1,42 @@
+---
+Language: Cpp
+BasedOnStyle: LLVM
+Standard: c++20
+
+# Indentation and Alignment
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+AccessModifierOffset: -4
+NamespaceIndentation: None
+
+# Line Width and Wrapping
+ColumnLimit: 100
+BinPackArguments: true
+BinPackParameters: true
+BreakBeforeBraces: Attach
+BreakBeforeBinaryOperators: None
+BreakBeforeTernaryOperators: true
+BreakConstructorInitializers: BeforeColon
+BreakInheritanceList: BeforeColon
+
+# Functions and Lambdas
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortLambdasOnASingleLine: All
+AllowShortBlocksOnASingleLine: Never
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+
+# Includes and Pointers
+SortIncludes: CaseSensitive
+IncludeBlocks: Regroup
+PointerAlignment: Left
+ReferenceAlignment: Left
+
+# Spaces
+SpaceAfterCStyleCast: false
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeParens: ControlStatements
+SpaceInEmptyBlock: false
+SpacesBeforeTrailingComments: 1
+...

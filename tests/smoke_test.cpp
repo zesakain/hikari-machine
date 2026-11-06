@@ -41,9 +41,7 @@ struct Handle {
     uint32_t index{0};
     uint32_t generation{0};
 
-    [[nodiscard]] constexpr bool isValid() const noexcept {
-        return generation != 0;
-    }
+    [[nodiscard]] constexpr bool isValid() const noexcept { return generation != 0; }
 };
 
 static_assert(std::is_standard_layout_v<Handle>,
