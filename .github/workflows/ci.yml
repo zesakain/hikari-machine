@@ -36,6 +36,9 @@ jobs:
       - name: Build Debug preset
         run: cmake --build --preset debug
 
+      - name: Run Clang-Tidy static analysis
+        run: clang-tidy -p build/debug --warnings-as-errors='*' tests/smoke_test.cpp
+
       - name: Run CTest Debug preset
         run: ctest --preset debug --output-on-failure
 
