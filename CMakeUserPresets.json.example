@@ -1,0 +1,19 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "user-debug",
+      "displayName": "User Local Debug",
+      "description": "Example user preset overriding local toolchain paths or ccache",
+      "inherits": "debug",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER_LAUNCHER": "ccache"
+      }
+    }
+  ]
+}

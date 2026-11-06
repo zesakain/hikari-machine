@@ -20,6 +20,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(HIKARI_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 option(HIKARI_BUILD_TESTS "Build test suite" ON)
 option(HIKARI_BUILD_EDITOR "Build editor tooling" OFF)
+set(HIKARI_SANITIZER "" CACHE STRING "Sanitizers to enable (e.g. 'address,undefined' or 'thread')")
 
 # -----------------------------------------------------------------------------
 # Compiler Flags Interface Target
@@ -51,6 +52,28 @@ else()
     )
     if(HIKARI_WARNINGS_AS_ERRORS)
         target_compile_options(hikari_compiler_flags INTERFACE -Werror)
+    endif()
+endif()
+
+# Editor flag definition
+if(HIKARI_BUILD_EDITOR)
+    target_compile_definitions(hikari_compiler_flags INTERFACE EDITOR=1)
+endif()
+
+# Sanitizer configuration
+if(HIKARI_SANITIZER)
+    if(MSVC)
+        if(HIKARI_SANITIZER MATCHES "address")
+            target_compile_options(hikari_compiler_flags INTERFACE /fsanitize=address)
+        endif()
+    else()
+        target_compile_options(hikari_compiler_flags INTERFACE
+            -fsanitize=${HIKARI_SANITIZER}
+            -fno-omit-frame-pointer
+        )
+        target_link_options(hikari_compiler_flags INTERFACE
+            -fsanitize=${HIKARI_SANITIZER}
+        )
     endif()
 endif()
 
