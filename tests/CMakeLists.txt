@@ -14,3 +14,7 @@ add_test(NAME result_test COMMAND result_test)
 add_executable(assert_test unit/core/assert_test.cpp)
 target_link_libraries(assert_test PRIVATE hikari::engine_core)
 add_test(NAME assert_test COMMAND assert_test)
+
+add_executable(linear_allocator_test unit/core/linear_allocator_test.cpp)
+target_link_libraries(linear_allocator_test PRIVATE hikari::engine_core)
+add_test(NAME linear_allocator_test COMMAND linear_allocator_test)

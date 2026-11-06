@@ -4,6 +4,7 @@
 
 add_library(engine_core STATIC
     src/assert.cpp
+    src/linear_allocator.cpp
 )
 add_library(hikari::engine_core ALIAS engine_core)
 
