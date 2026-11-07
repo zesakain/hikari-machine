@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Core Job System (Phase 1.8)**:
+  - Bounded parallel scheduler `JobSystem` in `<core/job_system.h>` and `src/job_system.cpp` over caller-provided backing memory with zero heap allocations after initialization.
+  - Generational job reference primitive `JobHandle` providing O(1) slot resolution with stale-handle detection.
+  - Type-safe static callable abstraction (`JobFunction`, `VoidJobFunction`) with non-owning context pointer dispatch and zero `std::function` or virtual call overhead.
+  - Directed acyclic graph (DAG) dependency tracking with inline fan-in/fan-out links, explicit cycle rejection (`addDependency`), and cascading failure propagation.
+  - Deadlock-free `wait()` and `waitAll()` via cooperative work-helping on calling threads with 0 worker starvation.
+  - Lifecycle management supporting configurable background workers (`initializeWorkers`), thread-safe idempotent shutdown (`shutdown`), and safe slot reclamation (`reclaim`).
+  - Comprehensive unit test suite in `tests/unit/core/job_system_test.cpp` verified across all 6 presets including ThreadSanitizer.
 - **Core Typed Event System (Phase 1.7)**:
   - Type-safe, RTTI-free event dispatching with unique compile-time generated `EventTypeId` (`StrongId<EventTypeTag, uint32_t>`) and `ListenerToken` (`StrongId<ListenerTag, uint64_t>`).
   - `EventDispatcher` in `<core/event.h>` and `src/event.cpp` supporting multiple listeners per event type over caller-provided storage with zero heap allocation.
