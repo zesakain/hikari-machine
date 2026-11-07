@@ -43,4 +43,9 @@ add_executable(slot_map_test unit/core/slot_map_test.cpp)
 target_link_libraries(slot_map_test PRIVATE hikari::engine_core)
 add_test(NAME slot_map_test COMMAND slot_map_test)
 
+add_executable(id_test unit/core/id_test.cpp)
+target_link_libraries(id_test PRIVATE hikari::engine_core)
+add_test(NAME id_test COMMAND id_test)
+
+
 
