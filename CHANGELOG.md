@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Platform Layer & SDL3 Backend (Phase 2.1)**:
+  - Hardware-neutral window and event management encapsulated behind `eng::platform::Platform` and `Window` interfaces.
+  - Zero SDL headers leaked into public engine headers; all SDL3 dependencies strictly isolated within `engine/platform/src/`.
+  - Deterministic `InputSnapshot` capturing immutable keyboard (512 keys), mouse buttons (8), cursor pixel positions and deltas, and up to 4 gamepads.
+  - Headless/offscreen dummy video driver fallback allowing full event pumping and window tests in CI without display servers.
+  - Unit tests in `tests/unit/platform/platform_test.cpp` verifying snapshot immutability, delta detection, and window lifecycle.
+- **RHI Layer & Null Mock Backend (Phase 2.2)**:
+  - Graphics hardware abstraction behind `eng::rhi::RhiDevice` and `RhiCommandList` interfaces with zero graphics API leaks outside `/engine/rhi`.
+  - Hardware tier classification and limits via `GpuCaps` (Tier 0 baseline for NVIDIA Pascal, AMD Polaris, Apple M1).
+  - Generational resource handles (`BufferHandle`, `TextureHandle`, `SamplerHandle`, `PipelineHandle`, `ShaderHandle`) with stale-handle detection.
+  - Resource descriptors (`BufferDesc`, `TextureDesc`, `SamplerDesc`) with parameter boundary checks against `GpuCaps`.
+  - In-memory `NullDevice` and `NullCommandList` backend enabling headless execution, buffer updates, copies, and draw call recording without physical GPU drivers.
+  - Unit tests in `tests/unit/rhi/null_rhi_test.cpp` covering caps queries, resource lifecycle, and command submission.
+- **Architecture Documentation (ADR-0007)**:
+  - Documented SDL3 adoption for windowing and input, isolation strategy, licensing compliance (zlib), and headless fallback.
 - **Core Foundation Review & Stabilization (Phase 1.9)**:
   - Validated and audited Core modules across Phase 1.0–1.8 for memory safety, concurrency, API consistency, and portability.
   - Hardened `JobSystem` handle resolution to explicitly verify `JobState::Unallocated`, preventing fabricated unallocated handles from being accepted or waited on.
