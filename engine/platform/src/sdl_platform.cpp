@@ -31,6 +31,9 @@ Result<std::unique_ptr<Window>> SdlPlatform::createWindow(const WindowDesc& desc
     }
 
     SDL_WindowFlags flags = 0;
+    if (desc.vulkan && !desc.headless && !config_.headless) {
+        flags |= SDL_WINDOW_VULKAN;
+    }
     if (desc.resizable) {
         flags |= SDL_WINDOW_RESIZABLE;
     }

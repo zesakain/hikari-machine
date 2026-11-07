@@ -46,6 +46,9 @@ struct WindowDesc {
 
     /// Whether to force headless mode (offscreen dummy surface for CI/benchmarking).
     bool headless{false};
+
+    /// Whether to configure window for Vulkan graphics surface presentation.
+    bool vulkan{false};
 };
 
 /// @class Window
