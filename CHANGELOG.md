@@ -8,6 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Functional Visual Editor & IDE Development (Phase 6.11)**:
+  - **Vulkan Dynamic Rendering Integration for Dear ImGui**:
+    - Created `NativeDeviceHandles` and `NativeCommandListHandles` opaque POD bridges in `RhiDevice` and `RhiCommandList`.
+    - Integrated `imgui_impl_vulkan.cpp` with Vulkan 1.3 Dynamic Rendering (`UseDynamicRendering = true`), automated descriptor pools, and dynamic viewport/scissor states.
+    - Dispatched real vertex and index buffer uploads (`ImDrawVert`, `ImDrawIdx`) and indexed draw calls into swapchain render passes.
+  - **Complete Engine Desktop IDE Layout**:
+    - **Main Menu Bar**: File, Edit, View, Window, Entity, Assets, Tools, and Help.
+    - **Main Toolbar**: Play, Pause, Step controls, Conductor active/standby state badges, and live FPS telemetry.
+    - **Entity Hierarchy**: Full Flecs ECS entity query, search filter, selection, and empty/physics entity creation and deletion.
+    - **Entity Inspector**: Component property inspection and modification for `PhysicsTransformComponent`, `RigidBodyComponent`, and `ScriptComponent`.
+    - **Scene Viewport Panel**: Viewport resolution, aspect ratio calculation, dark canvas, coordinate grid lines, crosshair, and empty-scene baseline indicators.
+    - **Content Browser**: Virtual project asset filesystem navigation (`assets/`, `data/`, `game/`, `docs/`).
+    - **Log Console**: Ring-buffer logger viewer with severity filtering and search.
+    - **Profiler & Telemetry**: FPS, frame times, draw calls, uploaded vertex/index counts, pass counters, and ECS entity count.
+    - **HIKARI EDITOR Diagnostic Window**: Physical GPU name, Vulkan backend version, and operational status.
+  - **Architecture Documentation (ADR-0017)**:
+    - `ADR-0017`: Functional Visual Editor & IDE Architecture, opaque native handles, and Dear ImGui Vulkan dynamic pipeline.
+  - **Testing & Multi-Preset Verification**:
+    - Extended `editor_test` with entity hierarchy and index/pass telemetry verification.
+    - All 27 tests passing across all 6 presets (`editor`, `debug`, `release`, `profile`, `asan`, `tsan`).
+    - Real-machine physical GPU (`NVIDIA P106-100`) visual verification with screenshots.
+
 - **Scripting, UI Systems, CI/CD & Binary Build Pipeline (Phase 6)**:
   - **Sandboxed Lua 5.4 Scripting Engine (`engine/script/`)**:
     - Vendored Lua 5.4.7 source (`engine/script/src/lua/`) compiled as clean C static library (`lua_static`).

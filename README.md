@@ -25,7 +25,7 @@ Current Phase: **Phase 6 — Scripting, UI Systems, CI/CD & Binary Build Pipelin
   - Phase 3: Shared World (Flecs ECS) and Two-State Conductor execution runtime.
   - Phase 4: Vulkan 1.3+ RHI backend, dynamic rendering, and DAG Render Graph.
   - Phase 5: Jolt Physics integration, fixed-timestep accumulator, and skeletal animation system.
-  - Phase 6: Sandboxed Lua 5.4 scripting engine, RmlUi runtime UI system, Dear ImGui editor UI, primary `bin/hikari` application, CPack packaging pipeline, and GitHub Actions CI/CD workflows.
+  - Phase 6: Sandboxed Lua 5.4 scripting engine, RmlUi runtime UI system, Dear ImGui visual editor and IDE (hierarchy, inspector, viewport, content browser, console, telemetry), primary `bin/hikari` application, CPack packaging pipeline, and GitHub Actions CI/CD workflows.
 - **Planned (Not Implemented)**:
   - Game demo validation and packaging.
 - **Experimental**:
