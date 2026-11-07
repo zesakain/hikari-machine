@@ -9,6 +9,7 @@
 
 add_subdirectory(core)
 add_subdirectory(platform)
+add_subdirectory(rhi)
 
 add_library(engine_base INTERFACE)
 add_library(hikari::engine_base ALIAS engine_base)
@@ -18,4 +19,5 @@ target_link_libraries(engine_base
         hikari::engine_flags
         hikari::engine_core
         hikari::engine_platform
+        hikari::engine_rhi
 )
