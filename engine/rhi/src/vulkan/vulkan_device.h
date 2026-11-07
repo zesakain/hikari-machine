@@ -63,6 +63,9 @@ public:
     [[nodiscard]] VkBuffer resolveBuffer(BufferHandle handle) const noexcept;
     [[nodiscard]] VulkanMemoryManager& getMemoryManager() noexcept { return *memoryManager_; }
     [[nodiscard]] VulkanSwapchain* getSwapchain() noexcept { return swapchain_.get(); }
+    [[nodiscard]] uint32_t getCurrentSwapchainImageIndex() const noexcept {
+        return currentSwapchainImageIndex_;
+    }
     [[nodiscard]] bool isBufferValid(BufferHandle handle) const noexcept;
     [[nodiscard]] bool isTextureValid(TextureHandle handle) const noexcept;
     [[nodiscard]] bool isSamplerValid(SamplerHandle handle) const noexcept;

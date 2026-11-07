@@ -53,6 +53,9 @@ public:
     [[nodiscard]] VkFormat getImageFormat() const noexcept { return imageFormat_; }
     [[nodiscard]] VkExtent2D getExtent() const noexcept { return extent_; }
     [[nodiscard]] size_t getImageCount() const noexcept { return images_.size(); }
+    [[nodiscard]] VkImage getImage(size_t index) const noexcept {
+        return index < images_.size() ? images_[index] : VK_NULL_HANDLE;
+    }
     [[nodiscard]] VkImageView getImageView(size_t index) const noexcept {
         return index < imageViews_.size() ? imageViews_[index] : VK_NULL_HANDLE;
     }

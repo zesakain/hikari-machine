@@ -19,11 +19,21 @@
 #pragma once
 
 #include "rhi/rhi_types.h"
+#include "rhi/texture.h"
 
 #include <cstddef>
 #include <cstdint>
 
 namespace eng::rhi {
+
+/// @struct RenderPassBeginInfo
+/// @brief Initialization parameters for beginning a dynamic render pass.
+struct RenderPassBeginInfo {
+    TextureHandle colorTarget{}; ///< Target texture, or invalid handle for default backbuffer.
+    float clearColor[4]{0.08F, 0.12F, 0.20F,
+                        1.0F}; ///< Clear color (RGBA float), default deep Hikari Blue.
+    bool clearTarget{true};    ///< Whether to clear target on pass entry.
+};
 
 /// @class RhiCommandList
 /// @brief Abstract command recording buffer interface.
@@ -36,6 +46,16 @@ public:
 
     /// Ends command recording, sealing the command list for queue submission.
     virtual void end() = 0;
+
+    /// Begins a dynamic rendering pass targeting the active swapchain image or color target.
+    virtual void beginRenderPass(const RenderPassBeginInfo& info) = 0;
+
+    /// Ends the current dynamic rendering pass and transitions target for presentation.
+    virtual void endRenderPass() = 0;
+
+    /// Clears a rectangular region of the active render target with a color.
+    virtual void clearRect(int32_t x, int32_t y, uint32_t width, uint32_t height, float r, float g,
+                           float b, float a) = 0;
 
     /// Sets the active viewport transformation.
     virtual void setViewport(float x, float y, float width, float height, float minDepth = 0.0F,

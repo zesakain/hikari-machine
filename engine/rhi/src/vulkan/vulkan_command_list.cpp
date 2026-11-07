@@ -58,9 +58,205 @@ void VulkanCommandList::begin() {
 
 void VulkanCommandList::end() {
     if (isRecording_ && device_ != nullptr && cmdBuffer_ != VK_NULL_HANDLE) {
+        if (isInsideRenderPass_) {
+            endRenderPass();
+        }
         vkEndCommandBuffer(cmdBuffer_);
         isRecording_ = false;
     }
+}
+
+void VulkanCommandList::beginRenderPass(const RenderPassBeginInfo& info) {
+    if (!isRecording_ || device_ == nullptr || cmdBuffer_ == VK_NULL_HANDLE) {
+        return;
+    }
+
+    auto* swapchain = device_->getSwapchain();
+    if (swapchain == nullptr) {
+        return;
+    }
+
+    const uint32_t imgIndex = device_->getCurrentSwapchainImageIndex();
+    VkImage swapImage = swapchain->getImage(imgIndex);
+    VkImageView swapView = swapchain->getImageView(imgIndex);
+    VkExtent2D extent = swapchain->getExtent();
+
+    if (swapImage == VK_NULL_HANDLE || swapView == VK_NULL_HANDLE) {
+        return;
+    }
+
+    currentRenderImage_ = swapImage;
+
+    // Transition swapchain image: UNDEFINED/PRESENT_SRC -> COLOR_ATTACHMENT_OPTIMAL
+    VkImageMemoryBarrier2 barrier{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+        .pNext = nullptr,
+        .srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .srcAccessMask = 0,
+        .dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+        .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+        .newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image = swapImage,
+        .subresourceRange =
+            {
+                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel = 0,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            },
+    };
+
+    VkDependencyInfo depInfo{
+        .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+        .pNext = nullptr,
+        .dependencyFlags = 0,
+        .memoryBarrierCount = 0,
+        .pMemoryBarriers = nullptr,
+        .bufferMemoryBarrierCount = 0,
+        .pBufferMemoryBarriers = nullptr,
+        .imageMemoryBarrierCount = 1,
+        .pImageMemoryBarriers = &barrier,
+    };
+
+    vkCmdPipelineBarrier2(cmdBuffer_, &depInfo);
+
+    VkRenderingAttachmentInfo colorAttachment{
+        .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+        .pNext = nullptr,
+        .imageView = swapView,
+        .imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        .resolveMode = VK_RESOLVE_MODE_NONE,
+        .resolveImageView = VK_NULL_HANDLE,
+        .resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+        .loadOp = info.clearTarget ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD,
+        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+        .clearValue =
+            {
+                .color =
+                    {
+                        .float32 = {info.clearColor[0], info.clearColor[1], info.clearColor[2],
+                                    info.clearColor[3]},
+                    },
+            },
+    };
+
+    VkRenderingInfo renderingInfo{
+        .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+        .renderArea =
+            {
+                .offset = {0, 0},
+                .extent = extent,
+            },
+        .layerCount = 1,
+        .viewMask = 0,
+        .colorAttachmentCount = 1,
+        .pColorAttachments = &colorAttachment,
+        .pDepthAttachment = nullptr,
+        .pStencilAttachment = nullptr,
+    };
+
+    vkCmdBeginRendering(cmdBuffer_, &renderingInfo);
+    isInsideRenderPass_ = true;
+
+    setViewport(0.0F, 0.0F, static_cast<float>(extent.width), static_cast<float>(extent.height),
+                0.0F, 1.0F);
+    setScissor(0, 0, extent.width, extent.height);
+}
+
+void VulkanCommandList::endRenderPass() {
+    if (!isRecording_ || !isInsideRenderPass_ || device_ == nullptr ||
+        cmdBuffer_ == VK_NULL_HANDLE) {
+        return;
+    }
+
+    vkCmdEndRendering(cmdBuffer_);
+    isInsideRenderPass_ = false;
+
+    if (currentRenderImage_ != VK_NULL_HANDLE) {
+        // Transition swapchain image: COLOR_ATTACHMENT_OPTIMAL -> PRESENT_SRC_KHR
+        VkImageMemoryBarrier2 barrier{
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+            .pNext = nullptr,
+            .srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+            .srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
+            .dstAccessMask = 0,
+            .oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            .newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image = currentRenderImage_,
+            .subresourceRange =
+                {
+                    .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                    .baseMipLevel = 0,
+                    .levelCount = 1,
+                    .baseArrayLayer = 0,
+                    .layerCount = 1,
+                },
+        };
+
+        VkDependencyInfo depInfo{
+            .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+            .pNext = nullptr,
+            .dependencyFlags = 0,
+            .memoryBarrierCount = 0,
+            .pMemoryBarriers = nullptr,
+            .bufferMemoryBarrierCount = 0,
+            .pBufferMemoryBarriers = nullptr,
+            .imageMemoryBarrierCount = 1,
+            .pImageMemoryBarriers = &barrier,
+        };
+
+        vkCmdPipelineBarrier2(cmdBuffer_, &depInfo);
+        currentRenderImage_ = VK_NULL_HANDLE;
+    }
+}
+
+void VulkanCommandList::clearRect(int32_t x, int32_t y, uint32_t width, uint32_t height, float r,
+                                  float g, float b, float a) {
+    if (!isRecording_ || !isInsideRenderPass_ || device_ == nullptr ||
+        cmdBuffer_ == VK_NULL_HANDLE || width == 0 || height == 0) {
+        return;
+    }
+
+    VkClearAttachment clearAttachment{
+        .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+        .colorAttachment = 0,
+        .clearValue =
+            {
+                .color =
+                    {
+                        .float32 = {r, g, b, a},
+                    },
+            },
+    };
+
+    VkClearRect clearRect{
+        .rect =
+            {
+                .offset =
+                    {
+                        .x = std::max(0, x),
+                        .y = std::max(0, y),
+                    },
+                .extent =
+                    {
+                        .width = width,
+                        .height = height,
+                    },
+            },
+        .baseArrayLayer = 0,
+        .layerCount = 1,
+    };
+
+    vkCmdClearAttachments(cmdBuffer_, 1, &clearAttachment, 1, &clearRect);
 }
 
 void VulkanCommandList::setViewport(float x, float y, float width, float height, float minDepth,

@@ -101,6 +101,11 @@ public:
     void begin() override;
     void end() override;
 
+    void beginRenderPass(const RenderPassBeginInfo& info) override;
+    void endRenderPass() override;
+    void clearRect(int32_t x, int32_t y, uint32_t width, uint32_t height, float r, float g, float b,
+                   float a) override;
+
     void setViewport(float x, float y, float width, float height, float minDepth = 0.0F,
                      float maxDepth = 1.0F) override;
     void setScissor(int32_t x, int32_t y, uint32_t width, uint32_t height) override;

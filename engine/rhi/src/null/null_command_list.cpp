@@ -28,6 +28,23 @@ void NullCommandList::end() {
     state_ = State::Ended;
 }
 
+void NullCommandList::beginRenderPass(const RenderPassBeginInfo& /*info*/) {
+    ENG_ASSERT(state_ == State::Recording,
+               "beginRenderPass called on command list not in Recording state");
+}
+
+void NullCommandList::endRenderPass() {
+    ENG_ASSERT(state_ == State::Recording,
+               "endRenderPass called on command list not in Recording state");
+}
+
+void NullCommandList::clearRect(int32_t /*x*/, int32_t /*y*/, uint32_t /*width*/,
+                                uint32_t /*height*/, float /*r*/, float /*g*/, float /*b*/,
+                                float /*a*/) {
+    ENG_ASSERT(state_ == State::Recording, "clearRect called outside begin()/end()");
+    drawCount_++;
+}
+
 void NullCommandList::setViewport(float x, float y, float width, float height, float minDepth,
                                   float maxDepth) {
     ENG_ASSERT(state_ == State::Recording, "setViewport called outside begin()/end()");

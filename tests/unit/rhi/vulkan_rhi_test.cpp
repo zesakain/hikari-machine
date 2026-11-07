@@ -320,8 +320,15 @@ static int testVulkanRealSwapchainPresentation() {
         auto cmd = std::move(cmdRes.value());
 
         cmd->begin();
-        cmd->setViewport(0.0F, 0.0F, 320.0F, 240.0F, 0.0F, 1.0F);
-        cmd->setScissor(0, 0, 320, 240);
+        RenderPassBeginInfo passInfo{
+            .clearColor = {0.2F, 0.4F, 0.8F, 1.0F}, // Non-black baseline (Cornflower Blue)
+            .clearTarget = true,
+        };
+        cmd->beginRenderPass(passInfo);
+        // Draw visible diagnostic colored rectangles (red and green test elements)
+        cmd->clearRect(50, 50, 100, 80, 1.0F, 0.2F, 0.2F, 1.0F);
+        cmd->clearRect(180, 50, 100, 80, 0.2F, 0.8F, 0.3F, 1.0F);
+        cmd->endRenderPass();
         cmd->end();
 
         auto submitRes = device->submit(cmd.get());
