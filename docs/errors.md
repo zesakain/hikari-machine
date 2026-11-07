@@ -17,10 +17,12 @@ This catalog documents the structured error codes (`E-xxxx`) and warning codes (
 
 | Code | Severity | Status | Description | Typical Cause | Resolution |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `W-0101` | Warning | Reserved | Conductor cache invalidation during commit. | Stale entities or moved targets since `prepare()` ran. | Standby `prepare()` budget may be under-allocated or world churn is excessive. |
-| `W-0102` | Warning | Reserved | Mode preparation budget overrun. | Standby `Mode::prepare()` exceeded allotted microsecond budget. | Reduce per-frame batch size in standby mode. |
-| `E-0101` | Error | Reserved | Invalid mode state transition attempted. | State transition requested while another transition is in flight. | Guard state transitions with transition completion checks. |
-| `E-0102` | Error | Reserved | Unregistered system group accessed. | Mode requested activation of a non-existent system group tag. | Verify system group registration during startup. |
+| `W-0101` | Warning | Implemented | Conductor cache invalidation during commit. | Stale entities or moved targets since `prepare()` ran. | Standby `prepare()` budget may be under-allocated or world churn is excessive. |
+| `W-0102` | Warning | Implemented | Mode preparation budget overrun. | Standby `Mode::prepare()` exceeded allotted microsecond budget. | Reduce per-frame batch size in standby mode. |
+| `E-0101` | Error | Implemented | Invalid mode state transition attempted. | State transition requested while another transition is in flight or unready. | Guard state transitions with transition completion checks. |
+| `E-0102` | Error | Implemented | Unregistered system group accessed. | Mode requested activation of a non-existent system group tag. | Verify system group registration during startup. |
+| `E-0103` | Error | Implemented | Mode commitment or pre-commit cache validation failed. | Entity referenced in standby cache was deleted during preparation. | Handle stale entity references safely or recompute cache. |
+| `E-0104` | Error | Implemented | Requested entity was not found or is dead. | Accessing entity handle after destruction. | Check entity lifecycle with `world.isAlive()`. |
 
 ---
 

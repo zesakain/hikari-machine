@@ -33,6 +33,18 @@ enum class ErrorCode : uint16_t {
     /// Operation succeeded without error.
     Ok = 0,
 
+    /// Invalid state transition attempted (E-0101).
+    InvalidTransition = 101,
+
+    /// Unregistered system group accessed (E-0102).
+    UnregisteredSystemGroup = 102,
+
+    /// Mode commitment or pre-commit cache validation failed (E-0103).
+    CommitValidationFailed = 103,
+
+    /// Requested entity was not found or is dead (E-0104).
+    EntityNotFound = 104,
+
     /// Provided argument is invalid or violates preconditions (E-0200).
     InvalidArgument = 200,
 

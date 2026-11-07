@@ -5,7 +5,7 @@ project(
     VERSION 0.1.0
     DESCRIPTION "A general-purpose 3D game engine with a two-state Conductor architecture"
     HOMEPAGE_URL "https://github.com/zesakain/hikari-machine"
-    LANGUAGES CXX
+    LANGUAGES C CXX
 )
 
 # Enforce C++20 standard globally across all targets
