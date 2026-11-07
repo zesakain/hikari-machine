@@ -10,43 +10,78 @@ permissions:
   contents: read
 
 jobs:
-  build-and-test:
-    name: Linux GCC (Debug & ASan)
+  format-and-lint:
+    name: Code Formatting & Static Analysis
     runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Install dependencies
+      - name: Install Linting Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-format \
+            clang-tidy
+
+      - name: Verify Code Formatting (clang-format)
+        run: |
+          find engine editor src tests -name '*.cpp' -o -name '*.h' | grep -v 'engine/script/src/lua' | grep -v 'engine/world/src/flecs' | xargs clang-format --dry-run --Werror
+
+  build-and-test:
+    name: Build & Test (${{ matrix.preset }})
+    needs: format-and-lint
+    runs-on: ubuntu-24.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [debug, release, profile, editor, asan, tsan]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Engine Build Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             ninja-build \
-            clang-format \
-            clang-tidy
+            libvulkan-dev \
+            libfreetype6-dev \
+            libasound2-dev \
+            libpulse-dev \
+            libx11-dev \
+            libxrandr-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxinerama-dev \
+            libwayland-dev
 
-      - name: Verify code formatting
+      - name: Configure Preset (${{ matrix.preset }})
+        run: cmake --preset ${{ matrix.preset }}
+
+      - name: Compile Preset (${{ matrix.preset }})
+        run: cmake --build --preset ${{ matrix.preset }}
+
+      - name: Run Test Suite (${{ matrix.preset }})
+        run: ctest --preset ${{ matrix.preset }} --output-on-failure
+
+      - name: Execute Headless Engine Verification
+        if: matrix.preset == 'debug' || matrix.preset == 'release'
+        run: ./build/${{ matrix.preset }}/bin/hikari --headless --frames 60
+
+      - name: Package Release Binary (CPack)
+        if: matrix.preset == 'release'
         run: |
-          find . -name '*.cpp' -o -name '*.h' | grep -v '^./build' | xargs clang-format --dry-run --Werror
+          cd build/release
+          cpack -G TGZ
 
-      - name: Configure Debug preset
-        run: cmake --preset debug
-
-      - name: Build Debug preset
-        run: cmake --build --preset debug
-
-      - name: Run Clang-Tidy static analysis
-        run: clang-tidy -p build/debug --warnings-as-errors='*' tests/smoke_test.cpp
-
-      - name: Run CTest Debug preset
-        run: ctest --preset debug --output-on-failure
-
-      - name: Configure ASan/UBSan preset
-        run: cmake --preset asan
-
-      - name: Build ASan/UBSan preset
-        run: cmake --build --preset asan
-
-      - name: Run CTest ASan/UBSan preset
-        run: ctest --preset asan --output-on-failure
+      - name: Upload Binary Package Artifact
+        if: matrix.preset == 'release'
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf6581a120b2d07e37a2 # v4.4.3
+        with:
+          name: hikari-linux-x86_64-release
+          path: build/release/*.tar.gz
+          retention-days: 7

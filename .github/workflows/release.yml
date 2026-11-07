@@ -1,0 +1,63 @@
+name: Release Pipeline
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  package-and-release:
+    name: Build, Package & Publish Release Binaries
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build \
+            libvulkan-dev \
+            libfreetype6-dev \
+            libasound2-dev \
+            libpulse-dev \
+            libx11-dev \
+            libxrandr-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxinerama-dev \
+            libwayland-dev \
+            zip
+
+      - name: Configure Release Preset
+        run: cmake --preset release
+
+      - name: Compile Release Binaries
+        run: cmake --build --preset release
+
+      - name: Run Test Suite Verification
+        run: ctest --preset release --output-on-failure
+
+      - name: Package Archives via CPack
+        run: |
+          cd build/release
+          cpack -G TGZ
+          cpack -G ZIP
+          sha256sum *.tar.gz *.zip > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Create GitHub Release and Attach Binaries
+        uses: softprops/action-gh-release@c062e08bd532815e2082a85e87e3ef29c3e6d191 # v2.0.8
+        with:
+          files: |
+            build/release/*.tar.gz
+            build/release/*.zip
+            build/release/SHA256SUMS
+          generate_release_notes: true
+          draft: false
+          prerelease: false
