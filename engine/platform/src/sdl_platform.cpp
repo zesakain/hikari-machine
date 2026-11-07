@@ -27,7 +27,7 @@ bool SdlPlatform::isInitialized() const noexcept {
 
 Result<std::unique_ptr<Window>> SdlPlatform::createWindow(const WindowDesc& desc) {
     if (!initialized_) {
-        return Error{ErrorCode::InvalidState, "SdlPlatform is not initialized"};
+        return Error{.code = ErrorCode::InvalidState, .message = "SdlPlatform is not initialized"};
     }
 
     SDL_WindowFlags flags = 0;
@@ -51,7 +51,8 @@ Result<std::unique_ptr<Window>> SdlPlatform::createWindow(const WindowDesc& desc
     SDL_Window* sdlWin = SDL_CreateWindow(titleBuf.data(), static_cast<int>(desc.width),
                                           static_cast<int>(desc.height), flags);
     if (sdlWin == nullptr) {
-        return Error{ErrorCode::WindowCreationFailed, "Failed to create SDL_Window"};
+        return Error{.code = ErrorCode::WindowCreationFailed,
+                     .message = "Failed to create SDL_Window"};
     }
 
     return std::unique_ptr<Window>(std::make_unique<SdlWindow>(sdlWin, desc.width, desc.height));
@@ -63,10 +64,10 @@ void SdlPlatform::pollEvents() {
     }
 
     previousInput_ = currentInput_;
-    currentInput_.mouseDeltaX = 0.0f;
-    currentInput_.mouseDeltaY = 0.0f;
-    currentInput_.wheelDeltaX = 0.0f;
-    currentInput_.wheelDeltaY = 0.0f;
+    currentInput_.mouseDeltaX = 0.0F;
+    currentInput_.mouseDeltaY = 0.0F;
+    currentInput_.wheelDeltaX = 0.0F;
+    currentInput_.wheelDeltaY = 0.0F;
 
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
@@ -172,7 +173,7 @@ void SdlPlatform::handleGamepadAdded(SDL_JoystickID instanceId) noexcept {
                 gamepadSlots_[i].id = instanceId;
                 currentInput_.gamepads[i].connected = true;
                 currentInput_.gamepads[i].buttons.reset();
-                currentInput_.gamepads[i].axes.fill(0.0f);
+                currentInput_.gamepads[i].axes.fill(0.0F);
             }
             break;
         }
@@ -187,7 +188,7 @@ void SdlPlatform::handleGamepadRemoved(SDL_JoystickID instanceId) noexcept {
             gamepadSlots_[i].id = 0;
             currentInput_.gamepads[i].connected = false;
             currentInput_.gamepads[i].buttons.reset();
-            currentInput_.gamepads[i].axes.fill(0.0f);
+            currentInput_.gamepads[i].axes.fill(0.0F);
             break;
         }
     }
@@ -210,13 +211,13 @@ void SdlPlatform::handleGamepadAxis(SDL_JoystickID instanceId, uint8_t axis,
     for (size_t i = 0; i < kMaxGamepads; ++i) {
         if (gamepadSlots_[i].id == instanceId && gamepadSlots_[i].pad != nullptr) {
             if (axis < static_cast<uint8_t>(GamepadAxis::Count)) {
-                float normalized = 0.0f;
+                float normalized = 0.0F;
                 if (axis == static_cast<uint8_t>(GamepadAxis::TriggerLeft) ||
                     axis == static_cast<uint8_t>(GamepadAxis::TriggerRight)) {
-                    normalized = (value < 0) ? 0.0f : (static_cast<float>(value) / 32767.0f);
+                    normalized = (value < 0) ? 0.0F : (static_cast<float>(value) / 32767.0F);
                 } else {
-                    normalized = (value < 0) ? (static_cast<float>(value) / 32768.0f)
-                                             : (static_cast<float>(value) / 32767.0f);
+                    normalized = (value < 0) ? (static_cast<float>(value) / 32768.0F)
+                                             : (static_cast<float>(value) / 32767.0F);
                 }
                 currentInput_.gamepads[i].axes[axis] = normalized;
             }
@@ -245,14 +246,24 @@ void SdlPlatform::shutdown() {
 }
 
 Result<std::unique_ptr<Platform>> createPlatform(const PlatformConfig& config) {
-    const bool isHeadlessEnv =
-        (std::getenv("DISPLAY") == nullptr && std::getenv("WAYLAND_DISPLAY") == nullptr);
+    // NOLINTNEXTLINE(concurrency-mt-unsafe): std::getenv executed during single-threaded startup
+    const char* displayEnv = std::getenv("DISPLAY");
+    // NOLINTNEXTLINE(concurrency-mt-unsafe): std::getenv executed during single-threaded startup
+    const char* waylandEnv = std::getenv("WAYLAND_DISPLAY");
+    const bool isHeadlessEnv = (displayEnv == nullptr && waylandEnv == nullptr);
     if (config.headless || isHeadlessEnv) {
         SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "dummy");
+#ifdef __linux__
+        // In headless mode (CI / headless simulation tests), disable desktop session D-Bus
+        // connection to avoid third-party libdbus lock-order-inversion false positives.
+        // NOLINTNEXTLINE(concurrency-mt-unsafe): setenv executed during single-threaded startup
+        ::setenv("DBUS_SESSION_BUS_ADDRESS", "disabled:", 1);
+#endif
     }
 
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
-        return Error{ErrorCode::PlatformInitFailed, "SDL_Init failed for video or gamepad"};
+        return Error{.code = ErrorCode::PlatformInitFailed,
+                     .message = "SDL_Init failed for video or gamepad"};
     }
 
     return std::unique_ptr<Platform>(std::make_unique<SdlPlatform>(config));

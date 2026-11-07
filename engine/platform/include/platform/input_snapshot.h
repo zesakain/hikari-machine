@@ -38,50 +38,50 @@ struct GamepadState {
     bool connected{false};
 
     /// Digital button states.
-    std::bitset<static_cast<size_t>(GamepadButton::Count)> buttons{};
+    std::bitset<static_cast<size_t>(GamepadButton::Count)> buttons;
 
     /// Normalized analog axes. Sticks in [-1.0f, 1.0f], triggers in [0.0f, 1.0f].
-    std::array<float, static_cast<size_t>(GamepadAxis::Count)> axes{};
+    std::array<float, static_cast<size_t>(GamepadAxis::Count)> axes;
 };
 
 /// @struct InputSnapshot
 /// @brief Fixed-size, deterministic state snapshot of all input peripherals.
 struct InputSnapshot {
     /// Keyboard key states.
-    std::bitset<static_cast<size_t>(KeyCode::Count)> keys{};
+    std::bitset<static_cast<size_t>(KeyCode::Count)> keys;
 
     /// Mouse button states.
-    std::bitset<static_cast<size_t>(MouseButton::Count)> mouseButtons{};
+    std::bitset<static_cast<size_t>(MouseButton::Count)> mouseButtons;
 
     /// Absolute mouse cursor position in window coordinates (pixels).
-    float mouseX{0.0f};
-    float mouseY{0.0f};
+    float mouseX{0.0F};
+    float mouseY{0.0F};
 
     /// Relative mouse cursor displacement during this frame (pixels).
-    float mouseDeltaX{0.0f};
-    float mouseDeltaY{0.0f};
+    float mouseDeltaX{0.0F};
+    float mouseDeltaY{0.0F};
 
     /// Mouse wheel displacement (positive = forward/up or right).
-    float wheelDeltaX{0.0f};
-    float wheelDeltaY{0.0f};
+    float wheelDeltaX{0.0F};
+    float wheelDeltaY{0.0F};
 
     /// Gamepad peripheral states.
-    std::array<GamepadState, kMaxGamepads> gamepads{};
+    std::array<GamepadState, kMaxGamepads> gamepads;
 
     /// Resets all inputs to default unpressed states.
     void reset() noexcept {
         keys.reset();
         mouseButtons.reset();
-        mouseX = 0.0f;
-        mouseY = 0.0f;
-        mouseDeltaX = 0.0f;
-        mouseDeltaY = 0.0f;
-        wheelDeltaX = 0.0f;
-        wheelDeltaY = 0.0f;
+        mouseX = 0.0F;
+        mouseY = 0.0F;
+        mouseDeltaX = 0.0F;
+        mouseDeltaY = 0.0F;
+        wheelDeltaX = 0.0F;
+        wheelDeltaY = 0.0F;
         for (auto& pad : gamepads) {
             pad.connected = false;
             pad.buttons.reset();
-            pad.axes.fill(0.0f);
+            pad.axes.fill(0.0F);
         }
     }
 
@@ -158,10 +158,10 @@ struct InputSnapshot {
     [[nodiscard]] constexpr float getGamepadAxis(uint32_t gamepadIndex,
                                                  GamepadAxis axis) const noexcept {
         if (gamepadIndex >= kMaxGamepads || !gamepads[gamepadIndex].connected) {
-            return 0.0f;
+            return 0.0F;
         }
         const auto idx = static_cast<size_t>(axis);
-        return (idx < gamepads[gamepadIndex].axes.size()) ? gamepads[gamepadIndex].axes[idx] : 0.0f;
+        return (idx < gamepads[gamepadIndex].axes.size()) ? gamepads[gamepadIndex].axes[idx] : 0.0F;
     }
 };
 
