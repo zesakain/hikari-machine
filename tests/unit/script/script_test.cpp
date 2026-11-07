@@ -5,8 +5,8 @@
 #include "script/script_engine.h"
 #include "world/world.h"
 
-#include <cassert>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <string>
@@ -14,21 +14,29 @@
 using namespace eng;
 using namespace eng::script;
 
+#define TEST_CHECK(cond)                                                                           \
+    do {                                                                                           \
+        if (!(cond)) {                                                                             \
+            std::cerr << "Assertion failed: " #cond " at " << __FILE__ << ":" << __LINE__ << '\n'; \
+            std::abort();                                                                          \
+        }                                                                                          \
+    } while (false)
+
 static void testLifecycle() {
     ScriptEngine engine;
-    assert(!engine.isInitialized());
+    TEST_CHECK(!engine.isInitialized());
 
     auto initRes = engine.initialize();
-    assert(initRes.hasValue());
-    assert(engine.isInitialized());
+    TEST_CHECK(initRes.hasValue());
+    TEST_CHECK(engine.isInitialized());
 
     engine.shutdown();
-    assert(!engine.isInitialized());
+    TEST_CHECK(!engine.isInitialized());
 
     // Re-initialization should succeed cleanly
     initRes = engine.initialize();
-    assert(initRes.hasValue());
-    assert(engine.isInitialized());
+    TEST_CHECK(initRes.hasValue());
+    TEST_CHECK(engine.isInitialized());
     engine.shutdown();
     std::cout << "[PASS] testLifecycle\n";
 }
@@ -36,31 +44,31 @@ static void testLifecycle() {
 static void testSandboxSecurity() {
     ScriptEngine engine;
     auto initRes = engine.initialize();
-    assert(initRes.hasValue());
+    TEST_CHECK(initRes.hasValue());
 
     // os library must be completely absent
     auto res = engine.executeString("return os == nil");
-    assert(res.hasValue());
-    assert(std::holds_alternative<bool>(res.value()));
-    assert(std::get<bool>(res.value()) == true);
+    TEST_CHECK(res.hasValue());
+    TEST_CHECK(std::holds_alternative<bool>(res.value()));
+    TEST_CHECK(std::get<bool>(res.value()) == true);
 
     // io library must be completely absent
     res = engine.executeString("return io == nil");
-    assert(res.hasValue());
-    assert(std::holds_alternative<bool>(res.value()));
-    assert(std::get<bool>(res.value()) == true);
+    TEST_CHECK(res.hasValue());
+    TEST_CHECK(std::holds_alternative<bool>(res.value()));
+    TEST_CHECK(std::get<bool>(res.value()) == true);
 
     // package library must be completely absent
     res = engine.executeString("return package == nil");
-    assert(res.hasValue());
-    assert(std::holds_alternative<bool>(res.value()));
-    assert(std::get<bool>(res.value()) == true);
+    TEST_CHECK(res.hasValue());
+    TEST_CHECK(std::holds_alternative<bool>(res.value()));
+    TEST_CHECK(std::get<bool>(res.value()) == true);
 
     // dofile and loadfile must be purged
     res = engine.executeString("return dofile == nil and loadfile == nil");
-    assert(res.hasValue());
-    assert(std::holds_alternative<bool>(res.value()));
-    assert(std::get<bool>(res.value()) == true);
+    TEST_CHECK(res.hasValue());
+    TEST_CHECK(std::holds_alternative<bool>(res.value()));
+    TEST_CHECK(std::get<bool>(res.value()) == true);
 
     engine.shutdown();
     std::cout << "[PASS] testSandboxSecurity\n";
@@ -68,33 +76,33 @@ static void testSandboxSecurity() {
 
 static void testExecutionAndValues() {
     ScriptEngine engine;
-    assert(engine.initialize().hasValue());
+    TEST_CHECK(engine.initialize().hasValue());
 
     // Basic arithmetic
     auto res = engine.executeString("return 40 + 2");
-    assert(res.hasValue());
-    assert(std::holds_alternative<double>(res.value()));
-    assert(std::get<double>(res.value()) == 42.0);
+    TEST_CHECK(res.hasValue());
+    TEST_CHECK(std::holds_alternative<double>(res.value()));
+    TEST_CHECK(std::get<double>(res.value()) == 42.0);
 
     // String manipulation
     res = engine.executeString("return 'Hikari' .. ' Engine'");
-    assert(res.hasValue());
-    assert(std::holds_alternative<std::string>(res.value()));
-    assert(std::get<std::string>(res.value()) == "Hikari Engine");
+    TEST_CHECK(res.hasValue());
+    TEST_CHECK(std::holds_alternative<std::string>(res.value()));
+    TEST_CHECK(std::get<std::string>(res.value()) == "Hikari Engine");
 
     // Syntax error handling
     res = engine.executeString("return 10 + ");
-    assert(!res.hasValue());
-    assert(res.error() == ScriptError::SyntaxError);
+    TEST_CHECK(!res.hasValue());
+    TEST_CHECK(res.error() == ScriptError::SyntaxError);
 
     // Global variable get/set
     auto setRes = engine.setGlobal("gravityMultiplier", ScriptValue(9.81));
-    assert(setRes.hasValue());
+    TEST_CHECK(setRes.hasValue());
 
     auto getRes = engine.getGlobal("gravityMultiplier");
-    assert(getRes.hasValue());
-    assert(std::holds_alternative<double>(getRes.value()));
-    assert(std::abs(std::get<double>(getRes.value()) - 9.81) < 0.001);
+    TEST_CHECK(getRes.hasValue());
+    TEST_CHECK(std::holds_alternative<double>(getRes.value()));
+    TEST_CHECK(std::abs(std::get<double>(getRes.value()) - 9.81) < 0.001);
 
     // Function calls
     res = engine.executeString(R"(
@@ -102,18 +110,18 @@ static void testExecutionAndValues() {
             return a + b + c
         end
     )");
-    assert(res.hasValue());
+    TEST_CHECK(res.hasValue());
 
     ScriptValue args[3] = {ScriptValue(10.0), ScriptValue(20.0), ScriptValue(30.0)};
     auto callRes = engine.callFunction("addThree", args);
-    assert(callRes.hasValue());
-    assert(std::holds_alternative<double>(callRes.value()));
-    assert(std::get<double>(callRes.value()) == 60.0);
+    TEST_CHECK(callRes.hasValue());
+    TEST_CHECK(std::holds_alternative<double>(callRes.value()));
+    TEST_CHECK(std::get<double>(callRes.value()) == 60.0);
 
     // Calling non-existent function
     auto missingRes = engine.callFunction("doesNotExist", {});
-    assert(!missingRes.hasValue());
-    assert(missingRes.error() == ScriptError::NotFound);
+    TEST_CHECK(!missingRes.hasValue());
+    TEST_CHECK(missingRes.error() == ScriptError::NotFound);
 
     engine.shutdown();
     std::cout << "[PASS] testExecutionAndValues\n";
@@ -123,7 +131,7 @@ static void testInstructionWatchdog() {
     ScriptEngine engine;
     ScriptConfig config;
     config.instructionLimit = 5'000; // Small limit to test watchdog
-    assert(engine.initialize(config).hasValue());
+    TEST_CHECK(engine.initialize(config).hasValue());
 
     // Runaway script with infinite loop
     auto res = engine.executeString(R"(
@@ -133,13 +141,13 @@ static void testInstructionWatchdog() {
         end
     )");
 
-    assert(!res.hasValue());
-    assert(res.error() == ScriptError::BudgetExceeded);
+    TEST_CHECK(!res.hasValue());
+    TEST_CHECK(res.error() == ScriptError::BudgetExceeded);
 
     // Verify engine remains responsive after watchdog abort
     res = engine.executeString("return 123");
-    assert(res.hasValue());
-    assert(std::get<double>(res.value()) == 123.0);
+    TEST_CHECK(res.hasValue());
+    TEST_CHECK(std::get<double>(res.value()) == 123.0);
 
     engine.shutdown();
     std::cout << "[PASS] testInstructionWatchdog\n";
@@ -147,7 +155,7 @@ static void testInstructionWatchdog() {
 
 static void testVec3Bindings() {
     ScriptEngine engine;
-    assert(engine.initialize().hasValue());
+    TEST_CHECK(engine.initialize().hasValue());
 
     auto res = engine.executeString(R"(
         local v1 = Vec3(1.0, 2.0, 3.0)
@@ -156,18 +164,18 @@ static void testVec3Bindings() {
         return sum
     )");
 
-    assert(res.hasValue());
-    assert(std::holds_alternative<Vec3>(res.value()));
+    TEST_CHECK(res.hasValue());
+    TEST_CHECK(std::holds_alternative<Vec3>(res.value()));
     Vec3 sum = std::get<Vec3>(res.value());
-    assert(sum.x == 5.0f && sum.y == 7.0f && sum.z == 9.0f);
+    TEST_CHECK(sum.x == 5.0f && sum.y == 7.0f && sum.z == 9.0f);
 
     // Methods
     res = engine.executeString(R"(
         local v = Vec3(3.0, 0.0, 4.0)
         return v:length()
     )");
-    assert(res.hasValue());
-    assert(std::abs(std::get<double>(res.value()) - 5.0) < 0.001);
+    TEST_CHECK(res.hasValue());
+    TEST_CHECK(std::abs(std::get<double>(res.value()) - 5.0) < 0.001);
 
     engine.shutdown();
     std::cout << "[PASS] testVec3Bindings\n";
@@ -175,7 +183,7 @@ static void testVec3Bindings() {
 
 static void testEntityScriptComponentIntegration() {
     ScriptEngine engine;
-    assert(engine.initialize().hasValue());
+    TEST_CHECK(engine.initialize().hasValue());
 
     world::World world;
     engine.bindWorld(&world);
@@ -195,7 +203,7 @@ static void testEntityScriptComponentIntegration() {
             lastEntityId = entity:id()
         end
     )");
-    assert(loadRes.hasValue());
+    TEST_CHECK(loadRes.hasValue());
 
     auto entity = world.createEntity("Player");
     ScriptComponent scriptComp{};
@@ -208,32 +216,31 @@ static void testEntityScriptComponentIntegration() {
     world.progress(0.016f);
 
     auto counterVal = engine.getGlobal("tickCounter");
-    assert(counterVal.hasValue());
-    assert(std::get<double>(counterVal.value()) == 1.0);
+    TEST_CHECK(counterVal.hasValue());
+    TEST_CHECK(std::get<double>(counterVal.value()) == 1.0);
 
     auto entityIdVal = engine.getGlobal("lastEntityId");
-    assert(entityIdVal.hasValue());
-    assert(std::get<double>(entityIdVal.value()) == static_cast<double>(entity.id));
+    TEST_CHECK(entityIdVal.hasValue());
+    TEST_CHECK(std::get<double>(entityIdVal.value()) == static_cast<double>(entity.id));
 
     // Step again
     world.progress(0.016f);
     counterVal = engine.getGlobal("tickCounter");
-    assert(counterVal.hasValue());
-    assert(std::get<double>(counterVal.value()) == 2.0);
+    TEST_CHECK(counterVal.hasValue());
+    TEST_CHECK(std::get<double>(counterVal.value()) == 2.0);
 
     // Test error isolation: assign non-existent script name
     auto badEntity = world.createEntity("BadActor");
     ScriptComponent badScriptComp{};
-    std::strncpy(badScriptComp.scriptName, "non_existent_func",
-                 sizeof(badScriptComp.scriptName) - 1);
+    std::strncpy(badScriptComp.scriptName, "non_existent_func", sizeof(badScriptComp.scriptName) - 1);
     badScriptComp.enabled = true;
     world.setComponent(badEntity, badScriptComp);
 
     // Progress should not crash or throw, but disable the failing component
     world.progress(0.016f);
     const auto* compAfter = world.getComponent<ScriptComponent>(badEntity);
-    assert(compAfter != nullptr);
-    assert(compAfter->enabled == false); // verified disabled!
+    TEST_CHECK(compAfter != nullptr);
+    TEST_CHECK(compAfter->enabled == false); // verified disabled!
 
     engine.unbindWorld();
     engine.shutdown();

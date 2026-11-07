@@ -9,11 +9,19 @@
 #include "rhi/rhi_device.h"
 #include "world/world.h"
 
-#include <cassert>
+#include <cstdlib>
 #include <iostream>
 
 using namespace eng;
 using namespace eng::editor;
+
+#define TEST_CHECK(cond)                                                                           \
+    do {                                                                                           \
+        if (!(cond)) {                                                                             \
+            std::cerr << "Assertion failed: " #cond " at " << __FILE__ << ":" << __LINE__ << '\n'; \
+            std::abort();                                                                          \
+        }                                                                                          \
+    } while (false)
 
 // Minimal test mode for Conductor binding
 class DummyEditorMode final : public framework::Mode {
@@ -22,18 +30,26 @@ public:
 
     [[nodiscard]] std::string_view getName() const noexcept override { return name_; }
 
-    [[nodiscard]] Result<void> enter(world::World&) override { return Result<void>::success(); }
+    [[nodiscard]] Result<void> enter(world::World&) override {
+        return Result<void>::success();
+    }
 
     void update(world::World&, Duration) override {}
 
-    [[nodiscard]] Result<void> exit(world::World&) override { return Result<void>::success(); }
+    [[nodiscard]] Result<void> exit(world::World&) override {
+        return Result<void>::success();
+    }
 
-    [[nodiscard]] Result<framework::PreparationStatus> prepare(world::World&,
-                                                               const Budget&) override {
+    [[nodiscard]] Result<framework::PreparationStatus> prepare(
+        world::World&,
+        const Budget&
+    ) override {
         return framework::PreparationStatus::Ready;
     }
 
-    [[nodiscard]] Result<void> commit(world::World&) override { return Result<void>::success(); }
+    [[nodiscard]] Result<void> commit(world::World&) override {
+        return Result<void>::success();
+    }
 
     void cancelPrepare() override {}
 
@@ -47,23 +63,23 @@ private:
 
 static void testEditorLifecycle() {
     auto devRes = rhi::createNullDevice();
-    assert(devRes.hasValue());
+    TEST_CHECK(devRes.hasValue());
     auto nullDevice = std::move(devRes.value());
 
     EditorEngine editor;
-    assert(!editor.isInitialized());
+    TEST_CHECK(!editor.isInitialized());
 
     bool initOk = editor.initialize(*nullDevice);
-    assert(initOk);
-    assert(editor.isInitialized());
+    TEST_CHECK(initOk);
+    TEST_CHECK(editor.isInitialized());
 
     editor.shutdown();
-    assert(!editor.isInitialized());
+    TEST_CHECK(!editor.isInitialized());
 
     // Re-initialization
     initOk = editor.initialize(*nullDevice);
-    assert(initOk);
-    assert(editor.isInitialized());
+    TEST_CHECK(initOk);
+    TEST_CHECK(editor.isInitialized());
     editor.shutdown();
 
     std::cout << "[PASS] testEditorLifecycle\n";
@@ -71,21 +87,21 @@ static void testEditorLifecycle() {
 
 static void testEditorFrameAndPanels() {
     auto devRes = rhi::createNullDevice();
-    assert(devRes.hasValue());
+    TEST_CHECK(devRes.hasValue());
     auto nullDevice = std::move(devRes.value());
 
     auto cmdRes = nullDevice->createCommandList();
-    assert(cmdRes.hasValue());
+    TEST_CHECK(cmdRes.hasValue());
     auto nullCmd = std::move(cmdRes.value());
 
     world::World world;
     auto modeA = std::make_unique<DummyEditorMode>("ModeA");
     auto modeB = std::make_unique<DummyEditorMode>("ModeB");
     framework::Conductor conductor(world, std::move(modeA), std::move(modeB));
-    assert(conductor.initialize().hasValue());
+    TEST_CHECK(conductor.initialize().hasValue());
 
     EditorEngine editor;
-    assert(editor.initialize(*nullDevice));
+    TEST_CHECK(editor.initialize(*nullDevice));
 
     editor.bindWorld(&world);
     editor.bindConductor(&conductor);
@@ -97,8 +113,8 @@ static void testEditorFrameAndPanels() {
         editor.drawPanels();
         editor.endFrame(*nullCmd);
         nullCmd->end();
-        assert(editor.lastDrawCallCount() > 0);
-        assert(editor.lastVertexCount() > 0);
+        TEST_CHECK(editor.lastDrawCallCount() > 0);
+        TEST_CHECK(editor.lastVertexCount() > 0);
     }
 
     editor.shutdown();
@@ -109,15 +125,15 @@ static void testEditorFrameAndPanels() {
 
 static void testEditorInputProcessing() {
     auto devRes = rhi::createNullDevice();
-    assert(devRes.hasValue());
+    TEST_CHECK(devRes.hasValue());
     auto nullDevice = std::move(devRes.value());
 
     auto cmdRes = nullDevice->createCommandList();
-    assert(cmdRes.hasValue());
+    TEST_CHECK(cmdRes.hasValue());
     auto nullCmd = std::move(cmdRes.value());
 
     EditorEngine editor;
-    assert(editor.initialize(*nullDevice));
+    TEST_CHECK(editor.initialize(*nullDevice));
 
     platform::InputSnapshot input{};
     input.mouseX = 200.0f;
