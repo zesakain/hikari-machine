@@ -51,6 +51,10 @@ add_executable(event_test unit/core/event_test.cpp)
 target_link_libraries(event_test PRIVATE hikari::engine_core)
 add_test(NAME event_test COMMAND event_test)
 
+add_executable(job_system_test unit/core/job_system_test.cpp)
+target_link_libraries(job_system_test PRIVATE hikari::engine_core)
+add_test(NAME job_system_test COMMAND job_system_test)
+
 
 
 
