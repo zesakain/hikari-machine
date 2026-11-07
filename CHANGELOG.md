@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Core Structured Logging (Phase 1.4)**:
+  - `LogLevel` enum and string conversion in `<core/log.h>` providing `Trace`, `Debug`, `Info`, `Warning`, `Error`, and `Critical` severity tiers.
+  - `LogRecord` structured record layout capturing monotonic timestamp, severity, category tag, source location, and fixed-capacity message payload.
+  - `Logger` in `<core/log.h>` and `src/log.cpp` implementing a non-blocking, bounded ring buffer with configurable severity filtering, zero hot-path heap allocation, non-blocking overflow rejection, and dropped record accounting.
+  - `flush()` for cold-path FIFO emission to streams with dropped-record overflow diagnostics.
+  - Ergonomic logging macros (`ENG_LOG`, `ENG_LOG_INFO`, `ENG_LOG_WARN`, `ENG_LOG_FORMAT`, etc.) bound to `Logger::defaultLogger()`.
+  - Comprehensive unit test suite in `tests/unit/core/log_test.cpp`.
 - **Core Clock & Time Subsystem (Phase 1.3)**:
   - `Duration` in `<core/time/duration.h>` providing nanosecond-precision, integer-based time duration representation with unit conversions, overflow bounds, and arithmetic.
   - `Timestamp` in `<core/time/timestamp.h>` providing monotonic point-in-time representation backed by `std::chrono::steady_clock` with duration arithmetic.
