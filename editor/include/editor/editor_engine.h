@@ -43,35 +43,16 @@ class Conductor;
 
 namespace eng::editor {
 
+class WorkspaceManager;
+
 /// @struct EditorConfig
 /// @brief Initial panel visibility and layout configuration for EditorEngine.
 struct EditorConfig {
-    /// Whether the Conductor runtime monitor panel is open.
-    bool showConductorPanel{true};
+    /// Path to the workspace layout file (default: "hikari_editor_layout.ini").
+    std::string_view layoutFilePath{"hikari_editor_layout.ini"};
 
-    /// Whether the Shared World entity inspector panel is open.
-    bool showEntityInspector{true};
-
-    /// Whether the performance metrics and telemetry panel is open.
-    bool showMetricsPanel{true};
-
-    /// Whether the structured console log viewer panel is open.
-    bool showConsolePanel{true};
-
-    /// Whether the entity hierarchy panel is open.
-    bool showHierarchyPanel{true};
-
-    /// Whether the 3D scene viewport panel is open.
-    bool showViewportPanel{true};
-
-    /// Whether the project content browser panel is open.
-    bool showContentBrowser{true};
-
-    /// Whether the diagnostic "HIKARI EDITOR" banner window is open.
-    bool showDiagnosticPanel{true};
-
-    /// Whether the main toolbar is visible.
-    bool showToolbar{true};
+    /// Whether to automatically save workspace layout on shutdown.
+    bool autoSaveLayout{true};
 
     /// Whether the Dear ImGui demo window is visible.
     bool showDemoWindow{false};
@@ -119,6 +100,21 @@ public:
 
     /// Binds the active Conductor for time state monitoring and transition triggering.
     void bindConductor(framework::Conductor* conductor) noexcept;
+
+    /// Returns the workspace manager governing panels and docking layout.
+    [[nodiscard]] WorkspaceManager& getWorkspaceManager() noexcept;
+
+    /// Returns the workspace manager governing panels and docking layout (const).
+    [[nodiscard]] const WorkspaceManager& getWorkspaceManager() const noexcept;
+
+    /// Saves the current workspace docking layout to disk.
+    bool saveWorkspaceLayout(const char* filepath = nullptr);
+
+    /// Restores the workspace docking layout from disk.
+    bool loadWorkspaceLayout(const char* filepath = nullptr);
+
+    /// Resets the workspace docking layout to the default professional configuration.
+    void resetWorkspaceLayout() noexcept;
 
     /// Returns the total number of ImGui draw calls recorded in the last frame.
     [[nodiscard]] uint32_t lastDrawCallCount() const noexcept;

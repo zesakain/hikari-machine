@@ -13,7 +13,7 @@ include(FetchContent)
 FetchContent_Declare(
     imgui
     GIT_REPOSITORY https://github.com/ocornut/imgui.git
-    GIT_TAG        v1.91.8
+    GIT_TAG        v1.91.8-docking
     GIT_SHALLOW    TRUE
 )
 FetchContent_GetProperties(imgui)
@@ -42,6 +42,15 @@ endif()
 
 add_library(editor_lib STATIC
     src/editor_engine.cpp
+    src/editor_theme.cpp
+    src/workspace_manager.cpp
+    src/panels/hierarchy_panel.cpp
+    src/panels/inspector_panel.cpp
+    src/panels/viewport_panel.cpp
+    src/panels/console_panel.cpp
+    src/panels/metrics_panel.cpp
+    src/panels/conductor_panel.cpp
+    src/panels/content_browser_panel.cpp
 )
 add_library(hikari::editor_lib ALIAS editor_lib)
 
