@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Core Foundation Review & Stabilization (Phase 1.9)**:
+  - Validated and audited Core modules across Phase 1.0–1.8 for memory safety, concurrency, API consistency, and portability.
+  - Hardened `JobSystem` handle resolution to explicitly verify `JobState::Unallocated`, preventing fabricated unallocated handles from being accepted or waited on.
+  - Added slot retirement at `kRetiredGeneration = 0xFFFF'FFFF` in `JobSystem::reclaim` and `reclaimCompletedSlotsLocked` to eliminate ABA generation wraparound hazards.
+  - Added active dispatch assertion in `EventDispatcher::clear()` guarding reentrant clearing during iteration.
+  - Added regression tests for unallocated handle rejection and generation overflow retirement in `job_system_test`.
 - **Core Job System (Phase 1.8)**:
   - Bounded parallel scheduler `JobSystem` in `<core/job_system.h>` and `src/job_system.cpp` over caller-provided backing memory with zero heap allocations after initialization.
   - Generational job reference primitive `JobHandle` providing O(1) slot resolution with stale-handle detection.
