@@ -32,29 +32,50 @@ PoolAllocator::PoolAllocator(std::byte* buffer, size_t capacity, size_t blockSiz
     }
 
     const auto padding = static_cast<size_t>(firstBlock_ - buffer_);
-    if (padding > capacityBytes_) {
+    if (padding >= capacityBytes_) {
         firstBlock_ = nullptr;
         return;
     }
 
-    const size_t remainingCapacity = capacityBytes_ - padding;
-    totalBlocks_ = remainingCapacity / effectiveBlockSize_;
-
-    if (totalBlocks_ == 0) {
+    const size_t usableCapacity = capacityBytes_ - padding;
+    if (usableCapacity < effectiveBlockSize_) {
         firstBlock_ = nullptr;
         return;
     }
+
+    // Calculate maximum blocks fitting alongside the trailing bitset storage
+    size_t count = usableCapacity / effectiveBlockSize_;
+    while (count > 0) {
+        const size_t words = (count + 63) / 64;
+        const size_t bitsetBytes = words * sizeof(uint64_t);
+        if ((count * effectiveBlockSize_) + bitsetBytes <= usableCapacity) {
+            break;
+        }
+        --count;
+    }
+
+    if (count == 0) {
+        firstBlock_ = nullptr;
+        return;
+    }
+
+    totalBlocks_ = count;
+    bitsetWordCount_ = (totalBlocks_ + 63) / 64;
+    bitset_ = reinterpret_cast<uint64_t*>(firstBlock_ + (totalBlocks_ * effectiveBlockSize_));
 
     initializeFreeList();
 }
 
 PoolAllocator::PoolAllocator(PoolAllocator&& other) noexcept
-    : buffer_(other.buffer_), firstBlock_(other.firstBlock_), capacityBytes_(other.capacityBytes_),
+    : buffer_(other.buffer_), firstBlock_(other.firstBlock_), bitset_(other.bitset_),
+      bitsetWordCount_(other.bitsetWordCount_), capacityBytes_(other.capacityBytes_),
       blockSize_(other.blockSize_), effectiveBlockSize_(other.effectiveBlockSize_),
       alignment_(other.alignment_), totalBlocks_(other.totalBlocks_),
       allocatedCount_(other.allocatedCount_), head_(other.head_) {
     other.buffer_ = nullptr;
     other.firstBlock_ = nullptr;
+    other.bitset_ = nullptr;
+    other.bitsetWordCount_ = 0;
     other.capacityBytes_ = 0;
     other.blockSize_ = 0;
     other.effectiveBlockSize_ = 0;
@@ -68,6 +89,8 @@ PoolAllocator& PoolAllocator::operator=(PoolAllocator&& other) noexcept {
     if (this != &other) {
         buffer_ = other.buffer_;
         firstBlock_ = other.firstBlock_;
+        bitset_ = other.bitset_;
+        bitsetWordCount_ = other.bitsetWordCount_;
         capacityBytes_ = other.capacityBytes_;
         blockSize_ = other.blockSize_;
         effectiveBlockSize_ = other.effectiveBlockSize_;
@@ -78,6 +101,8 @@ PoolAllocator& PoolAllocator::operator=(PoolAllocator&& other) noexcept {
 
         other.buffer_ = nullptr;
         other.firstBlock_ = nullptr;
+        other.bitset_ = nullptr;
+        other.bitsetWordCount_ = 0;
         other.capacityBytes_ = 0;
         other.blockSize_ = 0;
         other.effectiveBlockSize_ = 0;
@@ -97,7 +122,11 @@ void* PoolAllocator::allocate() noexcept {
     FreeNode* const node = head_;
     head_ = node->next;
     node->next = nullptr;
-    node->canary = 0; // Clear canary for active allocation
+
+    const auto offset = static_cast<size_t>(reinterpret_cast<uintptr_t>(node) -
+                                            reinterpret_cast<uintptr_t>(firstBlock_));
+    const size_t blockIndex = offset / effectiveBlockSize_;
+    bitset_[blockIndex / 64] |= (1ULL << (blockIndex % 64));
     ++allocatedCount_;
 
     return static_cast<void*>(node);
@@ -108,29 +137,40 @@ bool PoolAllocator::deallocate(void* ptr) noexcept {
         return false;
     }
 
-    auto* const bytePtr = static_cast<std::byte*>(ptr);
-    const size_t totalPoolBytes = totalBlocks_ * effectiveBlockSize_;
+    const auto addr = reinterpret_cast<uintptr_t>(ptr);
+    const auto startAddr = reinterpret_cast<uintptr_t>(firstBlock_);
 
-    // 1. Range check: pointer must fall within the aligned block array
-    if (bytePtr < firstBlock_ || bytePtr >= firstBlock_ + totalPoolBytes) {
+    // 1. Foreign pointer check (address before first aligned block)
+    if (addr < startAddr) {
         return false;
     }
 
-    // 2. Alignment check: pointer must be at the exact beginning of a block
-    const auto offset = static_cast<size_t>(bytePtr - firstBlock_);
+    const uintptr_t offset = addr - startAddr;
+    const size_t totalPoolBytes = totalBlocks_ * effectiveBlockSize_;
+
+    // 2. Foreign pointer check (address beyond block array)
+    if (offset >= totalPoolBytes) {
+        return false;
+    }
+
+    // 3. Block boundary check: pointer must be at the exact beginning of a block
     if (offset % effectiveBlockSize_ != 0) {
         return false;
     }
 
-    // 3. Double-free check: block must not already be marked free
-    auto* const node = reinterpret_cast<FreeNode*>(bytePtr);
-    if (node->canary == kFreeCanary || node == head_) {
-        return false;
+    // 4. Double-deallocation check via bitset
+    const auto blockIndex = static_cast<size_t>(offset / effectiveBlockSize_);
+    const size_t wordIndex = blockIndex / 64;
+    const uint64_t mask = 1ULL << (blockIndex % 64);
+
+    if ((bitset_[wordIndex] & mask) == 0) {
+        return false; // Block is already free; double-deallocation rejected!
     }
 
-    // 4. Return block to head of free list
+    // 5. Mark block free and return to head of intrusive free list
+    bitset_[wordIndex] &= ~mask;
+    auto* const node = static_cast<FreeNode*>(ptr);
     node->next = head_;
-    node->canary = kFreeCanary;
     head_ = node;
     --allocatedCount_;
 
@@ -156,8 +196,8 @@ void PoolAllocator::initializeFreeList() noexcept {
                 ? reinterpret_cast<FreeNode*>(firstBlock_ + ((i + 1) * effectiveBlockSize_))
                 : nullptr;
         curr->next = next;
-        curr->canary = kFreeCanary;
     }
+    std::fill_n(bitset_, bitsetWordCount_, 0ULL);
 }
 
 } // namespace eng

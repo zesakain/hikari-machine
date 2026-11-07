@@ -1,5 +1,5 @@
 /// @file pool_allocator.h
-/// @brief Fixed-size, alignment-aware pool allocator with intrusive free list.
+/// @brief Fixed-size, alignment-aware pool allocator with deterministic bitset tracking.
 ///
 /// Purpose:
 /// Manages rapid O(1) allocation and O(1) deallocation of uniform, fixed-size memory blocks
@@ -20,21 +20,22 @@
 /// - Pointer invalidation: Calling reset() reclaims all blocks and invalidates all outstanding
 ///   pointers previously returned by allocate().
 ///
-/// Intrusive Free-List Storage:
-/// Unallocated blocks store an intrusive node containing a forward pointer (8 bytes) and a 64-bit
-/// free canary (8 bytes). Consequently, every block is enforced to be at least 16 bytes
-/// (kMinBlockSize) and aligned to at least 8 bytes (kMinAlignment). If a smaller blockSize or
-/// alignment is requested, it is transparently rounded up to these minimum thresholds.
+/// Allocation State & Double-Deallocation Safety:
+/// Block allocation state is deterministically tracked using a compact in-pool bitset (1 bit per
+/// block) stored in trailing backing memory. This eliminates false-positive double-free detections
+/// regardless of user block contents, while preserving O(1) alloc/dealloc with zero heap usage.
+/// Intrusive free-list storage requires each block to be at least sizeof(void*) (8 bytes) and
+/// aligned to at least alignof(void*) (8 bytes).
 ///
 /// Thread-safety:
 /// Not thread-safe. Multiple threads must not access the same PoolAllocator instance concurrently
 /// without external synchronization.
 ///
 /// Performance:
-/// - allocate(): O(1) constant time, pops head of intrusive free list. Hot-path safe.
-/// - deallocate(): O(1) constant time, validates pointer and pushes to head. Hot-path safe.
-/// - reset(): O(N) where N is block capacity; re-links intrusive free list in contiguous memory.
-/// - Zero heap allocations. Zero per-allocation metadata outside unallocated block space.
+/// - allocate(): O(1) constant time, pops head of intrusive free list and sets bit. Hot-path safe.
+/// - deallocate(): O(1) constant time, validates pointer, checks bitset, and pushes to head.
+/// - reset(): O(N) where N is block capacity; re-links intrusive free list and clears bitset.
+/// - Zero heap allocations. Memory overhead is strictly 1 bit per block in trailing buffer.
 ///
 /// Failure Mode:
 /// - allocate() returns nullptr when the pool is exhausted, capacity is zero, or configuration is
@@ -57,11 +58,11 @@ namespace eng {
 /// @brief Fixed-size block allocator operating over a contiguous caller-provided memory buffer.
 class PoolAllocator {
 public:
-    /// @brief Minimum block size required to store intrusive free list pointers and canaries.
-    static constexpr size_t kMinBlockSize = 16;
+    /// @brief Minimum block size required to store intrusive free list pointers.
+    static constexpr size_t kMinBlockSize = sizeof(void*);
 
     /// @brief Minimum block alignment required for intrusive free list storage.
-    static constexpr size_t kMinAlignment = 8;
+    static constexpr size_t kMinAlignment = alignof(void*);
 
     /// @brief Constructs an uninitialized pool with zero capacity.
     constexpr PoolAllocator() noexcept = default;
@@ -94,10 +95,10 @@ public:
     PoolAllocator(const PoolAllocator&) = delete;
     PoolAllocator& operator=(const PoolAllocator&) = delete;
 
-    /// @brief Move constructor transfers buffer and free list, leaving source empty.
+    /// @brief Move constructor transfers buffer, bitset, and free list, leaving source empty.
     PoolAllocator(PoolAllocator&& other) noexcept;
 
-    /// @brief Move assignment transfers buffer and free list, leaving source empty.
+    /// @brief Move assignment transfers buffer, bitset, and free list, leaving source empty.
     PoolAllocator& operator=(PoolAllocator&& other) noexcept;
 
     ~PoolAllocator() = default;
@@ -132,7 +133,7 @@ public:
     /// @brief Returns an allocated block back to the pool's free list.
     ///
     /// Validates that ptr is non-null, belongs to the pool buffer, points to the beginning of a
-    /// valid block, and is not already on the free list (double-free detection).
+    /// valid block, and is currently marked allocated in the bitset (double-free detection).
     ///
     /// Postconditions: Block is recycled for subsequent allocate() calls. Does NOT invoke
     /// destructors. Thread-safety : Calling thread only. Not re-entrant. Performance   : O(1)
@@ -155,11 +156,11 @@ public:
         return deallocate(static_cast<void*>(ptr));
     }
 
-    /// @brief Reclaims all allocated blocks and restores the free list to its initial state.
+    /// @brief Reclaims all allocated blocks and restores the free list and bitset to initial state.
     ///
     /// Postconditions: All outstanding pointers previously returned by allocate() become INVALID.
     /// Invariants    : Does not invoke destructors on active objects.
-    /// Performance   : O(N) where N is capacity(); re-links free list.
+    /// Performance   : O(N) where N is capacity(); re-links free list and clears bitset.
     void reset() noexcept;
 
     /// @brief Total number of fixed-size blocks supported by the backing memory.
@@ -201,15 +202,14 @@ public:
 private:
     struct FreeNode {
         FreeNode* next{nullptr};
-        uint64_t canary{0};
     };
-
-    static constexpr uint64_t kFreeCanary = 0xF7EE'B10C'CAFE'D00DULL;
 
     void initializeFreeList() noexcept;
 
     std::byte* buffer_{nullptr};
     std::byte* firstBlock_{nullptr};
+    uint64_t* bitset_{nullptr};
+    size_t bitsetWordCount_{0};
     size_t capacityBytes_{0};
     size_t blockSize_{0};
     size_t effectiveBlockSize_{0};
