@@ -65,6 +65,12 @@ add_executable(null_rhi_test unit/rhi/null_rhi_test.cpp)
 target_link_libraries(null_rhi_test PRIVATE hikari::engine_rhi)
 add_test(NAME null_rhi_test COMMAND null_rhi_test)
 
+# World Unit Tests
+add_executable(world_test unit/world/world_test.cpp)
+target_link_libraries(world_test PRIVATE hikari::engine_world)
+add_test(NAME world_test COMMAND world_test)
+
+
 
 
 
