@@ -35,33 +35,32 @@ public:
 
     void OnContactRemoved(const JPH::SubShapeIDPair& inSubShapePair) override;
 
-    std::vector<CollisionEvent> takeEvents() {
+    void beginStep() noexcept {
         std::scoped_lock lock(eventsMutex_);
-        std::vector<CollisionEvent> result;
-        result.swap(events_);
-        return result;
+        pendingEvents_.clear();
+    }
+
+    void endStep() noexcept {
+        std::scoped_lock lock(eventsMutex_);
+        currentEvents_.swap(pendingEvents_);
+        eventsSpan_ = currentEvents_;
+        pendingEvents_.clear();
     }
 
     void clearEvents() noexcept {
         std::scoped_lock lock(eventsMutex_);
-        events_.clear();
-        activeEvents_.clear();
+        pendingEvents_.clear();
+        currentEvents_.clear();
         eventsSpan_ = {};
     }
 
     [[nodiscard]] std::span<const CollisionEvent> getEvents() const noexcept { return eventsSpan_; }
 
-    void updateSpan() noexcept {
-        std::scoped_lock lock(eventsMutex_);
-        activeEvents_ = events_;
-        eventsSpan_ = activeEvents_;
-    }
-
 private:
     PhysicsWorld::Impl* impl_{nullptr};
     mutable std::mutex eventsMutex_;
-    std::vector<CollisionEvent> events_;
-    std::vector<CollisionEvent> activeEvents_;
+    std::vector<CollisionEvent> pendingEvents_;
+    std::vector<CollisionEvent> currentEvents_;
     std::span<const CollisionEvent> eventsSpan_;
 };
 
@@ -137,16 +136,23 @@ void ContactListenerImpl::OnContactAdded(const JPH::Body& inBody1, const JPH::Bo
     const auto slotIdx1 = static_cast<uint32_t>(inBody1.GetUserData());
     const auto slotIdx2 = static_cast<uint32_t>(inBody2.GetUserData());
 
+    Vec3 contactPoint{0.0F, 0.0F, 0.0F};
+    if (!inManifold.mRelativeContactPointsOn1.empty()) {
+        contactPoint = fromJolt(inManifold.GetWorldSpaceContactPointOn1(0));
+    } else {
+        contactPoint = fromJolt(inManifold.mBaseOffset);
+    }
+
     CollisionEvent evt{
         .type = CollisionEventType::ContactAdded,
         .bodyA = impl_->resolveHandle(slotIdx1),
         .bodyB = impl_->resolveHandle(slotIdx2),
-        .contactPoint = fromJolt(inManifold.GetWorldSpaceContactPointOn1(0)),
+        .contactPoint = contactPoint,
         .contactNormal = fromJolt(inManifold.mWorldSpaceNormal),
     };
 
     std::scoped_lock lock(eventsMutex_);
-    events_.push_back(evt);
+    pendingEvents_.push_back(evt);
 }
 
 void ContactListenerImpl::OnContactPersisted(const JPH::Body& inBody1, const JPH::Body& inBody2,
@@ -158,16 +164,23 @@ void ContactListenerImpl::OnContactPersisted(const JPH::Body& inBody1, const JPH
     const auto slotIdx1 = static_cast<uint32_t>(inBody1.GetUserData());
     const auto slotIdx2 = static_cast<uint32_t>(inBody2.GetUserData());
 
+    Vec3 contactPoint{0.0F, 0.0F, 0.0F};
+    if (!inManifold.mRelativeContactPointsOn1.empty()) {
+        contactPoint = fromJolt(inManifold.GetWorldSpaceContactPointOn1(0));
+    } else {
+        contactPoint = fromJolt(inManifold.mBaseOffset);
+    }
+
     CollisionEvent evt{
         .type = CollisionEventType::ContactPersisted,
         .bodyA = impl_->resolveHandle(slotIdx1),
         .bodyB = impl_->resolveHandle(slotIdx2),
-        .contactPoint = fromJolt(inManifold.GetWorldSpaceContactPointOn1(0)),
+        .contactPoint = contactPoint,
         .contactNormal = fromJolt(inManifold.mWorldSpaceNormal),
     };
 
     std::scoped_lock lock(eventsMutex_);
-    events_.push_back(evt);
+    pendingEvents_.push_back(evt);
 }
 
 void ContactListenerImpl::OnContactRemoved(const JPH::SubShapeIDPair& /*inSubShapePair*/) {
@@ -485,12 +498,18 @@ Result<uint32_t> PhysicsWorld::step(float deltaTime) {
     impl_->accumulatedTime_ += deltaTime;
     uint32_t substeps = 0;
 
-    while (impl_->accumulatedTime_ >= impl_->settings_.fixedDeltaTime &&
-           substeps < impl_->settings_.maxSubSteps) {
-        impl_->physicsSystem_.Update(impl_->settings_.fixedDeltaTime, 1, &impl_->tempAllocator_,
-                                     impl_->jobSystem_.get());
-        impl_->accumulatedTime_ -= impl_->settings_.fixedDeltaTime;
-        ++substeps;
+    if (impl_->accumulatedTime_ >= impl_->settings_.fixedDeltaTime) {
+        impl_->contactListener_.beginStep();
+
+        while (impl_->accumulatedTime_ >= impl_->settings_.fixedDeltaTime &&
+               substeps < impl_->settings_.maxSubSteps) {
+            impl_->physicsSystem_.Update(impl_->settings_.fixedDeltaTime, 1, &impl_->tempAllocator_,
+                                         impl_->jobSystem_.get());
+            impl_->accumulatedTime_ -= impl_->settings_.fixedDeltaTime;
+            ++substeps;
+        }
+
+        impl_->contactListener_.endStep();
     }
 
     // Clamp excess time if CPU fell too far behind to prevent death spiral
@@ -500,7 +519,6 @@ Result<uint32_t> PhysicsWorld::step(float deltaTime) {
         impl_->accumulatedTime_ = 0.0F;
     }
 
-    impl_->contactListener_.updateSpan();
     return substeps;
 }
 

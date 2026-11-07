@@ -195,6 +195,22 @@ static int testCollisionEvents() {
     world.clearCollisionEvents();
     TEST_CHECK(world.getCollisionEvents().empty());
 
+    // Regression check: Destroy colliding box and step in free space; verify events remain clean
+    // and do not leak or retain old contact history
+    TEST_CHECK(world.destroyBody(boxHandle).hasValue());
+    BodyDesc airBoxDesc{};
+    airBoxDesc.motionType = MotionType::Dynamic;
+    airBoxDesc.collisionLayer = CollisionLayer::kMoving;
+    airBoxDesc.position = Vec3(0.0F, 100.0F, 0.0F);
+    airBoxDesc.collider = ColliderDesc::makeBox(Vec3(1.0F, 1.0F, 1.0F));
+    auto airHandle = world.createBody(airBoxDesc).value();
+
+    TEST_CHECK(world.step(1.0F / 60.0F).hasValue());
+    TEST_CHECK(world.getCollisionEvents().empty());
+
+    TEST_CHECK(world.destroyBody(airHandle).hasValue());
+    TEST_CHECK(world.destroyBody(floorHandle).hasValue());
+
     return 0;
 }
 
