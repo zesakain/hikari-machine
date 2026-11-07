@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Core Clock & Time Subsystem (Phase 1.3)**:
+  - `Duration` in `<core/time/duration.h>` providing nanosecond-precision, integer-based time duration representation with unit conversions, overflow bounds, and arithmetic.
+  - `Timestamp` in `<core/time/timestamp.h>` providing monotonic point-in-time representation backed by `std::chrono::steady_clock` with duration arithmetic.
+  - `Clock` in `<core/time/clock.h>` providing independent timekeeper instances with real vs. scaled delta tracking, pause/resume, and negative scale protection.
+  - `Budget` in `<core/time/budget.h>` providing execution-time quota tracking with microsecond accounting for standby mode preparation and incremental tasks.
+  - Master include header `<core/time.h>`.
+  - Comprehensive unit test suite in `tests/unit/core/time_test.cpp`.
 - **Fixed-Size Pool Allocator & Generational Handles (Phase 1.2)**:
   - `PoolAllocator` in `<core/pool_allocator.h>` providing fixed-size, O(1) allocation and deallocation over caller-provided backing memory with intrusive free-list storage, configurable alignment, and double-deallocation rejection.
   - `GenerationalHandle` in `<core/generational_handle.h>` providing a lightweight 64-bit handle primitive (32-bit index + 32-bit generation) with explicit invalid sentinels, validity checks, and bit packing.
