@@ -1,0 +1,246 @@
+/// @file render_graph_test.cpp
+/// @brief Unit tests for Render Graph DAG compilation, cycle detection, and headless execution.
+
+#include "render/render_graph.h"
+#include "rhi/rhi_device.h"
+
+#include <algorithm>
+#include <iostream>
+#include <string>
+#include <vector>
+
+using namespace eng;
+using namespace eng::render;
+using namespace eng::rhi;
+
+#define TEST_CHECK(cond)                                                                           \
+    do {                                                                                           \
+        if (!(cond)) {                                                                             \
+            std::cerr << "Assertion failed: " #cond " at " << __FILE__ << ":" << __LINE__ << '\n'; \
+            return 1;                                                                              \
+        }                                                                                          \
+    } while (false)
+
+static int testLinearOrdering() {
+    RenderGraph graph;
+
+    auto texA = graph.createTransientTexture("TexA", TextureDesc{.width = 256, .height = 256});
+    auto texB = graph.createTransientTexture("TexB", TextureDesc{.width = 256, .height = 256});
+
+    std::vector<std::string> executedPasses;
+
+    // Declare passes in reverse chronological order intentionally
+    graph.addPass(
+        "Pass3",
+        [&](RenderPassBuilder& builder) { builder.readTexture(texB, TextureUsageFlags::Sampled); },
+        [&](RhiCommandList& /*cmd*/) { executedPasses.emplace_back("Pass3"); });
+
+    graph.addPass(
+        "Pass2",
+        [&](RenderPassBuilder& builder) {
+            builder.readTexture(texA, TextureUsageFlags::Sampled);
+            builder.writeTexture(texB, TextureUsageFlags::ColorAttachment);
+        },
+        [&](RhiCommandList& /*cmd*/) { executedPasses.emplace_back("Pass2"); });
+
+    graph.addPass(
+        "Pass1",
+        [&](RenderPassBuilder& builder) {
+            builder.writeTexture(texA, TextureUsageFlags::ColorAttachment);
+        },
+        [&](RhiCommandList& /*cmd*/) { executedPasses.emplace_back("Pass1"); });
+
+    auto compileRes = graph.compile();
+    TEST_CHECK(compileRes.hasValue());
+    TEST_CHECK(graph.isCompiled());
+
+    const auto& order = graph.getExecutionOrder();
+    TEST_CHECK(order.size() == 3);
+    // Index 2 is Pass1, Index 1 is Pass2, Index 0 is Pass3
+    TEST_CHECK(order[0] == 2); // Pass1
+    TEST_CHECK(order[1] == 1); // Pass2
+    TEST_CHECK(order[2] == 0); // Pass3
+
+    // Execute with NullDevice
+    auto devRes = createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto device = std::move(devRes.value());
+
+    auto cmdRes = device->createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto cmd = std::move(cmdRes.value());
+
+    auto execRes = graph.execute(*device, *cmd);
+    TEST_CHECK(execRes.hasValue());
+
+    TEST_CHECK(executedPasses.size() == 3);
+    TEST_CHECK(executedPasses[0] == "Pass1");
+    TEST_CHECK(executedPasses[1] == "Pass2");
+    TEST_CHECK(executedPasses[2] == "Pass3");
+
+    return 0;
+}
+
+static int testDiamondDependencyOrdering() {
+    RenderGraph graph;
+
+    auto texRoot = graph.createTransientTexture("Root", TextureDesc{.width = 128, .height = 128});
+    auto texBranchA =
+        graph.createTransientTexture("BranchA", TextureDesc{.width = 128, .height = 128});
+    auto texBranchB =
+        graph.createTransientTexture("BranchB", TextureDesc{.width = 128, .height = 128});
+    auto texSink = graph.createTransientTexture("Sink", TextureDesc{.width = 128, .height = 128});
+
+    std::vector<std::string> executedPasses;
+
+    graph.addPass(
+        "SinkPass",
+        [&](RenderPassBuilder& builder) {
+            builder.readTexture(texBranchA, TextureUsageFlags::Sampled);
+            builder.readTexture(texBranchB, TextureUsageFlags::Sampled);
+            builder.writeTexture(texSink, TextureUsageFlags::ColorAttachment);
+        },
+        [&](RhiCommandList& /*cmd*/) { executedPasses.emplace_back("SinkPass"); });
+
+    graph.addPass(
+        "BranchAPass",
+        [&](RenderPassBuilder& builder) {
+            builder.readTexture(texRoot, TextureUsageFlags::Sampled);
+            builder.writeTexture(texBranchA, TextureUsageFlags::ColorAttachment);
+        },
+        [&](RhiCommandList& /*cmd*/) { executedPasses.emplace_back("BranchAPass"); });
+
+    graph.addPass(
+        "BranchBPass",
+        [&](RenderPassBuilder& builder) {
+            builder.readTexture(texRoot, TextureUsageFlags::Sampled);
+            builder.writeTexture(texBranchB, TextureUsageFlags::ColorAttachment);
+        },
+        [&](RhiCommandList& /*cmd*/) { executedPasses.emplace_back("BranchBPass"); });
+
+    graph.addPass(
+        "RootPass",
+        [&](RenderPassBuilder& builder) {
+            builder.writeTexture(texRoot, TextureUsageFlags::ColorAttachment);
+        },
+        [&](RhiCommandList& /*cmd*/) { executedPasses.emplace_back("RootPass"); });
+
+    auto compileRes = graph.compile();
+    TEST_CHECK(compileRes.hasValue());
+
+    auto devRes = createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto device = std::move(devRes.value());
+
+    auto cmdRes = device->createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto cmd = std::move(cmdRes.value());
+
+    auto execRes = graph.execute(*device, *cmd);
+    TEST_CHECK(execRes.hasValue());
+
+    TEST_CHECK(executedPasses.size() == 4);
+    TEST_CHECK(executedPasses.front() == "RootPass");
+    TEST_CHECK(executedPasses.back() == "SinkPass");
+
+    return 0;
+}
+
+static int testCycleDetection() {
+    RenderGraph graph;
+
+    auto tex1 = graph.createTransientTexture("Tex1", TextureDesc{.width = 64, .height = 64});
+    auto tex2 = graph.createTransientTexture("Tex2", TextureDesc{.width = 64, .height = 64});
+
+    // PassA reads Tex2, writes Tex1
+    graph.addPass(
+        "PassA",
+        [&](RenderPassBuilder& builder) {
+            builder.readTexture(tex2, TextureUsageFlags::Sampled);
+            builder.writeTexture(tex1, TextureUsageFlags::ColorAttachment);
+        },
+        [](RhiCommandList& /*cmd*/) {});
+
+    // PassB reads Tex1, writes Tex2 (creates cyclic dependency: PassA -> PassB -> PassA)
+    graph.addPass(
+        "PassB",
+        [&](RenderPassBuilder& builder) {
+            builder.readTexture(tex1, TextureUsageFlags::Sampled);
+            builder.writeTexture(tex2, TextureUsageFlags::ColorAttachment);
+        },
+        [](RhiCommandList& /*cmd*/) {});
+
+    auto compileRes = graph.compile();
+    TEST_CHECK(!compileRes.hasValue());
+    TEST_CHECK(compileRes.error().code == ErrorCode::RenderGraphCompilationFailed);
+    TEST_CHECK(!graph.isCompiled());
+
+    return 0;
+}
+
+static int testResourceLifetime() {
+    RenderGraph graph;
+
+    auto texA = graph.createTransientTexture("TexA", TextureDesc{.width = 64, .height = 64});
+    auto texB = graph.createTransientTexture("TexB", TextureDesc{.width = 64, .height = 64});
+    auto texC = graph.createTransientTexture("TexC", TextureDesc{.width = 64, .height = 64});
+
+    // Step 0
+    graph.addPass(
+        "Pass0",
+        [&](RenderPassBuilder& builder) {
+            builder.writeTexture(texA, TextureUsageFlags::ColorAttachment);
+        },
+        [](RhiCommandList& /*cmd*/) {});
+
+    // Step 1
+    graph.addPass(
+        "Pass1",
+        [&](RenderPassBuilder& builder) {
+            builder.readTexture(texA, TextureUsageFlags::Sampled);
+            builder.writeTexture(texB, TextureUsageFlags::ColorAttachment);
+        },
+        [](RhiCommandList& /*cmd*/) {});
+
+    // Step 2
+    graph.addPass(
+        "Pass2",
+        [&](RenderPassBuilder& builder) {
+            builder.readTexture(texB, TextureUsageFlags::Sampled);
+            builder.writeTexture(texC, TextureUsageFlags::ColorAttachment);
+        },
+        [](RhiCommandList& /*cmd*/) {});
+
+    auto compileRes = graph.compile();
+    TEST_CHECK(compileRes.hasValue());
+
+    auto lifeA = graph.getTextureLifetime(texA);
+    TEST_CHECK(lifeA.firstPass == 0);
+    TEST_CHECK(lifeA.lastPass == 1);
+
+    auto lifeC = graph.getTextureLifetime(texC);
+    TEST_CHECK(lifeC.firstPass == 2);
+    TEST_CHECK(lifeC.lastPass == 2);
+
+    // Lifetimes of A (0..1) and C (2..2) do not overlap
+    TEST_CHECK(!lifeA.overlaps(lifeC));
+
+    return 0;
+}
+
+int main() {
+    if (testLinearOrdering() != 0) {
+        return 1;
+    }
+    if (testDiamondDependencyOrdering() != 0) {
+        return 1;
+    }
+    if (testCycleDetection() != 0) {
+        return 1;
+    }
+    if (testResourceLifetime() != 0) {
+        return 1;
+    }
+    std::cout << "All Render Graph unit tests passed successfully.\n";
+    return 0;
+}

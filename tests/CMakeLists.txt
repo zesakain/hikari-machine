@@ -84,6 +84,11 @@ add_executable(conductor_stress_test headless/conductor_stress_test.cpp)
 target_link_libraries(conductor_stress_test PRIVATE hikari::engine_framework)
 add_test(NAME conductor_stress_test COMMAND conductor_stress_test)
 
+# Render Unit Tests
+add_executable(render_graph_test unit/render/render_graph_test.cpp)
+target_link_libraries(render_graph_test PRIVATE hikari::engine_render)
+add_test(NAME render_graph_test COMMAND render_graph_test)
+
 
 
 
