@@ -34,6 +34,8 @@ This catalog documents the structured error codes (`E-xxxx`) and warning codes (
 | `E-0203` | Error | Implemented | Container index or offset out of bounds. | Access index exceeds size or capacity of target container. | Ensure index is within [0, size). |
 | `E-0204` | Error | Implemented | Operation attempted on invalid or uninitialized state. | Calling method before initialization or after disposal. | Verify lifecycle state transitions. |
 | `E-0205` | Error | Implemented | Requested feature or backend operation not supported. | Feature unsupported on current platform or driver tier. | Query capability flags before dispatching operation. |
+| `E-0210` | Error | Implemented | Platform subsystem initialization failed. | SDL3 or OS display subsystem failed to initialize. | Verify system display server and driver configurations. |
+| `E-0211` | Error | Implemented | Window creation or display operation failed. | Invalid window flags, unsupported resolution, or headless failure. | Verify window parameters or enable headless/dummy driver. |
 | `W-0201` | Warning | Reserved | Frame allocator high watermark exceeded 80%. | Excess temporary allocations in current frame. | Increase frame allocator capacity or move allocations to arenas. |
 
 ---
@@ -43,8 +45,11 @@ This catalog documents the structured error codes (`E-xxxx`) and warning codes (
 | Code | Severity | Status | Description | Typical Cause | Resolution |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | `W-0301` | Warning | Reserved | Pipeline cache miss at runtime. | Shader permutation not pre-warmed during standby preparation. | Pre-warm shader pipeline in standby mode `prepare()`. |
-| `E-0301` | Error | Reserved | Graphics device creation failure. | Physical device lacks required Vulkan 1.3 features or extensions. | Verify driver support and minimum hardware tier. |
-| `E-0302` | Error | Reserved | Out of GPU device local memory. | VMA allocation failed to find free memory block. | Audit texture/buffer footprints and release unused GPU resources. |
+| `E-0300` | Error | Implemented | RHI subsystem or backend initialization failed. | Backend driver missing, unsupported graphics API, or init error. | Check device compatibility and fallback to supported RHI backend. |
+| `E-0301` | Error | Implemented | Graphics device creation failure. | Physical device lacks required Vulkan 1.3 features or extensions. | Verify driver support and minimum hardware tier. |
+| `E-0302` | Error | Implemented | Out of GPU device local memory. | VMA allocation failed to find free memory block. | Audit texture/buffer footprints and release unused GPU resources. |
+| `E-0303` | Error | Implemented | RHI resource creation failed. | Invalid descriptor parameters or hardware limit exceeded. | Check GPU capabilities (`GpuCaps`) before allocating resources. |
+| `E-0305` | Error | Implemented | Command buffer recording or queue submission error. | Submitting invalid command list or device lost during submission. | Validate command list state prior to submission. |
 
 ---
 

@@ -49,7 +49,28 @@ enum class ErrorCode : uint16_t {
     InvalidState = 204,
 
     /// Requested feature, platform backend, or operation is not supported (E-0205).
-    NotSupported = 205
+    NotSupported = 205,
+
+    /// Platform subsystem initialization failed (E-0210).
+    PlatformInitFailed = 210,
+
+    /// Window creation or display operation failed (E-0211).
+    WindowCreationFailed = 211,
+
+    /// RHI subsystem or backend initialization failed (E-0300).
+    RhiInitFailed = 300,
+
+    /// Graphics device creation failure (E-0301).
+    DeviceCreationFailed = 301,
+
+    /// Out of GPU device local memory (E-0302).
+    OutOfDeviceMemory = 302,
+
+    /// RHI resource creation failed due to invalid descriptor or capacity limits (E-0303).
+    ResourceCreationFailed = 303,
+
+    /// Command buffer recording or queue submission error (E-0305).
+    CommandSubmissionFailed = 305
 };
 
 /// @struct Error
