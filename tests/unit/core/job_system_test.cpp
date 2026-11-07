@@ -310,6 +310,15 @@ int testInvalidAndStaleHandles() {
     TEST_CHECK(!js.isValidHandle(oob));
     TEST_CHECK(!js.wait(oob).hasValue());
 
+    // Unallocated slot with generation 1 (fabricated handle for slot 3 that was never submitted)
+    eng::JobHandle unallocated(3, 1);
+    TEST_CHECK(!js.isValidHandle(unallocated));
+    TEST_CHECK(!js.isComplete(unallocated));
+    TEST_CHECK(!js.isSucceeded(unallocated));
+    TEST_CHECK(!js.isFailed(unallocated));
+    TEST_CHECK(js.state(unallocated) == eng::JobState::Unallocated);
+    TEST_CHECK(!js.wait(unallocated).hasValue());
+
     // Submit and reclaim to create a stale handle
     auto h = js.submit([](void*) noexcept {}, nullptr).value();
     TEST_CHECK(js.wait(h).hasValue());
@@ -533,6 +542,52 @@ int testStressJobs() {
     return 0;
 }
 
+int testJobSystemGenerationOverflowSafety() {
+    eng::JobSystemConfig config{.workerCount = 0, .maxJobs = 2, .maxDependencies = 4};
+    alignas(eng::JobSystem::requiredAlignment()) std::array<std::byte, 8192> storage{};
+    eng::JobSystem js(storage, config);
+
+    // Set slot 0 to near-overflow generation
+    constexpr uint32_t kNearMax = eng::JobSystem::kRetiredGeneration - 1;
+    js.setSlotGenerationForTesting(0, kNearMax);
+    TEST_CHECK(js.slotGenerationForTesting(0) == kNearMax);
+
+    auto h = js.submit([](void*) noexcept {}, nullptr).value();
+    TEST_CHECK(h.index() == 0);
+    TEST_CHECK(h.generation() == kNearMax);
+    TEST_CHECK(js.wait(h).hasValue());
+
+    // Reclaiming slot 0 advances it to kRetiredGeneration and retires it
+    TEST_CHECK(js.reclaim(h).hasValue());
+    TEST_CHECK(js.slotGenerationForTesting(0) == eng::JobSystem::kRetiredGeneration);
+
+    // Fabricated retired handle is rejected
+    eng::JobHandle retiredHandle(0, eng::JobSystem::kRetiredGeneration);
+    TEST_CHECK(!js.isValidHandle(retiredHandle));
+    TEST_CHECK(!js.isComplete(retiredHandle));
+    TEST_CHECK(!js.isSucceeded(retiredHandle));
+    TEST_CHECK(!js.isFailed(retiredHandle));
+    TEST_CHECK(js.state(retiredHandle) == eng::JobState::Unallocated);
+
+    // Next submit uses slot 1 (since slot 0 is retired)
+    js.setSlotGenerationForTesting(1, kNearMax);
+    auto hNext = js.submit([](void*) noexcept {}, nullptr).value();
+    TEST_CHECK(hNext.index() == 1);
+    TEST_CHECK(hNext.generation() == kNearMax);
+    TEST_CHECK(js.wait(hNext).hasValue());
+
+    // Reclaiming slot 1 also advances it to kRetiredGeneration and retires it
+    TEST_CHECK(js.reclaim(hNext).hasValue());
+    TEST_CHECK(js.slotGenerationForTesting(1) == eng::JobSystem::kRetiredGeneration);
+
+    // Now, both slot 0 and slot 1 are permanently retired; next submit must fail with OutOfMemory
+    auto hFail = js.submit([](void*) noexcept {}, nullptr);
+    TEST_CHECK(!hFail.hasValue());
+    TEST_CHECK(hFail.error().code == eng::ErrorCode::OutOfMemory);
+
+    return 0;
+}
+
 } // namespace
 
 int main() {
@@ -571,6 +626,9 @@ int main() {
     }
     if (testStressJobs() != 0) {
         return 12;
+    }
+    if (testJobSystemGenerationOverflowSafety() != 0) {
+        return 13;
     }
 
     return 0;
