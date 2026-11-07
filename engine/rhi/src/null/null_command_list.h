@@ -47,12 +47,14 @@ public:
 
     struct VertexBufferBinding {
         uint32_t binding{0};
-        BufferHandle buffer;
+        // NOLINTNEXTLINE(readability-redundant-member-init): Required for GCC -Wmissing-field-initializers
+        BufferHandle buffer{};
         size_t offset{0};
     };
 
     struct IndexBufferBinding {
-        BufferHandle buffer;
+        // NOLINTNEXTLINE(readability-redundant-member-init): Required for GCC -Wmissing-field-initializers
+        BufferHandle buffer{};
         size_t offset{0};
         bool is32Bit{false};
     };

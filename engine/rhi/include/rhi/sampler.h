@@ -49,7 +49,8 @@ struct SamplerDesc {
     CompareOp compareOp{CompareOp::Always};
 
     /// Diagnostic name string for graphics debuggers.
-    std::string_view debugName;
+    // NOLINTNEXTLINE(readability-redundant-member-init): Required for GCC -Wmissing-field-initializers
+    std::string_view debugName{};
 };
 
 } // namespace eng::rhi
