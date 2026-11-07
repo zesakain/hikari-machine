@@ -80,7 +80,7 @@ jobs:
 
       - name: Upload Binary Package Artifact
         if: matrix.preset == 'release'
-        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf6581a120b2d07e37a2 # v4.4.3
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
           name: hikari-linux-x86_64-release
           path: build/release/*.tar.gz
