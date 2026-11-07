@@ -30,26 +30,18 @@ public:
 
     [[nodiscard]] std::string_view getName() const noexcept override { return name_; }
 
-    [[nodiscard]] Result<void> enter(world::World&) override {
-        return Result<void>::success();
-    }
+    [[nodiscard]] Result<void> enter(world::World&) override { return Result<void>::success(); }
 
     void update(world::World&, Duration) override {}
 
-    [[nodiscard]] Result<void> exit(world::World&) override {
-        return Result<void>::success();
-    }
+    [[nodiscard]] Result<void> exit(world::World&) override { return Result<void>::success(); }
 
-    [[nodiscard]] Result<framework::PreparationStatus> prepare(
-        world::World&,
-        const Budget&
-    ) override {
+    [[nodiscard]] Result<framework::PreparationStatus> prepare(world::World&,
+                                                               const Budget&) override {
         return framework::PreparationStatus::Ready;
     }
 
-    [[nodiscard]] Result<void> commit(world::World&) override {
-        return Result<void>::success();
-    }
+    [[nodiscard]] Result<void> commit(world::World&) override { return Result<void>::success(); }
 
     void cancelPrepare() override {}
 
@@ -106,6 +98,12 @@ static void testEditorFrameAndPanels() {
     editor.bindWorld(&world);
     editor.bindConductor(&conductor);
 
+    // Create test entities in the world to verify hierarchy and inspector
+    auto e1 = world.createEntity("TestEntity_Alpha");
+    auto e2 = world.createEntity("TestEntity_Beta");
+    TEST_CHECK(world.isAlive(e1));
+    TEST_CHECK(world.isAlive(e2));
+
     // Run 3 editor frames
     for (int frame = 0; frame < 3; ++frame) {
         nullCmd->begin();
@@ -115,6 +113,8 @@ static void testEditorFrameAndPanels() {
         nullCmd->end();
         TEST_CHECK(editor.lastDrawCallCount() > 0);
         TEST_CHECK(editor.lastVertexCount() > 0);
+        TEST_CHECK(editor.lastIndexCount() > 0);
+        TEST_CHECK(editor.executedEditorPasses() == static_cast<uint64_t>(frame + 1));
     }
 
     editor.shutdown();
