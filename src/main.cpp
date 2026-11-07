@@ -314,6 +314,8 @@ body {
 #if defined(HIKARI_BUILD_EDITOR)
         if (editorEngine.isInitialized()) {
             editorEngine.processInput(input);
+            editorEngine.beginFrame(fixedStep);
+            editorEngine.drawPanels();
         }
 #endif
 
@@ -350,8 +352,6 @@ body {
 
 #if defined(HIKARI_BUILD_EDITOR)
         if (editorEngine.isInitialized()) {
-            editorEngine.beginFrame(fixedStep);
-            editorEngine.drawPanels();
             editorEngine.endFrame(*mainCmd);
         }
 #endif
@@ -374,16 +374,21 @@ body {
             const auto& uiStats = uiSystem.renderStats();
             uint32_t editorDraws = 0;
             uint32_t editorVerts = 0;
+            uint32_t editorIdxs = 0;
+            uint64_t editorPasses = 0;
 #if defined(HIKARI_BUILD_EDITOR)
             if (editorEngine.isInitialized()) {
                 editorDraws = editorEngine.lastDrawCallCount();
                 editorVerts = editorEngine.lastVertexCount();
+                editorIdxs = editorEngine.lastIndexCount();
+                editorPasses = editorEngine.executedEditorPasses();
             }
 #endif
-            ENG_LOG_FORMAT(
-                LogLevel::Info, "Render",
-                "Frame %u Telemetry: UI Draws: %u (Tris: %u), Editor Draws: %u (Verts: %u)",
-                frameCount, uiStats.drawCalls, uiStats.triangleCount, editorDraws, editorVerts);
+            ENG_LOG_FORMAT(LogLevel::Info, "Render",
+                           "Frame %u Telemetry: UI Draws: %u (Tris: %u), Editor Draws: %u (Verts: "
+                           "%u, Idxs: %u, Passes: %llu)",
+                           frameCount, uiStats.drawCalls, uiStats.triangleCount, editorDraws,
+                           editorVerts, editorIdxs, static_cast<unsigned long long>(editorPasses));
         }
 
         if (targetFrames > 0 && frameCount >= targetFrames) {
