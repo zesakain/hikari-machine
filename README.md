@@ -11,7 +11,7 @@ Hikari-Machine is an experimental general-purpose 3D game engine designed with a
 
 ## 2. Current Development Status
 
-Current Phase: **Phase 5 — Physics Integration (Jolt) & Animation System**.
+Current Phase: **Phase 6 — Scripting, UI Systems, CI/CD & Binary Build Pipeline**.
 
 - **Implemented**:
   - Directory structure and module boundaries.
@@ -19,33 +19,34 @@ Current Phase: **Phase 5 — Physics Integration (Jolt) & Animation System**.
   - Strict compiler warning policies (`-Wall -Wextra -Wconversion -Wshadow`) and C++20 enforcement.
   - Engine target policies: exceptions and RTTI disabled (`-fno-exceptions`, `-fno-rtti`).
   - Formatting configuration (`.clang-format`) and static analysis configuration (`.clang-tidy`).
-  - Architecture documentation, Architecture Decision Records (ADRs 0001–0013), and error reference catalog.
+  - Architecture documentation, Architecture Decision Records (ADRs 0001–0016), and error reference catalog.
   - Phase 1: Core engine primitives (Result, allocators, generational handles, clock, log, slot map, strong ID, events, job system, math).
   - Phase 2: Platform layer (SDL3) and Null RHI.
   - Phase 3: Shared World (Flecs ECS) and Two-State Conductor execution runtime.
   - Phase 4: Vulkan 1.3+ RHI backend, dynamic rendering, and DAG Render Graph.
   - Phase 5: Jolt Physics integration, fixed-timestep accumulator, and skeletal animation system.
+  - Phase 6: Sandboxed Lua 5.4 scripting engine, RmlUi runtime UI system, Dear ImGui editor UI, primary `bin/hikari` application, CPack packaging pipeline, and GitHub Actions CI/CD workflows.
 - **Planned (Not Implemented)**:
-  - Phase 6: Scripting (Lua) and UI systems.
+  - Game demo validation and packaging.
 - **Experimental**:
   - None at this stage.
 
 ## 3. Main Technologies
 
-The planned technology stack consists of:
+The engine technology stack consists of:
 
 | Subsystem | Planned Technology | Selection Status |
 | :--- | :--- | :--- |
 | Language | C++20 | Accepted ([ADR-0002](docs/adr/0002-cpp20-engine-language.md)) |
 | Build System | CMake (>= 3.25) + Ninja | Accepted ([ADR-0003](docs/adr/0003-cmake-ninja-build-system.md)) |
-| ECS | flecs | Proposed (pending ADR and approval) |
-| Physics | Jolt Physics | Proposed (pending ADR and approval) |
-| Window / Input | SDL3 | Proposed (pending ADR and approval) |
-| Graphics API | Vulkan 1.3 / Custom RHI | Proposed (pending ADR and approval) |
+| ECS | flecs | Accepted ([ADR-0008](docs/adr/0008-flecs-ecs-integration.md)) |
+| Physics | Jolt Physics | Accepted ([ADR-0012](docs/adr/0012-jolt-physics-integration.md)) |
+| Window / Input | SDL3 | Accepted ([ADR-0007](docs/adr/0007-sdl3-platform-backend.md)) |
+| Graphics API | Vulkan 1.3 / Custom RHI | Accepted ([ADR-0010](docs/adr/0010-vulkan-rhi-backend.md)) |
 | Shaders | Slang / SPIR-V | Proposed (pending ADR and approval) |
-| Scripting | Lua 5.4 + sol2 | Proposed (pending ADR and approval) |
-| Runtime UI | RmlUi | Proposed (pending ADR and approval) |
-| Editor UI | Dear ImGui | Proposed (pending ADR and approval) |
+| Scripting | Lua 5.4 + C-API sandbox | Accepted ([ADR-0014](docs/adr/0014-sandboxed-lua-scripting.md)) |
+| Runtime UI | RmlUi 6.0 | Accepted ([ADR-0015](docs/adr/0015-rmlui-runtime-ui-system.md)) |
+| Editor UI | Dear ImGui 1.91 | Accepted ([ADR-0016](docs/adr/0016-dear-imgui-editor-ui.md)) |
 
 Per repository rules, third-party libraries require an approved ADR before introduction. Phase 0 contains zero third-party dependencies.
 

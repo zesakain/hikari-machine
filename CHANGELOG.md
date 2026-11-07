@@ -8,6 +8,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Scripting, UI Systems, CI/CD & Binary Build Pipeline (Phase 6)**:
+  - **Sandboxed Lua 5.4 Scripting Engine (`engine/script/`)**:
+    - Vendored Lua 5.4.7 source (`engine/script/src/lua/`) compiled as clean C static library (`lua_static`).
+    - Bounded memory allocator hook enforcing hard byte limits on Lua state allocations (`maxMemoryBytes`).
+    - Instruction count watchdog hook preventing infinite loops and catastrophic script hangs (`instructionLimit`).
+    - Structured print log redirection routing Lua `print()` output through `eng::log::info("Script", ...)`.
+    - Engine bindings for math (`Vec3` vector operations) and ECS (`Entity` query, tag, and position manipulation).
+    - Flecs ECS integration: `ScriptComponent` holding script file paths, and `ScriptUpdateSystem` registered under `SystemGroup::Continuous` or mode-specific groups.
+  - **RmlUi Runtime UI System (`engine/ui/`)**:
+    - Integrated RmlUi v6.0 via FetchContent configured without exceptions or RTTI (`RMLUI_CUSTOM_RTTI=ON`, `RMLUI_NO_THIRDPARTY_CONTAINERS=ON`).
+    - Custom `HikariSystemInterface` translating timing, logging, and mouse cursors.
+    - Custom `HikariRenderInterface` translating RmlUi vertex/index geometry batches, scissor clipping, and texture mapping into generic `RhiCommandList` draw operations.
+    - Document lifecycle management via generational `UiDocumentHandle`, loading from files and memory buffers.
+    - Decoupled `UiClock` domain ensuring UI animations run at unscaled real-time even during gameplay slow-motion.
+    - RenderGraph integration with `UiPassData` recording UI commands onto the final color target.
+  - **Dear ImGui Editor UI (`editor/`)**:
+    - Integrated Dear ImGui v1.91.8 guarded strictly behind `HIKARI_BUILD_EDITOR` and `EDITOR=1` compile definitions (zero editor symbols in non-editor builds).
+    - Custom RHI backend rendering Dear ImGui draw lists directly through `RhiCommandList`.
+    - Live debugging panels:
+      - **Conductor Monitor**: visualizes active vs standby mode, transition progress, and slow-motion dilation factor.
+      - **Entity Inspector**: inspects World entities, components, and active system group memberships.
+      - **Telemetry & Metrics**: displays frame times, FPS, and draw call / vertex counts.
+      - **Console Log Viewer**: displays engine logs with level filtering and search.
+  - **Application Executable & Binary Packaging Pipeline (`src/main.cpp`)**:
+    - Primary standalone executable `bin/hikari` supporting CLI arguments (`--headless`, `--frames <N>`, `--version`, `--help`).
+    - Standard install layout: `bin/hikari`, `lib/` static libraries, `share/hikari/` assets and shaders.
+    - Automated CPack packaging generating release archive bundles (`.tar.gz` and `.zip`).
+  - **Automated CI/CD Workflows (`.github/workflows/`)**:
+    - `ci.yml`: Multi-preset build matrix (`debug`, `release`, `profile`, `editor`, `asan`, `tsan`), `clang-format` style check, headless smoke test execution, and binary artifact upload.
+    - `release.yml`: Release tag trigger packaging and publishing release tarballs/zips with automated SHA256 checksum generation.
+  - **Architecture Documentation (ADR-0014, ADR-0015, ADR-0016)**:
+    - `ADR-0014`: Sandboxed Lua 5.4 scripting engine, memory bounding, and Flecs ECS bindings.
+    - `ADR-0015`: RmlUi runtime UI integration, RHI render interface, and unscaled UiClock domain.
+    - `ADR-0016`: Dear ImGui editor integration, compile-time EDITOR guarding, and debug panels.
+  - **Testing & Quality Assurance**:
+    - Unit tests in `tests/unit/script/script_test.cpp`, `tests/unit/ui/ui_test.cpp`, and `tests/unit/editor/editor_test.cpp`.
+    - All 27 tests passing across all 6 presets (`debug`, `release`, `profile`, `editor`, `asan`, `tsan`).
+
 - **Subsystem Integration Audit & Stabilization (Phase 5.9)**:
   - Added `acquireNextImage()` and `present()` methods to `RhiDevice` with zero-overhead headless default; implemented full swapchain presentation on `VulkanDevice`.
   - Added live hardware swapchain acquisition and presentation verification test on physical GPU in `tests/unit/rhi/vulkan_rhi_test.cpp`.
