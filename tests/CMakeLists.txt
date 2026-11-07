@@ -47,5 +47,10 @@ add_executable(id_test unit/core/id_test.cpp)
 target_link_libraries(id_test PRIVATE hikari::engine_core)
 add_test(NAME id_test COMMAND id_test)
 
+add_executable(event_test unit/core/event_test.cpp)
+target_link_libraries(event_test PRIVATE hikari::engine_core)
+add_test(NAME event_test COMMAND event_test)
+
+
 
 
