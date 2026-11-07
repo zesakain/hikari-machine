@@ -6,6 +6,8 @@
 #include <core/linear_allocator.h>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
+#include <new>
 
 namespace {
 
@@ -15,6 +17,14 @@ namespace {
             return 1;                                                                              \
         }                                                                                          \
     } while (false)
+
+struct TrackedObject {
+    static inline int sDestructCount{0};
+    int value{0};
+
+    explicit TrackedObject(int v) : value(v) {}
+    ~TrackedObject() { ++sDestructCount; }
+};
 
 int testNormalAllocation() {
     alignas(64) std::array<std::byte, 1024> memory{};
@@ -92,6 +102,10 @@ int testZeroSizeAndInvalidAlignment() {
     TEST_CHECK(pZero == nullptr);
     TEST_CHECK(allocator.allocatedBytes() == 0);
 
+    // Zero count typed allocation returns nullptr
+    TEST_CHECK(allocator.allocate<uint32_t>(0) == nullptr);
+    TEST_CHECK(allocator.allocatedBytes() == 0);
+
     // Zero alignment returns nullptr
     void* pZeroAlign = allocator.allocate(32, 0);
     TEST_CHECK(pZeroAlign == nullptr);
@@ -166,6 +180,34 @@ int testMoveSemantics() {
     return 0;
 }
 
+int testObjectLifetimeContract() {
+    alignas(64) std::array<std::byte, 512> memory{};
+    eng::LinearAllocator allocator(memory);
+
+    TrackedObject::sDestructCount = 0;
+
+    // Allocate uninitialized storage for 2 TrackedObjects
+    auto* storage = allocator.allocate<TrackedObject>(2);
+    TEST_CHECK(storage != nullptr);
+    TEST_CHECK(TrackedObject::sDestructCount == 0); // No constructor/destructor run by allocator
+
+    // Caller manually constructs objects via placement new
+    auto* obj1 = ::new (static_cast<void*>(&storage[0])) TrackedObject(10);
+    auto* obj2 = ::new (static_cast<void*>(&storage[1])) TrackedObject(20);
+    TEST_CHECK(obj1->value == 10);
+    TEST_CHECK(obj2->value == 20);
+
+    // Caller is strictly responsible for manually destroying objects before reset()
+    std::destroy_at(obj2);
+    std::destroy_at(obj1);
+    TEST_CHECK(TrackedObject::sDestructCount == 2);
+
+    allocator.reset();
+    TEST_CHECK(allocator.isEmpty());
+
+    return 0;
+}
+
 } // namespace
 
 int main() {
@@ -189,6 +231,9 @@ int main() {
     }
     if (testMoveSemantics() != 0) {
         return 7;
+    }
+    if (testObjectLifetimeContract() != 0) {
+        return 8;
     }
 
     return 0;

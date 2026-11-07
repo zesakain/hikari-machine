@@ -72,6 +72,9 @@ template <std::unsigned_integral T>
     const auto address = reinterpret_cast<uintptr_t>(bytePtr);
     const auto misalignment = static_cast<size_t>(address & static_cast<uintptr_t>(alignment - 1));
     const size_t padding = (misalignment == 0) ? 0 : (alignment - misalignment);
+    if (address > std::numeric_limits<uintptr_t>::max() - padding) {
+        return nullptr; // Address overflow protection
+    }
     return bytePtr + padding;
 }
 
