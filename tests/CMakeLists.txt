@@ -39,3 +39,8 @@ add_executable(log_test unit/core/log_test.cpp)
 target_link_libraries(log_test PRIVATE hikari::engine_core)
 add_test(NAME log_test COMMAND log_test)
 
+add_executable(slot_map_test unit/core/slot_map_test.cpp)
+target_link_libraries(slot_map_test PRIVATE hikari::engine_core)
+add_test(NAME slot_map_test COMMAND slot_map_test)
+
+
