@@ -8,6 +8,7 @@ add_library(engine_core STATIC
     src/budget.cpp
     src/clock.cpp
     src/linear_allocator.cpp
+    src/log.cpp
     src/pool_allocator.cpp
 )
 add_library(hikari::engine_core ALIAS engine_core)
