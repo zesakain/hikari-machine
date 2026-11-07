@@ -23,11 +23,10 @@ HikariRenderInterface::CompileGeometry(Rml::Span<const Rml::Vertex> vertices,
 }
 
 void HikariRenderInterface::RenderGeometry(Rml::CompiledGeometryHandle geometry,
-                                           Rml::Vector2f /*translation*/,
-                                           Rml::TextureHandle /*texture*/
+                                           Rml::Vector2f translation, Rml::TextureHandle /*texture*/
 ) {
     auto* buf = reinterpret_cast<GeometryBuffer*>(geometry);
-    if (buf == nullptr) {
+    if (buf == nullptr || buf->vertices.empty()) {
         return;
     }
 
@@ -41,6 +40,32 @@ void HikariRenderInterface::RenderGeometry(Rml::CompiledGeometryHandle geometry,
                 scissorRegion_.Left(), scissorRegion_.Top(),
                 static_cast<uint32_t>(std::max(0, scissorRegion_.Width())),
                 static_cast<uint32_t>(std::max(0, scissorRegion_.Height())));
+        }
+
+        float minX = buf->vertices[0].position.x;
+        float maxX = minX;
+        float minY = buf->vertices[0].position.y;
+        float maxY = minY;
+        for (const auto& v : buf->vertices) {
+            minX = std::min(minX, v.position.x);
+            maxX = std::max(maxX, v.position.x);
+            minY = std::min(minY, v.position.y);
+            maxY = std::max(maxY, v.position.y);
+        }
+
+        int32_t x = static_cast<int32_t>(minX + translation.x);
+        int32_t y = static_cast<int32_t>(minY + translation.y);
+        uint32_t w = static_cast<uint32_t>(std::max(1.0f, maxX - minX));
+        uint32_t h = static_cast<uint32_t>(std::max(1.0f, maxY - minY));
+
+        const auto& col = buf->vertices[0].colour;
+        float r = static_cast<float>(col.red) / 255.0f;
+        float g = static_cast<float>(col.green) / 255.0f;
+        float b = static_cast<float>(col.blue) / 255.0f;
+        float a = static_cast<float>(col.alpha) / 255.0f;
+
+        if (a > 0.01f) {
+            currentCmdList_->clearRect(x, y, w, h, r, g, b, a);
         }
     }
 }

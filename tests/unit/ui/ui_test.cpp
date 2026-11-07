@@ -60,11 +60,7 @@ static void testUiLifecycle() {
     UiSystem uiSystem;
     TEST_CHECK(!uiSystem.isInitialized());
 
-    UiConfig config{
-        .width = 1280,
-        .height = 720,
-        .fontScale = 1.0f
-    };
+    UiConfig config{.width = 1280, .height = 720, .fontScale = 1.0f};
 
     auto initRes = uiSystem.initialize(config, *nullDevice);
     TEST_CHECK(initRes.hasValue());
@@ -138,7 +134,9 @@ static void testHeadlessRenderingAndStats() {
     uiSystem.update(Duration::fromMilliseconds(16));
 
     // Direct render on NullCommandList
+    nullCmdList->begin();
     uiSystem.render(*nullCmdList);
+    nullCmdList->end();
 
     const auto& stats = uiSystem.renderStats();
     TEST_CHECK(stats.activeDocuments == 1);
@@ -149,7 +147,9 @@ static void testHeadlessRenderingAndStats() {
     auto compileRes = graph.compile();
     TEST_CHECK(compileRes.hasValue());
 
+    nullCmdList->begin();
     auto execRes = graph.execute(*nullDevice, *nullCmdList);
+    nullCmdList->end();
     TEST_CHECK(execRes.hasValue());
 
     uiSystem.shutdown();
