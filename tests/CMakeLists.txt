@@ -55,6 +55,11 @@ add_executable(job_system_test unit/core/job_system_test.cpp)
 target_link_libraries(job_system_test PRIVATE hikari::engine_core)
 add_test(NAME job_system_test COMMAND job_system_test)
 
+# Platform Unit Tests
+add_executable(platform_test unit/platform/platform_test.cpp)
+target_link_libraries(platform_test PRIVATE hikari::engine_platform)
+add_test(NAME platform_test COMMAND platform_test)
+
 
 
 
