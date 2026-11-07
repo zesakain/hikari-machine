@@ -11,10 +11,10 @@ License: [Apache 2.0](LICENSE)
 
 Hikari-Machine is an experimental, mode-based 3D game engine under active development. Its defining architectural concept is the **Two-State Conductor operating over a single Shared World**:
 
-- **Single Shared World:** All entities, components, and physics states reside in a unified Flecs ECS world. Switching gameplay modes does not duplicate, reconstruct, or serialize the world state; simulation and physics continue unbroken across transitions.
-- **Two Time States (A and B):** The Conductor maintains exactly two time states (e.g. fast-paced combat vs tactical precision). Exactly one state is active and authoritative at any given instant.
-- **Asynchronous Standby Preparation:** The non-active state is not paused or idle; it operates on standby, incrementally preparing its entry cache (camera parameters, target queries, UI layouts, resource pre-warming) within a strict per-frame time budget.
-- **Zero-Stutter Transitions:** When switching states, the precomputed cache is validated and committed within a fractional millisecond budget (<= 0.2 ms), applying slow-motion dilation only during the transition curve before returning to normal simulation speed.
+- **Single Shared World:** All entities, components, and physics states reside in a unified Flecs ECS world. Switching gameplay modes does not require duplicating, reconstructing, or serializing the world state. Continuous simulation systems operate independently of gameplay mode transitions.
+- **Two Time States (A and B):** The Conductor maintains exactly two alternating execution states (e.g., fast-paced combat and tactical precision). Exactly one state is active and authoritative at any given instant.
+- **Asynchronous Standby Preparation:** The non-active state incrementally prepares its entry data, such as camera parameters, target queries, UI layouts, and resource requirements, within a configurable per-frame time budget.
+- **Validated State Transitions:** Before switching roles, the Conductor validates the prepared state. Successful transitions commit the prepared state and support controlled slow-motion dilation during the transition curve. Failed validation preserves the currently active state.
 
 > **Note on Project Scope:** Hikari-Machine is an experimental engine and architecture testbed. It is not a commercial, production-ready replacement for mature engines like Unreal Engine or Unity.
 
