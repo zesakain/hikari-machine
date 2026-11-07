@@ -26,3 +26,7 @@ add_test(NAME arena_allocator_test COMMAND arena_allocator_test)
 add_executable(pool_allocator_test unit/core/pool_allocator_test.cpp)
 target_link_libraries(pool_allocator_test PRIVATE hikari::engine_core)
 add_test(NAME pool_allocator_test COMMAND pool_allocator_test)
+
+add_executable(generational_handle_test unit/core/generational_handle_test.cpp)
+target_link_libraries(generational_handle_test PRIVATE hikari::engine_core)
+add_test(NAME generational_handle_test COMMAND generational_handle_test)
