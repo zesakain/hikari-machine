@@ -98,6 +98,7 @@ enum class BufferUsageFlags : uint32_t {
 };
 
 constexpr BufferUsageFlags operator|(BufferUsageFlags a, BufferUsageFlags b) noexcept {
+    // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
     return static_cast<BufferUsageFlags>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
 }
 constexpr BufferUsageFlags operator&(BufferUsageFlags a, BufferUsageFlags b) noexcept {
@@ -167,6 +168,7 @@ enum class TextureUsageFlags : uint32_t {
 };
 
 constexpr TextureUsageFlags operator|(TextureUsageFlags a, TextureUsageFlags b) noexcept {
+    // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
     return static_cast<TextureUsageFlags>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
 }
 constexpr TextureUsageFlags operator&(TextureUsageFlags a, TextureUsageFlags b) noexcept {

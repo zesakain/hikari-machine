@@ -86,4 +86,21 @@ public:
 /// @return Owning pointer to headless RhiDevice or error.
 [[nodiscard]] Result<std::unique_ptr<RhiDevice>> createNullDevice();
 
+/// @struct VulkanDeviceDesc
+/// @brief Configuration settings for Vulkan RHI device instantiation.
+struct VulkanDeviceDesc {
+    /// Non-owning native window pointer (e.g. SDL_Window*) for swapchain presentation.
+    void* windowHandle{nullptr};
+
+    /// Whether to request API validation layers in development builds.
+    bool enableValidation{true};
+};
+
+/// Instantiates the hardware-accelerated Vulkan RHI device.
+///
+/// @param desc Optional window handle and validation layer settings.
+/// @return Owning pointer to Vulkan RhiDevice or error.
+[[nodiscard]] Result<std::unique_ptr<RhiDevice>>
+createVulkanDevice(const VulkanDeviceDesc& desc = {});
+
 } // namespace eng::rhi
