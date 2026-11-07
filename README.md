@@ -11,22 +11,21 @@ Hikari-Machine is an experimental general-purpose 3D game engine designed with a
 
 ## 2. Current Development Status
 
-Current Phase: **Phase 0 — Repository Foundation & Engineering Infrastructure**.
+Current Phase: **Phase 5 — Physics Integration (Jolt) & Animation System**.
 
 - **Implemented**:
   - Directory structure and module boundaries.
   - CMake build system with preset definitions (`debug`, `release`, `profile`, `editor`, `asan`, `tsan`).
   - Strict compiler warning policies (`-Wall -Wextra -Wconversion -Wshadow`) and C++20 enforcement.
   - Engine target policies: exceptions and RTTI disabled (`-fno-exceptions`, `-fno-rtti`).
-  - Basic dependency-free CTest smoke testing.
   - Formatting configuration (`.clang-format`) and static analysis configuration (`.clang-tidy`).
-  - Architecture documentation, initial Architecture Decision Records (ADRs), and error reference catalog.
+  - Architecture documentation, Architecture Decision Records (ADRs 0001–0013), and error reference catalog.
+  - Phase 1: Core engine primitives (Result, allocators, generational handles, clock, log, slot map, strong ID, events, job system, math).
+  - Phase 2: Platform layer (SDL3) and Null RHI.
+  - Phase 3: Shared World (Flecs ECS) and Two-State Conductor execution runtime.
+  - Phase 4: Vulkan 1.3+ RHI backend, dynamic rendering, and DAG Render Graph.
+  - Phase 5: Jolt Physics integration, fixed-timestep accumulator, and skeletal animation system.
 - **Planned (Not Implemented)**:
-  - Phase 1: Core engine primitives (allocators, generational handles, job system, logging, math).
-  - Phase 2: Platform layer and null RHI.
-  - Phase 3: Shared World and two-state Conductor execution runtime.
-  - Phase 4: Vulkan RHI backend and render graph.
-  - Phase 5: Physics integration (Jolt) and animation system.
   - Phase 6: Scripting (Lua) and UI systems.
 - **Experimental**:
   - None at this stage.

@@ -8,6 +8,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Jolt Physics Integration (Phase 5A)**:
+  - Integration of Jolt Physics v5.6.0 via CMake `FetchContent` pinned without exceptions or RTTI.
+  - Subsystem encapsulation in `engine/physics/` (`eng::physics`) with Jolt headers isolated strictly within private implementation files (`src/`).
+  - Global `PhysicsSystem` lifecycle manager with idempotent initialization and teardown.
+  - `PhysicsWorld` managing rigid bodies via `GenerationalHandle`-based `BodyHandle`.
+  - Static, Kinematic, and Dynamic rigid body motion types with Box, Sphere, and Capsule geometric colliders.
+  - Spatial intersection queries: `RaycastQuery` with surface normal evaluation and `ShapeCastQuery` (sphere sweep).
+  - Fixed-timestep simulation accumulator ensuring frame-rate independence and avoiding simulation spirals.
+  - Contact event collection with `CollisionEvent` reporting contact lifecycle events (Added, Persisted, Removed).
+  - Flecs ECS integration: `RigidBodyComponent`, `ColliderComponent`, `PhysicsTransformComponent`, with continuous kinematic transform push, dynamic transform pull, and automatic body destruction via `OnRemove` observer.
+- **Skeletal Animation System (Phase 5B)**:
+  - Subsystem in `engine/anim/` (`eng::anim`) for skeletal hierarchy, animation sampling, and forward kinematics.
+  - `Bone` hierarchy and `Skeleton` class maintaining topological sort DAG order for linear $O(N)$ forward kinematics pose evaluation and inverse bind matrix computation.
+  - `AnimationClip` with multi-channel `BoneTrack` storing keyframes for translation, rotation, and scale.
+  - `AnimationSampler` evaluating keyframe channels using linear interpolation (LERP) for translation and scale, and spherical linear interpolation (SLERP) with shortest-path hemisphere check for rotation.
+  - `AnimationController` supporting playback control (play, pause, resume, stop), looping, playback speed scaling, and cross-fade blending between animation clips over arbitrary durations.
+  - Flecs ECS integration: `SkeletonComponent`, `AnimationComponent`, and `SkinningPaletteComponent` evaluated within the `Continuous` system group.
+- **Architecture Documentation (ADR-0012 & ADR-0013)**:
+  - `ADR-0012`: Jolt Physics integration, fixed-timestep accumulator, Conductor continuous simulation gating, and Flecs ECS lifecycle sync.
+  - `ADR-0013`: Skeletal animation system architecture, topological forward kinematics, SLERP interpolation, and cross-fade blending.
+- **Testing & Quality Assurance (Phase 5)**:
+  - Unit tests in `tests/unit/physics/physics_test.cpp` verifying physics lifecycle, body handles, gravity stepping, collision events, raycasts, shape sweeps, and ECS observers.
+  - Unit tests in `tests/unit/anim/anim_test.cpp` verifying skeleton DAG validation, forward kinematics, rest-pose identity skinning, SLERP rotation, cross-fade blending, and ECS palette evaluation.
+
 - **Vulkan RHI Backend & Dynamic Rendering (Phase 4.1)**:
   - Concrete hardware-accelerated Vulkan backend (`eng::rhi::vk::VulkanDevice`) in `engine/rhi/src/vulkan/` supporting Vulkan 1.3+ core capabilities.
   - Zero graphics API headers leaked outside `/engine/rhi` in compliance with Section 2 Rule 3.
