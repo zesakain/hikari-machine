@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Subsystem Integration Audit & Stabilization (Phase 5.9)**:
+  - Added `acquireNextImage()` and `present()` methods to `RhiDevice` with zero-overhead headless default; implemented full swapchain presentation on `VulkanDevice`.
+  - Added live hardware swapchain acquisition and presentation verification test on physical GPU in `tests/unit/rhi/vulkan_rhi_test.cpp`.
+  - Implemented double-buffered collision event swapping in `PhysicsWorld::step()` to eliminate memory leak and hot-path vector copying during continuous collisions.
+  - Added safety bounds check on contact manifold points to prevent out-of-bounds access on sensor or empty-point contacts.
+  - Validated all 24 unit and integration test suites across all 6 CMake presets (`debug`, `release`, `profile`, `editor`, `asan`, `tsan`).
+
 - **Jolt Physics Integration (Phase 5A)**:
   - Integration of Jolt Physics v5.6.0 via CMake `FetchContent` pinned without exceptions or RTTI.
   - Subsystem encapsulation in `engine/physics/` (`eng::physics`) with Jolt headers isolated strictly within private implementation files (`src/`).
