@@ -2,12 +2,15 @@
 #
 # Core module library providing foundational engine primitives.
 
+find_package(Threads REQUIRED)
+
 add_library(engine_core STATIC
     src/arena_allocator.cpp
     src/assert.cpp
     src/budget.cpp
     src/clock.cpp
     src/event.cpp
+    src/job_system.cpp
     src/linear_allocator.cpp
     src/log.cpp
     src/pool_allocator.cpp
@@ -23,4 +26,5 @@ target_include_directories(engine_core
 target_link_libraries(engine_core
     PUBLIC
         hikari::engine_flags
+        Threads::Threads
 )
