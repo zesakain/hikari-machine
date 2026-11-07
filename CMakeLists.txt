@@ -126,6 +126,11 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp")
             hikari::engine_base
     )
 
+    if(HIKARI_BUILD_EDITOR)
+        target_link_libraries(hikari PRIVATE hikari::editor_lib)
+        target_compile_definitions(hikari PRIVATE HIKARI_BUILD_EDITOR=1)
+    endif()
+
     set_target_properties(hikari PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
     )

@@ -18,6 +18,10 @@
 #include "ui/ui_system.h"
 #include "world/world.h"
 
+#if defined(HIKARI_BUILD_EDITOR)
+#include "editor/editor_engine.h"
+#endif
+
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
@@ -213,6 +217,47 @@ int main(int argc, char* argv[]) {
     ui::UiSystem uiSystem;
     (void)uiSystem.initialize({.width = 1280, .height = 720}, *rhiDevice);
 
+    const std::string_view kMainHudRml = R"(
+<rml>
+<head>
+<title>Hikari Diagnostics HUD</title>
+<style>
+body {
+    font-family: Arial;
+    font-size: 14px;
+    color: #ffffff;
+    margin: 0;
+    padding: 0;
+}
+.hud-banner {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    width: 320px;
+    height: 48px;
+    background-color: #1a2538;
+}
+.hud-bar {
+    position: absolute;
+    bottom: 24px;
+    left: 20px;
+    width: 260px;
+    height: 24px;
+    background-color: #2b7a3d;
+}
+</style>
+</head>
+<body>
+<div class="hud-banner"></div>
+<div class="hud-bar"></div>
+</body>
+</rml>
+)";
+    auto hudRes = uiSystem.loadDocumentFromMemory(kMainHudRml, "main_hud");
+    if (hudRes.hasValue()) {
+        uiSystem.showDocument(hudRes.value());
+    }
+
     // 6. Two-State Conductor
     auto modeA = std::make_unique<ExplorationMode>();
     auto modeB = std::make_unique<SkillMode>();
@@ -222,6 +267,16 @@ int main(int argc, char* argv[]) {
         ENG_LOG_CRITICAL("Conductor", "Failed to initialize Two-State Conductor");
         return 1;
     }
+
+#if defined(HIKARI_BUILD_EDITOR)
+    editor::EditorEngine editorEngine;
+    if (editorEngine.initialize(*rhiDevice)) {
+        editorEngine.bindWorld(&world);
+        editorEngine.bindConductor(&conductor);
+        ENG_LOG_INFO("Editor",
+                     "EditorEngine successfully initialized and bound to World & Conductor");
+    }
+#endif
 
     ENG_LOG_INFO("Core", "=== Initialization Complete. Entering Main Loop ===");
 
@@ -249,33 +304,88 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // Update Conductor (updates clocks and ticks active mode & standby preparation)
-        conductor.update(fixedStep);
-
-        // Step authoritative Flecs world
-        world.progress(static_cast<float>(fixedStep.toSeconds()));
-
-        // Update UI using unscaled UiClock delta
-        uiSystem.processInput(input, prevInput);
-        uiSystem.update(fixedStep);
-
-        // Render Graph Execution
-        render::RenderGraph renderGraph;
-        uiSystem.render(renderGraph);
-        auto compileRes = renderGraph.compile();
-        if (compileRes.hasValue()) {
-            mainCmd->begin();
-            (void)renderGraph.execute(*rhiDevice, *mainCmd);
-            mainCmd->end();
-        }
-
-        // Swapchain present if windowed Vulkan
+        // 1. Swapchain image acquisition (must precede recording passes that target it)
         if (window) {
             (void)rhiDevice->acquireNextImage();
+        }
+
+        // 2. Process Input for UI and Editor
+        uiSystem.processInput(input, prevInput);
+#if defined(HIKARI_BUILD_EDITOR)
+        if (editorEngine.isInitialized()) {
+            editorEngine.processInput(input);
+        }
+#endif
+
+        // 3. Update Conductor, World, and UI clocks
+        conductor.update(fixedStep);
+        world.progress(static_cast<float>(fixedStep.toSeconds()));
+        uiSystem.update(fixedStep);
+
+        // 4. Record Frame Rendering Commands
+        mainCmd->begin();
+
+        rhi::RenderPassBeginInfo passInfo{
+            .clearColor = {0.08F, 0.12F, 0.20F, 1.0F}, // Deep Hikari Blue background baseline
+            .clearTarget = true,
+        };
+        mainCmd->beginRenderPass(passInfo);
+
+        // Visible diagnostic mode indicator rectangle at top right
+        // Blue in State A, Amber in State B, Magenta during transition
+        float modeColor[4] = {0.2F, 0.5F, 0.9F, 1.0F};
+        if (conductor.getState() == framework::ConductorState::Transitioning) {
+            modeColor[0] = 0.8F;
+            modeColor[1] = 0.2F;
+            modeColor[2] = 0.8F;
+        } else if (conductor.getActiveSlot() == framework::ActiveSlot::SlotB) {
+            modeColor[0] = 0.9F;
+            modeColor[1] = 0.6F;
+            modeColor[2] = 0.1F;
+        }
+        mainCmd->clearRect(1000, 20, 240, 48, modeColor[0], modeColor[1], modeColor[2], 1.0F);
+
+        // Render runtime UI
+        uiSystem.render(*mainCmd);
+
+#if defined(HIKARI_BUILD_EDITOR)
+        if (editorEngine.isInitialized()) {
+            editorEngine.beginFrame(fixedStep);
+            editorEngine.drawPanels();
+            editorEngine.endFrame(*mainCmd);
+        }
+#endif
+
+        mainCmd->endRenderPass();
+        mainCmd->end();
+
+        // 5. Submit recorded commands to GPU queue
+        (void)rhiDevice->submit(mainCmd.get());
+
+        // 6. Present rendered swapchain image to display
+        if (window) {
             (void)rhiDevice->present();
         }
 
         frameCount++;
+
+        // Periodic telemetry logging (on frame 1 and every 300 frames)
+        if (frameCount == 1 || (frameCount % 300) == 0) {
+            const auto& uiStats = uiSystem.renderStats();
+            uint32_t editorDraws = 0;
+            uint32_t editorVerts = 0;
+#if defined(HIKARI_BUILD_EDITOR)
+            if (editorEngine.isInitialized()) {
+                editorDraws = editorEngine.lastDrawCallCount();
+                editorVerts = editorEngine.lastVertexCount();
+            }
+#endif
+            ENG_LOG_FORMAT(
+                LogLevel::Info, "Render",
+                "Frame %u Telemetry: UI Draws: %u (Tris: %u), Editor Draws: %u (Verts: %u)",
+                frameCount, uiStats.drawCalls, uiStats.triangleCount, editorDraws, editorVerts);
+        }
+
         if (targetFrames > 0 && frameCount >= targetFrames) {
             running = false;
         }
@@ -286,6 +396,9 @@ int main(int argc, char* argv[]) {
 
     // 8. Graceful Reverse Shutdown
     conductor.shutdown();
+#if defined(HIKARI_BUILD_EDITOR)
+    editorEngine.shutdown();
+#endif
     uiSystem.shutdown();
     scriptEngine.unbindWorld();
     scriptEngine.shutdown();
