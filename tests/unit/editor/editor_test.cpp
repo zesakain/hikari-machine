@@ -2,6 +2,8 @@
 /// @brief Comprehensive test suite for the Dear ImGui editor tooling subsystem.
 
 #include "editor/editor_engine.h"
+#include "editor/editor_theme.h"
+#include "editor/workspace_manager.h"
 #include "framework/conductor.h"
 #include "framework/mode.h"
 #include "platform/input_snapshot.h"
@@ -10,6 +12,7 @@
 #include "world/world.h"
 
 #include <cstdlib>
+#include <fstream>
 #include <iostream>
 
 using namespace eng;
@@ -152,9 +155,116 @@ static void testEditorInputProcessing() {
     std::cout << "[PASS] testEditorInputProcessing\n";
 }
 
+static void testPanelManagerAndRegistry() {
+    auto devRes = rhi::createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto nullDevice = std::move(devRes.value());
+
+    EditorEngine editor;
+    TEST_CHECK(editor.initialize(*nullDevice));
+
+    auto& wm = editor.getWorkspaceManager();
+    TEST_CHECK(!wm.getPanels().empty());
+
+    // Verify all standard panels exist in registry
+    auto* hierarchy = wm.findPanel("hierarchy");
+    TEST_CHECK(hierarchy != nullptr);
+    TEST_CHECK(hierarchy->getId() == "hierarchy");
+    TEST_CHECK(hierarchy->getDisplayName() == "Scene Hierarchy");
+    TEST_CHECK(hierarchy->isOpen());
+
+    auto* inspector = wm.findPanel("inspector");
+    TEST_CHECK(inspector != nullptr);
+    TEST_CHECK(inspector->getId() == "inspector");
+
+    auto* viewport = wm.findPanel("viewport");
+    TEST_CHECK(viewport != nullptr);
+
+    auto* console = wm.findPanel("console");
+    TEST_CHECK(console != nullptr);
+
+    auto* metrics = wm.findPanel("metrics");
+    TEST_CHECK(metrics != nullptr);
+
+    auto* conductor = wm.findPanel("conductor");
+    TEST_CHECK(conductor != nullptr);
+
+    auto* contentBrowser = wm.findPanel("content_browser");
+    TEST_CHECK(contentBrowser != nullptr);
+
+    // Test non-existent panel
+    TEST_CHECK(wm.findPanel("non_existent_panel") == nullptr);
+
+    // Test visibility toggling
+    hierarchy->setOpen(false);
+    TEST_CHECK(!hierarchy->isOpen());
+    hierarchy->setOpen(true);
+    TEST_CHECK(hierarchy->isOpen());
+
+    editor.shutdown();
+    std::cout << "[PASS] testPanelManagerAndRegistry\n";
+}
+
+static void testWorkspacePersistenceAndRecovery() {
+    auto devRes = rhi::createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto nullDevice = std::move(devRes.value());
+
+    const char* testIniPath = "/tmp/hikari_test_workspace.ini";
+    (void)std::remove(testIniPath);
+
+    EditorEngine editor;
+    TEST_CHECK(editor.initialize(*nullDevice));
+
+    // 1. Save layout to custom path
+    bool saveOk = editor.saveWorkspaceLayout(testIniPath);
+    TEST_CHECK(saveOk);
+
+    // 2. Load layout from custom path
+    bool loadOk = editor.loadWorkspaceLayout(testIniPath);
+    TEST_CHECK(loadOk);
+
+    // 3. Test layout reset request
+    TEST_CHECK(!editor.getWorkspaceManager().isLayoutResetPending());
+    editor.resetWorkspaceLayout();
+    TEST_CHECK(editor.getWorkspaceManager().isLayoutResetPending());
+
+    // 4. Test recovery from corrupted / empty file
+    const char* corruptIniPath = "/tmp/hikari_corrupt_workspace.ini";
+    {
+        std::ofstream corruptFile(corruptIniPath);
+        corruptFile << "bad";
+    }
+    bool corruptHandled = editor.loadWorkspaceLayout(corruptIniPath);
+    // Should return false and mark layout reset pending
+    TEST_CHECK(!corruptHandled);
+    TEST_CHECK(editor.getWorkspaceManager().isLayoutResetPending());
+
+    (void)std::remove(testIniPath);
+    (void)std::remove(corruptIniPath);
+
+    editor.shutdown();
+    std::cout << "[PASS] testWorkspacePersistenceAndRecovery\n";
+}
+
+static void testThemeTokens() {
+    ThemeColors dark = ThemeColors::defaultDark();
+    TEST_CHECK(dark.backgroundApp.a == 1.0F);
+    TEST_CHECK(dark.accentPrimary.r > 0.0F);
+
+    Color4f testColor(1.0F, 0.0F, 0.0F, 1.0F);
+    uint32_t packed = testColor.toRgba32();
+    TEST_CHECK((packed & 0xFFU) == 255U); // Red component
+
+    std::cout << "[PASS] testThemeTokens\n";
+}
+
 int main() {
     std::cout << "Running Editor subsystem unit tests...\n";
+    testThemeTokens();
     testEditorLifecycle();
+    testPanelManagerAndRegistry();
+    testWorkspacePersistenceAndRecovery();
     testEditorFrameAndPanels();
     testEditorInputProcessing();
     std::cout << "All Editor subsystem tests PASSED!\n";
