@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Shared World & Flecs ECS Integration (Phase 3.1)**:
+  - Unified simulation `eng::world::World` in `<world/world.h>` wrapping Flecs ECS amalgamation v4.0.4 compiled as isolated C static library (`flecs_static`).
+  - 64-bit generational `EntityHandle` in `<world/entity.h>` encapsulating entity ID and generation.
+  - Component storage supporting POD components, mutable and const accessors (`setComponent`, `getComponent`, `getMutableComponent`, `hasComponent`, `removeComponent`), and zero-sized tag optimization (`addTag`).
+  - System group phase gating (`SystemGroup::Continuous`, `StateA`, `StateB`) enabling and disabling entire system pipelines without tearing down systems or duplicating entities.
+- **Two-State Conductor Execution Runtime (Phase 3.2)**:
+  - Mode-based coordination runtime `eng::framework::Conductor` in `<framework/conductor.h>` coordinating two alternating execution states (Slot A and Slot B) over a single shared simulation World.
+  - Abstract `Mode` interface in `<framework/mode.h>` defining lifecycle contracts (`enter`, `exit`, `update`, `prepare`, `commit`, `cancelPrepare`).
+  - Decoupled clock domains: unscaled `WorldClock`, active gameplay `ActionClock` (scaled during transition entry), and unscaled `UiClock`.
+  - Incremental budget-aware standby preparation (`prepare(world, budget)`) strictly adhering to per-frame microsecond budgets.
+  - Atomic commit validation (`commit(world)`) verifying speculative caches before role reversal, with complete rollback safety on failure preserving the active state uninterrupted.
+  - Smooth slow-motion transition curves scaling `ActionClock` without pausing physical simulation or UI systems.
+- **Architecture Documentation (ADR-0008 & ADR-0009)**:
+  - `ADR-0008`: Flecs ECS adoption, amalgamation vendoring in `engine/world/src/flecs/`, and third-party compiler warning isolation.
+  - `ADR-0009`: Two-State Conductor execution runtime, shared world ownership, decoupled clocks, and atomic rollback semantics.
+- **Headless Testing & Multi-Preset Verification (Phase 3.3)**:
+  - Unit tests for World entity lifecycle, component access, and system group gating in `tests/unit/world/world_test.cpp`.
+  - Unit tests for Conductor lifecycle, incremental preparation, commit validation, and rollback safety in `tests/unit/framework/conductor_test.cpp`.
+  - Unit tests for independent clock scaling and slow-motion curves in `tests/unit/framework/clock_domain_test.cpp`.
+  - Headless integration stress test executing 10,000 mode transitions with entity churn and flat memory verification in `tests/headless/conductor_stress_test.cpp`.
+
 - **Platform Layer & SDL3 Backend (Phase 2.1)**:
   - Hardware-neutral window and event management encapsulated behind `eng::platform::Platform` and `Window` interfaces.
   - Zero SDL headers leaked into public engine headers; all SDL3 dependencies strictly isolated within `engine/platform/src/`.
