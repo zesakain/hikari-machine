@@ -35,7 +35,8 @@ struct BufferDesc {
     MemoryUsage memoryUsage{MemoryUsage::GpuOnly};
 
     /// Non-owning diagnostic label for GPU profilers (RenderDoc/Tracy).
-    // NOLINTNEXTLINE(readability-redundant-member-init): Required for GCC -Wmissing-field-initializers
+    // NOLINTNEXTLINE(readability-redundant-member-init): Required for GCC
+    // -Wmissing-field-initializers
     std::string_view debugName{};
 };
 
