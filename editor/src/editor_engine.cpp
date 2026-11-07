@@ -291,6 +291,7 @@ void EditorEngine::endFrame(rhi::RhiCommandList& cmdList) {
                 static_cast<uint32_t>(std::max(0.0f, pcmd->ClipRect.w - pcmd->ClipRect.y));
 
             cmdList.setScissor(clipX, clipY, clipW, clipH);
+            cmdList.clearRect(clipX, clipY, clipW, clipH, 0.14F, 0.17F, 0.24F, 0.95F);
         }
     }
 }
