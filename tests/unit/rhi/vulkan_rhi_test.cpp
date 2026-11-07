@@ -336,6 +336,193 @@ static int testVulkanRealSwapchainPresentation() {
     return 0;
 }
 
+static int testCommandListDestructionBeforeDeviceDestruction() {
+    VulkanDeviceDesc desc{.windowHandle = nullptr, .enableValidation = false};
+    auto devRes = createVulkanDevice(desc);
+    if (!devRes.hasValue()) {
+        std::cout << "Vulkan device not available; skipping\n";
+        return 0;
+    }
+    auto device = std::move(devRes.value());
+
+    auto cmdRes = device->createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto cmd = std::move(cmdRes.value());
+
+    cmd->begin();
+    cmd->setViewport(0.0F, 0.0F, 100.0F, 100.0F, 0.0F, 1.0F);
+    cmd->end();
+
+    // Normal destruction order: command list destroyed before device
+    cmd.reset();
+    TEST_CHECK(cmd == nullptr);
+
+    device->waitIdle();
+    device.reset();
+    TEST_CHECK(device == nullptr);
+
+    std::cout << "Command list destruction before device verified!\n";
+    return 0;
+}
+
+static int testDeviceShutdownWithAllocatedCommandLists() {
+    VulkanDeviceDesc desc{.windowHandle = nullptr, .enableValidation = false};
+    auto devRes = createVulkanDevice(desc);
+    if (!devRes.hasValue()) {
+        std::cout << "Vulkan device not available; skipping\n";
+        return 0;
+    }
+    auto device = std::move(devRes.value());
+
+    // Allocate buffer for staging test
+    auto bufRes = device->createBuffer(BufferDesc{
+        .sizeInBytes = 256,
+        .usage = BufferUsageFlags::Storage,
+        .memoryUsage = MemoryUsage::GpuOnly,
+        .debugName = "test_buf",
+    });
+    TEST_CHECK(bufRes.hasValue());
+
+    // Allocate multiple command lists
+    auto cmd1Res = device->createCommandList();
+    auto cmd2Res = device->createCommandList();
+    auto cmd3Res = device->createCommandList();
+    TEST_CHECK(cmd1Res.hasValue() && cmd2Res.hasValue() && cmd3Res.hasValue());
+
+    auto cmd1 = std::move(cmd1Res.value());
+    auto cmd2 = std::move(cmd2Res.value());
+    auto cmd3 = std::move(cmd3Res.value());
+
+    // Record with staging updates into cmd1
+    cmd1->begin();
+    uint32_t testData[16] = {1, 2, 3, 4};
+    cmd1->updateBuffer(bufRes.value(), 0, testData, sizeof(testData));
+    cmd1->end();
+
+    // CRITICAL REGRESSION TEST:
+    // Destroy device FIRST while cmd1, cmd2, cmd3 are still alive!
+    device.reset();
+    TEST_CHECK(device == nullptr);
+
+    // Now destroy the orphaned command lists. Must NOT crash or call vkFreeCommandBuffers.
+    cmd1.reset();
+    cmd2.reset();
+    cmd3.reset();
+
+    std::cout << "Device shutdown with active command lists verified!\n";
+    return 0;
+}
+
+static int testMultipleCommandListCycles() {
+    VulkanDeviceDesc desc{.windowHandle = nullptr, .enableValidation = false};
+    auto devRes = createVulkanDevice(desc);
+    if (!devRes.hasValue()) {
+        std::cout << "Vulkan device not available; skipping\n";
+        return 0;
+    }
+    auto device = std::move(devRes.value());
+
+    for (int i = 0; i < 20; ++i) {
+        auto cmdRes = device->createCommandList();
+        TEST_CHECK(cmdRes.hasValue());
+        auto cmd = std::move(cmdRes.value());
+
+        cmd->begin();
+        cmd->setViewport(0.0F, 0.0F, 100.0F, 100.0F, 0.0F, 1.0F);
+        cmd->end();
+
+        auto subRes = device->submit(cmd.get());
+        TEST_CHECK(subRes.hasValue());
+    }
+
+    device->waitIdle();
+    std::cout << "Multiple command list creation/destruction cycles verified!\n";
+    return 0;
+}
+
+static int testPartialInitializationCleanup() {
+    VulkanDeviceDesc desc{.windowHandle = nullptr, .enableValidation = false};
+    auto devRes = createVulkanDevice(desc);
+    if (!devRes.hasValue()) {
+        std::cout << "Vulkan device not available; skipping\n";
+        return 0;
+    }
+    auto device = std::move(devRes.value());
+    TEST_CHECK(device != nullptr);
+
+    // Buffer creation partial failure and rejection (zero size and overflow size)
+    auto zeroBuf = device->createBuffer(BufferDesc{
+        .sizeInBytes = 0,
+        .usage = BufferUsageFlags::Storage,
+        .memoryUsage = MemoryUsage::GpuOnly,
+        .debugName = "zero_buf",
+    });
+    TEST_CHECK(!zeroBuf.hasValue());
+
+    auto hugeBuf = device->createBuffer(BufferDesc{
+        .sizeInBytes = static_cast<size_t>(-1),
+        .usage = BufferUsageFlags::Storage,
+        .memoryUsage = MemoryUsage::GpuOnly,
+        .debugName = "huge_buf",
+    });
+    TEST_CHECK(!hugeBuf.hasValue());
+
+    // Texture creation partial failure (zero dimensions)
+    auto badTex = device->createTexture(TextureDesc{
+        .type = TextureType::Texture2D,
+        .format = TextureFormat::RGBA8_UNORM,
+        .width = 0,
+        .height = 0,
+        .depth = 1,
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .usage = TextureUsageFlags::Sampled,
+        .debugName = "zero_tex",
+    });
+    TEST_CHECK(!badTex.hasValue());
+
+    // Verify device is still completely operational after failed allocations
+    auto validBuf = device->createBuffer(BufferDesc{
+        .sizeInBytes = 64,
+        .usage = BufferUsageFlags::Storage,
+        .memoryUsage = MemoryUsage::GpuOnly,
+        .debugName = "valid_buf",
+    });
+    TEST_CHECK(validBuf.hasValue());
+    device->destroyBuffer(validBuf.value());
+
+    std::cout << "Partial initialization failure and rollback verified!\n";
+    return 0;
+}
+
+static int testRepeatedDeviceInitializationShutdown() {
+    for (int cycle = 0; cycle < 3; ++cycle) {
+        VulkanDeviceDesc desc{.windowHandle = nullptr, .enableValidation = false};
+        auto devRes = createVulkanDevice(desc);
+        if (!devRes.hasValue()) {
+            std::cout << "Vulkan device not available; skipping\n";
+            return 0;
+        }
+        auto device = std::move(devRes.value());
+        TEST_CHECK(device != nullptr);
+
+        auto cmdRes = device->createCommandList();
+        TEST_CHECK(cmdRes.hasValue());
+        auto cmd = std::move(cmdRes.value());
+
+        cmd->begin();
+        cmd->end();
+        auto subRes = device->submit(cmd.get());
+        TEST_CHECK(subRes.hasValue());
+
+        device->waitIdle();
+        cmd.reset();
+        device.reset();
+    }
+    std::cout << "Repeated device initialization/shutdown cycles verified!\n";
+    return 0;
+}
+
 int main() {
     std::cout << "Running Vulkan RHI Tests...\n";
 
@@ -362,6 +549,21 @@ int main() {
         return 1;
     }
     if (testVulkanRealSwapchainPresentation() != 0) {
+        return 1;
+    }
+    if (testCommandListDestructionBeforeDeviceDestruction() != 0) {
+        return 1;
+    }
+    if (testDeviceShutdownWithAllocatedCommandLists() != 0) {
+        return 1;
+    }
+    if (testMultipleCommandListCycles() != 0) {
+        return 1;
+    }
+    if (testPartialInitializationCleanup() != 0) {
+        return 1;
+    }
+    if (testRepeatedDeviceInitializationShutdown() != 0) {
         return 1;
     }
 
