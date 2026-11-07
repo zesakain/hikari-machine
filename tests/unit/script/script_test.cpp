@@ -232,7 +232,8 @@ static void testEntityScriptComponentIntegration() {
     // Test error isolation: assign non-existent script name
     auto badEntity = world.createEntity("BadActor");
     ScriptComponent badScriptComp{};
-    std::strncpy(badScriptComp.scriptName, "non_existent_func", sizeof(badScriptComp.scriptName) - 1);
+    std::strncpy(badScriptComp.scriptName, "non_existent_func",
+                 sizeof(badScriptComp.scriptName) - 1);
     badScriptComp.enabled = true;
     world.setComponent(badEntity, badScriptComp);
 
