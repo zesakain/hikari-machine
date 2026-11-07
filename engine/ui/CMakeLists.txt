@@ -17,7 +17,11 @@ FetchContent_Declare(
     GIT_TAG        6.0
     GIT_SHALLOW    TRUE
 )
-FetchContent_MakeAvailable(RmlUi)
+FetchContent_GetProperties(RmlUi)
+if(NOT rmlui_POPULATED)
+    FetchContent_Populate(RmlUi)
+    add_subdirectory(${rmlui_SOURCE_DIR} ${rmlui_BINARY_DIR} EXCLUDE_FROM_ALL)
+endif()
 
 if(TARGET rmlui_core)
     set_target_properties(rmlui_core PROPERTIES SYSTEM TRUE)

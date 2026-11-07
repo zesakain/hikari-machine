@@ -114,3 +114,46 @@ if(HIKARI_BUILD_TESTS AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/CMakeLists.t
     enable_testing()
     add_subdirectory(tests)
 endif()
+
+# -----------------------------------------------------------------------------
+# Primary Engine Executable & Binary Layout
+# -----------------------------------------------------------------------------
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp")
+    add_executable(hikari src/main.cpp)
+    target_link_libraries(hikari
+        PRIVATE
+            hikari::engine_flags
+            hikari::engine_base
+    )
+
+    set_target_properties(hikari PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+    )
+
+    # -------------------------------------------------------------------------
+    # Installation & CPack Packaging
+    # -------------------------------------------------------------------------
+    include(GNUInstallDirs)
+    install(TARGETS hikari
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    )
+
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets")
+        install(DIRECTORY assets/
+            DESTINATION "${CMAKE_INSTALL_DATADIR}/hikari/assets"
+            OPTIONAL
+        )
+    endif()
+
+    set(CPACK_PACKAGE_NAME "hikari")
+    set(CPACK_PACKAGE_VENDOR "Hikari Engine")
+    set(CPACK_PACKAGE_VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
+    set(CPACK_PACKAGE_VERSION_MINOR ${PROJECT_VERSION_MINOR})
+    set(CPACK_PACKAGE_VERSION_PATCH ${PROJECT_VERSION_PATCH})
+    set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "A C++20 3D game engine with a Two-State Conductor over a Shared World")
+    set(CPACK_GENERATOR "TGZ;ZIP")
+    set(CPACK_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}-${PROJECT_VERSION}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}")
+    include(CPack)
+endif()
