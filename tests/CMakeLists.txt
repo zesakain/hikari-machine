@@ -117,6 +117,14 @@ add_executable(ui_test unit/ui/ui_test.cpp)
 target_link_libraries(ui_test PRIVATE hikari::engine_ui hikari::engine_render hikari::engine_rhi)
 add_test(NAME ui_test COMMAND ui_test)
 
+# Editor Unit Tests (Guarded by EDITOR flag)
+if(HIKARI_BUILD_EDITOR)
+    add_executable(editor_test unit/editor/editor_test.cpp)
+    target_link_libraries(editor_test PRIVATE hikari::editor_lib hikari::engine_framework hikari::engine_world hikari::engine_rhi)
+    add_test(NAME editor_test COMMAND editor_test)
+endif()
+
+
 
 
 

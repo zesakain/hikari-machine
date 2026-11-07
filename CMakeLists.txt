@@ -106,6 +106,10 @@ endif()
 # -----------------------------------------------------------------------------
 add_subdirectory(engine)
 
+if(HIKARI_BUILD_EDITOR AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/editor/CMakeLists.txt")
+    add_subdirectory(editor)
+endif()
+
 if(HIKARI_BUILD_TESTS AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/CMakeLists.txt")
     enable_testing()
     add_subdirectory(tests)
