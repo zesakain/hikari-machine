@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Fixed-Size Pool Allocator & Generational Handles (Phase 1.2)**:
+  - `PoolAllocator` in `<core/pool_allocator.h>` providing fixed-size, O(1) allocation and deallocation over caller-provided backing memory with intrusive free-list storage, configurable alignment, and double-deallocation rejection.
+  - `GenerationalHandle` in `<core/generational_handle.h>` providing a lightweight 64-bit handle primitive (32-bit index + 32-bit generation) with explicit invalid sentinels, validity checks, and bit packing.
+  - Comprehensive unit test suites in `tests/unit/core/pool_allocator_test.cpp` and `tests/unit/core/generational_handle_test.cpp`.
 - **Core Memory Allocators (Phase 1.1)**:
   - Alignment utilities in `<core/align.h>` (`isPowerOfTwo`, `alignUp`, `isAligned`).
   - `LinearAllocator` in `<core/linear_allocator.h>` providing alignment-aware bump allocation over caller-provided memory with overflow safety.
