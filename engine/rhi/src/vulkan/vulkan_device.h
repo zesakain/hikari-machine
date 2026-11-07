@@ -21,9 +21,12 @@
 #include "vulkan_types.h"
 
 #include <memory>
+#include <mutex>
 #include <vector>
 
 namespace eng::rhi::vk {
+
+class VulkanCommandList;
 
 /// @class VulkanDevice
 /// @brief Vulkan implementation of the RhiDevice graphics hardware interface.
@@ -64,6 +67,9 @@ public:
     [[nodiscard]] bool isTextureValid(TextureHandle handle) const noexcept;
     [[nodiscard]] bool isSamplerValid(SamplerHandle handle) const noexcept;
 
+    void registerCommandList(VulkanCommandList* cmdList);
+    void unregisterCommandList(VulkanCommandList* cmdList);
+
 private:
     explicit VulkanDevice(std::unique_ptr<VulkanInstance> instance,
                           std::unique_ptr<VulkanPhysicalDevice> physicalDevice, VkDevice device,
@@ -86,6 +92,9 @@ private:
     std::vector<VulkanBufferSlot> buffers_;
     std::vector<VulkanTextureSlot> textures_;
     std::vector<VulkanSamplerSlot> samplers_;
+
+    std::vector<VulkanCommandList*> commandLists_;
+    mutable std::mutex commandListMutex_;
 };
 
 } // namespace eng::rhi::vk

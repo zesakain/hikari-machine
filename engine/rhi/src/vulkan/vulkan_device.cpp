@@ -36,6 +36,18 @@ VulkanDevice::VulkanDevice(std::unique_ptr<VulkanInstance> instance,
 VulkanDevice::~VulkanDevice() noexcept {
     waitIdle();
 
+    // Detach all active command lists and clean up their staging resources
+    // while the device is still valid and idle.
+    {
+        std::lock_guard<std::mutex> lock(commandListMutex_);
+        for (auto* cmdList : commandLists_) {
+            if (cmdList != nullptr) {
+                cmdList->onDeviceDestroyed();
+            }
+        }
+        commandLists_.clear();
+    }
+
     for (auto& slot : buffers_) {
         if (slot.alive) {
             if (slot.buffer != VK_NULL_HANDLE) {
@@ -86,6 +98,27 @@ VulkanDevice::~VulkanDevice() noexcept {
     if (device_ != VK_NULL_HANDLE) {
         vkDestroyDevice(device_, nullptr);
         device_ = VK_NULL_HANDLE;
+    }
+}
+
+void VulkanDevice::registerCommandList(VulkanCommandList* cmdList) {
+    if (cmdList == nullptr) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(commandListMutex_);
+    commandLists_.push_back(cmdList);
+}
+
+void VulkanDevice::unregisterCommandList(VulkanCommandList* cmdList) {
+    if (cmdList == nullptr) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(commandListMutex_);
+    for (auto it = commandLists_.begin(); it != commandLists_.end(); ++it) {
+        if (*it == cmdList) {
+            commandLists_.erase(it);
+            break;
+        }
     }
 }
 

@@ -56,9 +56,10 @@ public:
 
     [[nodiscard]] VkCommandBuffer handle() const noexcept { return cmdBuffer_; }
     void cleanupStagingResources() noexcept;
+    void onDeviceDestroyed() noexcept;
 
 private:
-    VulkanDevice& device_;
+    VulkanDevice* device_{nullptr};
     VkCommandPool pool_{VK_NULL_HANDLE};
     VkCommandBuffer cmdBuffer_{VK_NULL_HANDLE};
     bool isRecording_{false};

@@ -289,7 +289,16 @@ int main(int argc, char* argv[]) {
     uiSystem.shutdown();
     scriptEngine.unbindWorld();
     scriptEngine.shutdown();
+
+    // Command lists must be destroyed before the device that allocated them
+    mainCmd.reset();
+
+    // RHI device must be destroyed before the window and surface it renders to
     rhiDevice.reset();
+
+    // Window must be destroyed before platform/SDL shutdown
+    window.reset();
+
     platform->shutdown();
 
     Logger::defaultLogger().flush(stdout);
