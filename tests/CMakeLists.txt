@@ -30,3 +30,7 @@ add_test(NAME pool_allocator_test COMMAND pool_allocator_test)
 add_executable(generational_handle_test unit/core/generational_handle_test.cpp)
 target_link_libraries(generational_handle_test PRIVATE hikari::engine_core)
 add_test(NAME generational_handle_test COMMAND generational_handle_test)
+
+add_executable(time_test unit/core/time_test.cpp)
+target_link_libraries(time_test PRIVATE hikari::engine_core)
+add_test(NAME time_test COMMAND time_test)
