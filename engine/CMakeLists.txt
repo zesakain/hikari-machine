@@ -13,6 +13,7 @@ add_subdirectory(rhi)
 add_subdirectory(world)
 add_subdirectory(framework)
 add_subdirectory(render)
+add_subdirectory(physics)
 
 add_library(engine_base INTERFACE)
 add_library(hikari::engine_base ALIAS engine_base)
@@ -26,4 +27,5 @@ target_link_libraries(engine_base
         hikari::engine_world
         hikari::engine_framework
         hikari::engine_render
+        hikari::engine_physics
 )
