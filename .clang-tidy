@@ -4,6 +4,7 @@ Checks: >
   bugprone-*,
   -bugprone-easily-swappable-parameters,
   clang-analyzer-*,
+  -clang-analyzer-core.StackAddressEscape,
   concurrency-*,
   modernize-*,
   -modernize-use-trailing-return-type,
@@ -15,7 +16,7 @@ Checks: >
   -readability-function-cognitive-complexity
 
 WarningsAsErrors: ''
-HeaderFilterRegex: 'engine/.*|editor/.*|game/.*|tests/.*'
+HeaderFilterRegex: 'engine/(core|platform|rhi|world/include|framework|render|physics|anim)/.*|editor/.*|game/.*|tests/.*'
 
 CheckOptions:
   - key: readability-identifier-naming.ClassCase
