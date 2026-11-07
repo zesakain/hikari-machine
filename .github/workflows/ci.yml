@@ -49,6 +49,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             ninja-build \
             libvulkan-dev \
+            mesa-vulkan-drivers \
             libfreetype6-dev \
             libasound2-dev \
             libpulse-dev \
@@ -57,7 +58,35 @@ jobs:
             libxcursor-dev \
             libxi-dev \
             libxinerama-dev \
-            libwayland-dev
+            libxkbcommon-dev \
+            libwayland-dev \
+            wayland-protocols
+
+      - name: Cache SDL3
+        id: cache-sdl3
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/sdl3-install
+          key: sdl3-3.2.8-ubuntu-24.04-x86_64
+
+      - name: Build and Install SDL3
+        if: steps.cache-sdl3.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch release-3.2.8 https://github.com/libsdl-org/SDL.git /tmp/sdl3-src
+          cmake -S /tmp/sdl3-src -B /tmp/sdl3-src/build -GNinja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DSDL_SHARED=ON \
+            -DSDL_STATIC=OFF \
+            -DSDL_TESTS=OFF \
+            -DSDL_EXAMPLES=OFF \
+            -DCMAKE_INSTALL_PREFIX=${{ runner.temp }}/sdl3-install
+          cmake --build /tmp/sdl3-src/build --target install
+          rm -rf /tmp/sdl3-src
+
+      - name: Deploy SDL3 to System
+        run: |
+          sudo cp -r ${{ runner.temp }}/sdl3-install/* /usr/local/
+          sudo ldconfig
 
       - name: Configure Preset (${{ matrix.preset }})
         run: cmake --preset ${{ matrix.preset }}
