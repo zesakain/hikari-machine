@@ -82,7 +82,13 @@ enum class ErrorCode : uint16_t {
     ResourceCreationFailed = 303,
 
     /// Command buffer recording or queue submission error (E-0305).
-    CommandSubmissionFailed = 305
+    CommandSubmissionFailed = 305,
+
+    /// Swapchain creation, resizing, or presentation error (E-0306).
+    SwapchainCreationFailed = 306,
+
+    /// Render graph compilation or cycle detection error (E-0307).
+    RenderGraphCompilationFailed = 307
 };
 
 /// @struct Error

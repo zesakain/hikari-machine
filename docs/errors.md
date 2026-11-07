@@ -52,6 +52,8 @@ This catalog documents the structured error codes (`E-xxxx`) and warning codes (
 | `E-0302` | Error | Implemented | Out of GPU device local memory. | VMA allocation failed to find free memory block. | Audit texture/buffer footprints and release unused GPU resources. |
 | `E-0303` | Error | Implemented | RHI resource creation failed. | Invalid descriptor parameters or hardware limit exceeded. | Check GPU capabilities (`GpuCaps`) before allocating resources. |
 | `E-0305` | Error | Implemented | Command buffer recording or queue submission error. | Submitting invalid command list or device lost during submission. | Validate command list state prior to submission. |
+| `E-0306` | Error | Implemented | Swapchain creation, resizing, or presentation error. | Incompatible surface format, out-of-date swapchain, or presentation failure. | Query surface capabilities and recreate swapchain on resize. |
+| `E-0307` | Error | Implemented | Render graph compilation or cycle detection error. | Cyclic dependency detected or invalid resource handle in pass declaration. | Check pass read/write declarations to ensure an acyclic DAG. |
 
 ---
 
