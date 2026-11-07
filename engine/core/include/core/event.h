@@ -329,6 +329,7 @@ public:
 
     /// @brief Clears all registered listeners and resets the dispatcher.
     void clear() noexcept {
+        ENG_ASSERT(dispatchDepth_ == 0, "Cannot clear EventDispatcher during active dispatch");
         if (slots_ == nullptr || capacity_ == 0) {
             return;
         }

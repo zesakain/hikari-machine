@@ -151,6 +151,7 @@ public:
     static constexpr uint32_t kMaxSupportedWorkers = JobSystemConfig::kMaxSupportedWorkers;
     static constexpr uint32_t kMaxInlinePredecessors = 8;
     static constexpr uint32_t kInvalidIndex = 0xFFFF'FFFF;
+    static constexpr uint32_t kRetiredGeneration = 0xFFFF'FFFF;
 
     /// @struct JobSlot
     /// @brief Storage layout for a single job slot.
@@ -246,6 +247,21 @@ public:
     [[nodiscard]] uint32_t activeJobCount() const noexcept;
     [[nodiscard]] bool isRunning() const noexcept {
         return !stopping_.load(std::memory_order_acquire);
+    }
+
+    /// @brief Test helper to set slot generation for overflow testing.
+    void setSlotGenerationForTesting(uint32_t slotIndex, uint32_t gen) noexcept {
+        if (slotIndex < maxJobs_) {
+            jobs_[slotIndex].generation = gen;
+        }
+    }
+
+    /// @brief Test helper to inspect slot generation for overflow testing.
+    [[nodiscard]] uint32_t slotGenerationForTesting(uint32_t slotIndex) const noexcept {
+        if (slotIndex < maxJobs_) {
+            return jobs_[slotIndex].generation;
+        }
+        return 0;
     }
 
 private:

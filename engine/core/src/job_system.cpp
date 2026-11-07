@@ -330,17 +330,13 @@ Result<JobState, Error> JobSystem::wait(JobHandle handle) noexcept {
         {
             std::unique_lock lock(mutex_);
 
-            if (handle.index() >= maxJobs_) {
+            if (!isValidHandleLocked(handle)) {
                 return Result<JobState, Error>::failure(
-                    Error(ErrorCode::HandleResolutionFailed, "Job handle index out of bounds"));
+                    Error(ErrorCode::HandleResolutionFailed,
+                          "Invalid, stale, or unallocated job handle"));
             }
 
             const JobSlot& slot = jobs_[handle.index()];
-            if (slot.generation != handle.generation()) {
-                return Result<JobState, Error>::failure(
-                    Error(ErrorCode::HandleResolutionFailed, "Stale job handle"));
-            }
-
             JobState curState = slot.state.load(std::memory_order_acquire);
             if (curState == JobState::Succeeded || curState == JobState::Failed ||
                 curState == JobState::Canceled) {
@@ -361,7 +357,7 @@ Result<JobState, Error> JobSystem::wait(JobHandle handle) noexcept {
                     if (stopping_.load(std::memory_order_acquire)) {
                         return true;
                     }
-                    if (slot.generation != handle.generation()) {
+                    if (!isValidHandleLocked(handle)) {
                         return true;
                     }
                     JobState s = slot.state.load(std::memory_order_acquire);
@@ -463,7 +459,11 @@ bool JobSystem::isValidHandleLocked(JobHandle handle) const noexcept {
     if (handle.index() >= maxJobs_) {
         return false;
     }
-    return jobs_[handle.index()].generation == handle.generation();
+    const JobSlot& slot = jobs_[handle.index()];
+    if (slot.state.load(std::memory_order_acquire) == JobState::Unallocated) {
+        return false;
+    }
+    return slot.generation == handle.generation();
 }
 
 Result<void, Error> JobSystem::reclaim(JobHandle handle) noexcept {
@@ -487,17 +487,23 @@ Result<void, Error> JobSystem::reclaim(JobHandle handle) noexcept {
             Error(ErrorCode::InvalidState, "Cannot reclaim job that is still active"));
     }
 
-    uint32_t nextGen = slot.generation + 1;
-    if (nextGen == GenerationalHandle::kInvalidGeneration || nextGen == 0xFFFF'FFFF) {
-        nextGen = 1;
+    if (slot.generation < kRetiredGeneration - 1) {
+        ++slot.generation;
+        slot.state.store(JobState::Unallocated, std::memory_order_release);
+        slot.function = nullptr;
+        slot.voidFunction = nullptr;
+        slot.context = nullptr;
+        slot.predecessorCount = 0;
+        slotFreeList_[freeSlotCount_++] = handle.index();
+    } else {
+        slot.generation = kRetiredGeneration;
+        slot.state.store(JobState::Unallocated, std::memory_order_release);
+        slot.function = nullptr;
+        slot.voidFunction = nullptr;
+        slot.context = nullptr;
+        slot.predecessorCount = 0;
+        // Retired permanently: not returned to slotFreeList_ to prevent wraparound
     }
-    slot.generation = nextGen;
-    slot.state.store(JobState::Unallocated, std::memory_order_release);
-    slot.function = nullptr;
-    slot.voidFunction = nullptr;
-    slot.context = nullptr;
-    slot.predecessorCount = 0;
-    slotFreeList_[freeSlotCount_++] = handle.index();
     return Result<void, Error>::success();
 }
 
@@ -625,17 +631,23 @@ void JobSystem::reclaimCompletedSlotsLocked() noexcept {
         JobState s = jobs_[i].state.load(std::memory_order_acquire);
         if ((s == JobState::Succeeded || s == JobState::Failed || s == JobState::Canceled) &&
             jobs_[i].firstSuccessorEdge == kInvalidIndex) {
-            uint32_t nextGen = jobs_[i].generation + 1;
-            if (nextGen == GenerationalHandle::kInvalidGeneration || nextGen == 0xFFFF'FFFF) {
-                nextGen = 1;
+            if (jobs_[i].generation < kRetiredGeneration - 1) {
+                ++jobs_[i].generation;
+                jobs_[i].state.store(JobState::Unallocated, std::memory_order_release);
+                jobs_[i].function = nullptr;
+                jobs_[i].voidFunction = nullptr;
+                jobs_[i].context = nullptr;
+                jobs_[i].predecessorCount = 0;
+                slotFreeList_[freeSlotCount_++] = i;
+            } else {
+                jobs_[i].generation = kRetiredGeneration;
+                jobs_[i].state.store(JobState::Unallocated, std::memory_order_release);
+                jobs_[i].function = nullptr;
+                jobs_[i].voidFunction = nullptr;
+                jobs_[i].context = nullptr;
+                jobs_[i].predecessorCount = 0;
+                // Retired permanently: not returned to slotFreeList_
             }
-            jobs_[i].generation = nextGen;
-            jobs_[i].state.store(JobState::Unallocated, std::memory_order_release);
-            jobs_[i].function = nullptr;
-            jobs_[i].voidFunction = nullptr;
-            jobs_[i].context = nullptr;
-            jobs_[i].predecessorCount = 0;
-            slotFreeList_[freeSlotCount_++] = i;
         }
     }
 }
