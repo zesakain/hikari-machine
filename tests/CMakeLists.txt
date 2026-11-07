@@ -70,6 +70,20 @@ add_executable(world_test unit/world/world_test.cpp)
 target_link_libraries(world_test PRIVATE hikari::engine_world)
 add_test(NAME world_test COMMAND world_test)
 
+# Framework Unit Tests
+add_executable(conductor_test unit/framework/conductor_test.cpp)
+target_link_libraries(conductor_test PRIVATE hikari::engine_framework)
+add_test(NAME conductor_test COMMAND conductor_test)
+
+add_executable(clock_domain_test unit/framework/clock_domain_test.cpp)
+target_link_libraries(clock_domain_test PRIVATE hikari::engine_framework)
+add_test(NAME clock_domain_test COMMAND clock_domain_test)
+
+# Headless Integration / Stress Tests
+add_executable(conductor_stress_test headless/conductor_stress_test.cpp)
+target_link_libraries(conductor_stress_test PRIVATE hikari::engine_framework)
+add_test(NAME conductor_stress_test COMMAND conductor_stress_test)
+
 
 
 
