@@ -16,10 +16,12 @@ ArenaAllocator::ArenaAllocator(std::byte* buffer, size_t capacity) noexcept
 }
 
 ArenaAllocator::ArenaAllocator(ArenaAllocator&& other) noexcept
-    : buffer_(other.buffer_), capacity_(other.capacity_), offset_(other.offset_) {
+    : buffer_(other.buffer_), capacity_(other.capacity_), offset_(other.offset_),
+      resetId_(other.resetId_) {
     other.buffer_ = nullptr;
     other.capacity_ = 0;
     other.offset_ = 0;
+    other.resetId_ = 0;
 }
 
 ArenaAllocator& ArenaAllocator::operator=(ArenaAllocator&& other) noexcept {
@@ -27,9 +29,11 @@ ArenaAllocator& ArenaAllocator::operator=(ArenaAllocator&& other) noexcept {
         buffer_ = other.buffer_;
         capacity_ = other.capacity_;
         offset_ = other.offset_;
+        resetId_ = std::max(resetId_, other.resetId_) + 1;
         other.buffer_ = nullptr;
         other.capacity_ = 0;
         other.offset_ = 0;
+        other.resetId_ = 0;
     }
     return *this;
 }
@@ -58,14 +62,17 @@ void* ArenaAllocator::allocate(size_t size, size_t alignment) noexcept {
     return alignedPtr;
 }
 
-void ArenaAllocator::restore(Marker marker) noexcept {
-    ENG_ASSERT(marker <= offset_,
-               "Cannot restore arena to a marker ahead of current allocation offset");
-    offset_ = std::min(marker, offset_);
+bool ArenaAllocator::restore(Marker marker) noexcept {
+    if (marker.arenaId != this || marker.resetId != resetId_ || marker.offset > offset_) {
+        return false;
+    }
+    offset_ = marker.offset;
+    return true;
 }
 
 void ArenaAllocator::reset() noexcept {
     offset_ = 0;
+    ++resetId_;
 }
 
 } // namespace eng

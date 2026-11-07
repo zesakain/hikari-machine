@@ -8,12 +8,23 @@
 ///
 /// Ownership and Lifetime:
 /// The ArenaAllocator does NOT own the backing buffer. The caller is responsible for providing
-/// and maintaining the lifetime of the backing store.
-/// Calling reset() or restore(marker) invalidates all pointers allocated past that point.
+/// and maintaining the lifetime of the backing store. The backing memory must strictly outlive
+/// the ArenaAllocator instance and all pointers handed out by it.
+///
+/// Object Lifetime and Destruction Contract:
+/// - Allocators do not invoke destructors on reset or restore: Memory is treated as raw bytes.
+///   Neither reset(), restore(), nor allocator destruction calls destructors of allocated objects.
+/// - Caller responsibility for non-trivial destruction: If objects with non-trivial destructors
+///   (!std::is_trivially_destructible_v<T>) are constructed in memory allocated here, the caller is
+///   strictly responsible for manually invoking their destructors before calling reset() or
+///   restore().
+/// - Pointer invalidation: Calling reset() invalidates all previously allocated pointers from this
+///   arena. Calling restore(marker) invalidates all pointers allocated at or after that marker.
 ///
 /// Thread-safety:
-/// Not thread-safe. Multiple threads must not access the same ArenaAllocator concurrently.
-/// Each subsystem or mode execution phase must maintain its own ArenaAllocator instance.
+/// Not thread-safe. Multiple threads must not access the same ArenaAllocator concurrently without
+/// external synchronization. Each subsystem or mode execution phase must maintain its own
+/// ArenaAllocator instance.
 ///
 /// Performance:
 /// O(1) allocation and O(1) bulk reset / marker restoration. Zero heap allocations.
@@ -21,7 +32,7 @@
 ///
 /// Failure Mode:
 /// Returns nullptr on capacity exhaustion, zero-size request, invalid alignment, or arithmetic
-/// overflow.
+/// overflow. restore() returns false if the marker is foreign, stale, or out-of-range.
 
 #pragma once
 
@@ -38,8 +49,17 @@ namespace eng {
 /// @brief Grouped bump allocator supporting scoped checkpoints (markers) and bulk reset.
 class ArenaAllocator {
 public:
-    /// @brief Opaque marker representing an allocation checkpoint.
-    using Marker = size_t;
+    /// @brief Opaque checkpoint token representing an allocation state within an ArenaAllocator.
+    ///
+    /// Stores the owning arena instance identity, allocation offset, and generation counter.
+    /// Designed as a lightweight, standard-layout value type (24 bytes) with zero heap allocation.
+    struct Marker {
+        const void* arenaId{nullptr};
+        size_t offset{0};
+        size_t resetId{0};
+
+        [[nodiscard]] constexpr bool operator==(const Marker&) const noexcept = default;
+    };
 
     /// @brief Constructs an empty arena with zero capacity.
     constexpr ArenaAllocator() noexcept = default;
@@ -89,8 +109,10 @@ public:
     /// @brief Type-safe allocation helper for count instances of type T.
     ///
     /// Preconditions : T must not be void or a reference type.
-    /// Postconditions: Memory is allocated but objects are NOT constructed (POD / trivial
-    /// initialization).
+    /// Postconditions: Raw memory suitable for count instances of T is allocated. Objects are NOT
+    ///                 constructed or initialized. If T has a non-trivial destructor, the caller
+    ///                 is strictly responsible for invoking destructors prior to reset() or
+    ///                 restore().
     ///
     /// @tparam T Value type to allocate memory for.
     /// @param count Number of consecutive elements to allocate.
@@ -112,24 +134,34 @@ public:
     /// @brief Captures the current allocation checkpoint.
     ///
     /// Used for scoped sub-phase allocations that can be rolled back via restore().
+    /// The returned marker is uniquely bound to this ArenaAllocator instance and its
+    /// current reset generation.
     ///
     /// @return Marker token representing the current offset.
-    [[nodiscard]] constexpr Marker save() const noexcept { return offset_; }
+    [[nodiscard]] constexpr Marker save() const noexcept {
+        return Marker{.arenaId = this, .offset = offset_, .resetId = resetId_};
+    }
 
     /// @brief Rolls back all allocations made after the specified marker.
     ///
-    /// Preconditions : marker must be <= allocatedBytes().
-    /// Postconditions: All memory allocated after the marker was captured becomes INVALID.
-    /// Invariants    : Does not invoke destructors on rolled-back objects.
-    /// Performance   : O(1) constant time.
+    /// Preconditions : marker must have been created by this ArenaAllocator instance, must belong
+    ///                 to the current reset generation, and must not exceed current offset.
+    /// Postconditions: On success, offset is rewound to marker.offset, and all memory allocated
+    ///                 after the marker becomes INVALID. On failure, allocator state is UNCHANGED.
+    /// Invariants    : Does not invoke destructors on rolled-back objects. Caller is responsible
+    ///                 for destroying non-trivially destructible objects prior to restore().
+    /// Thread-safety : Calling thread only. Not re-entrant.
+    /// Performance   : O(1) constant time. Zero heap allocations.
     ///
     /// @param marker Checkpoint previously returned by save().
-    void restore(Marker marker) noexcept;
+    /// @return True if successfully restored; false if marker is foreign, stale, or out-of-range.
+    [[nodiscard]] bool restore(Marker marker) noexcept;
 
     /// @brief Bulk-resets the entire arena, reclaiming all allocated capacity.
     ///
-    /// Postconditions: All previously allocated pointers from this arena become INVALID.
-    /// Invariants    : Does not invoke destructors on allocated objects.
+    /// Postconditions: All previously allocated pointers and saved markers become INVALID.
+    /// Invariants    : Does not invoke destructors on allocated objects. Caller is responsible
+    ///                 for destroying non-trivially destructible objects prior to reset().
     /// Performance   : O(1) constant time.
     void reset() noexcept;
 
@@ -152,6 +184,7 @@ private:
     std::byte* buffer_{nullptr};
     size_t capacity_{0};
     size_t offset_{0};
+    size_t resetId_{0};
 };
 
 } // namespace eng
