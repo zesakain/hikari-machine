@@ -34,3 +34,8 @@ add_test(NAME generational_handle_test COMMAND generational_handle_test)
 add_executable(time_test unit/core/time_test.cpp)
 target_link_libraries(time_test PRIVATE hikari::engine_core)
 add_test(NAME time_test COMMAND time_test)
+
+add_executable(log_test unit/core/log_test.cpp)
+target_link_libraries(log_test PRIVATE hikari::engine_core)
+add_test(NAME log_test COMMAND log_test)
+
