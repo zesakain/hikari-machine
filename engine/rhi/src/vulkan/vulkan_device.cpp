@@ -699,4 +699,17 @@ Result<void> VulkanDevice::present() {
     return swapchain_->present(presentQueue_, currentSwapchainImageIndex_, VK_NULL_HANDLE);
 }
 
+NativeDeviceHandles VulkanDevice::getNativeDeviceHandles() const noexcept {
+    return NativeDeviceHandles{
+        .instance = instance_ ? instance_->handle() : VK_NULL_HANDLE,
+        .physicalDevice = physicalDevice_ ? physicalDevice_->handle() : VK_NULL_HANDLE,
+        .device = device_,
+        .graphicsQueue = graphicsQueue_,
+        .graphicsQueueFamily = graphicsQueueFamily_,
+        .colorAttachmentFormat =
+            swapchain_ ? static_cast<uint32_t>(swapchain_->getImageFormat()) : 0,
+        .swapchainImageCount = swapchain_ ? static_cast<uint32_t>(swapchain_->getImageCount()) : 0,
+    };
+}
+
 } // namespace eng::rhi::vk

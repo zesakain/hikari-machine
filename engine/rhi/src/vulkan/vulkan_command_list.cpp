@@ -419,4 +419,10 @@ void VulkanCommandList::cleanupStagingResources() noexcept {
     stagingBuffers_.clear();
 }
 
+NativeCommandListHandles VulkanCommandList::getNativeCommandListHandles() const noexcept {
+    return NativeCommandListHandles{
+        .commandBuffer = cmdBuffer_,
+    };
+}
+
 } // namespace eng::rhi::vk

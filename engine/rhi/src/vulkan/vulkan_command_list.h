@@ -59,6 +59,8 @@ public:
                     size_t size) override;
     void updateBuffer(BufferHandle dst, size_t dstOffset, const void* data, size_t size) override;
 
+    [[nodiscard]] NativeCommandListHandles getNativeCommandListHandles() const noexcept override;
+
     [[nodiscard]] VkCommandBuffer handle() const noexcept { return cmdBuffer_; }
     void cleanupStagingResources() noexcept;
     void onDeviceDestroyed() noexcept;

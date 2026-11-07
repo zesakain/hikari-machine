@@ -30,6 +30,18 @@
 
 namespace eng::rhi {
 
+/// @struct NativeDeviceHandles
+/// @brief Opaque container for backend-specific native graphics device handles.
+struct NativeDeviceHandles {
+    void* instance{nullptr};
+    void* physicalDevice{nullptr};
+    void* device{nullptr};
+    void* graphicsQueue{nullptr};
+    uint32_t graphicsQueueFamily{0};
+    uint32_t colorAttachmentFormat{0};
+    uint32_t swapchainImageCount{0};
+};
+
 /// @class RhiDevice
 /// @brief Abstract rendering hardware interface device.
 class RhiDevice {
@@ -89,6 +101,10 @@ public:
     ///
     /// @return Result indicating presentation success or failure (no-op in headless/null mode).
     virtual Result<void> present() { return Result<void>::success(); }
+
+    /// Returns opaque pointers to underlying backend device handles (or null in headless/null
+    /// mode).
+    [[nodiscard]] virtual NativeDeviceHandles getNativeDeviceHandles() const noexcept { return {}; }
 };
 
 /// Instantiates the in-memory headless Null RHI device.

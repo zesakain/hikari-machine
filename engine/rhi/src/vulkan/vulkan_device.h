@@ -58,6 +58,8 @@ public:
     [[nodiscard]] Result<uint32_t> acquireNextImage() override;
     Result<void> present() override;
 
+    [[nodiscard]] NativeDeviceHandles getNativeDeviceHandles() const noexcept override;
+
     // Internal backend helpers
     [[nodiscard]] VkDevice getLogicalDevice() const noexcept { return device_; }
     [[nodiscard]] VkBuffer resolveBuffer(BufferHandle handle) const noexcept;

@@ -35,6 +35,12 @@ struct RenderPassBeginInfo {
     bool clearTarget{true};    ///< Whether to clear target on pass entry.
 };
 
+/// @struct NativeCommandListHandles
+/// @brief Opaque container for backend-specific native command buffer handles.
+struct NativeCommandListHandles {
+    void* commandBuffer{nullptr};
+};
+
 /// @class RhiCommandList
 /// @brief Abstract command recording buffer interface.
 class RhiCommandList {
@@ -86,6 +92,12 @@ public:
     /// Updates a destination buffer with host CPU data inline.
     virtual void updateBuffer(BufferHandle dst, size_t dstOffset, const void* data,
                               size_t size) = 0;
+
+    /// Returns opaque pointers to underlying backend command buffer handles (or null in
+    /// headless/null mode).
+    [[nodiscard]] virtual NativeCommandListHandles getNativeCommandListHandles() const noexcept {
+        return {};
+    }
 };
 
 } // namespace eng::rhi
