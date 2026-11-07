@@ -112,6 +112,12 @@ add_executable(script_test unit/script/script_test.cpp)
 target_link_libraries(script_test PRIVATE hikari::engine_script hikari::engine_world)
 add_test(NAME script_test COMMAND script_test)
 
+# UI Unit Tests
+add_executable(ui_test unit/ui/ui_test.cpp)
+target_link_libraries(ui_test PRIVATE hikari::engine_ui hikari::engine_render hikari::engine_rhi)
+add_test(NAME ui_test COMMAND ui_test)
+
+
 
 
 
