@@ -97,6 +97,11 @@ add_executable(render_graph_test unit/render/render_graph_test.cpp)
 target_link_libraries(render_graph_test PRIVATE hikari::engine_render)
 add_test(NAME render_graph_test COMMAND render_graph_test)
 
+# Physics Unit Tests
+add_executable(physics_test unit/physics/physics_test.cpp)
+target_link_libraries(physics_test PRIVATE hikari::engine_physics)
+add_test(NAME physics_test COMMAND physics_test)
+
 
 
 
