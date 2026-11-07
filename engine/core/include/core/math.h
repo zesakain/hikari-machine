@@ -193,6 +193,10 @@ struct Quat {
         return (a.x * b.x) + (a.y * b.y) + (a.z * b.z) + (a.w * b.w);
     }
 
+    [[nodiscard]] constexpr float dot(const Quat& other) const noexcept {
+        return dot(*this, other);
+    }
+
     /// Spherical linear interpolation between two quaternions.
     [[nodiscard]] static Quat slerp(const Quat& a, const Quat& b, float t) noexcept {
         float cosTheta = dot(a, b);
@@ -378,6 +382,10 @@ struct Mat4 {
 
         return res;
     }
+
+    [[nodiscard]] constexpr float at(size_t row, size_t col) const noexcept {
+        return m[(col * 4) + row];
+    }
 };
 
 /// @struct Transform
@@ -388,6 +396,7 @@ struct Transform {
     Vec3 scale{Vec3::one()};
 
     constexpr Transform() noexcept = default;
+    constexpr explicit Transform(const Vec3& pos) noexcept : position(pos) {}
     constexpr Transform(const Vec3& pos, const Quat& rot, const Vec3& scl = Vec3::one()) noexcept
         : position(pos), rotation(rot), scale(scl) {}
 
@@ -412,6 +421,11 @@ struct Transform {
             (rotation * child.rotation).normalized(),
             scale * child.scale,
         };
+    }
+
+    /// Combines parent transform with child transform (equivalent to combine).
+    [[nodiscard]] Transform operator*(const Transform& child) const noexcept {
+        return combine(child);
     }
 
     /// Linearly interpolates between two transforms.
