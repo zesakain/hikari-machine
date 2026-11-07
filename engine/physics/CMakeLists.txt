@@ -33,6 +33,17 @@ FetchContent_MakeAvailable(JoltPhysics)
 
 if(TARGET Jolt)
     target_compile_options(Jolt PRIVATE -w)
+    if(HIKARI_SANITIZER)
+        if(NOT MSVC)
+            target_compile_options(Jolt PRIVATE
+                -fsanitize=${HIKARI_SANITIZER}
+                -fno-omit-frame-pointer
+            )
+            target_link_options(Jolt PRIVATE
+                -fsanitize=${HIKARI_SANITIZER}
+            )
+        endif()
+    endif()
 endif()
 
 add_library(engine_physics STATIC

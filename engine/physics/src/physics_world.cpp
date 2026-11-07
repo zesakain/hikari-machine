@@ -6,6 +6,9 @@
 #include "jolt_bridge.h"
 #include "physics/physics_system.h"
 
+#include <Jolt/Core/JobSystemSingleThreaded.h>
+#include <Jolt/Core/JobSystemThreadPool.h>
+#include <memory>
 #include <mutex>
 #include <vector>
 
@@ -70,12 +73,17 @@ struct PhysicsWorld::Impl {
         void* userData{nullptr};
     };
 
-    explicit Impl(const PhysicsWorldSettings& settings)
-        : jobSystem_(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, 2),
-          tempAllocator_(static_cast<size_t>(10) * 1024 * 1024), // 10 MB temp buffer
-          settings_(settings) {
+    explicit Impl(const PhysicsWorldSettings& settings) : settings_(settings) {
         // Ensure global initialization
         (void)PhysicsSystem::initialize();
+
+        if (settings_.numWorkerThreads == 0) {
+            jobSystem_ = std::make_unique<JPH::JobSystemSingleThreaded>(JPH::cMaxPhysicsJobs);
+        } else {
+            jobSystem_ = std::make_unique<JPH::JobSystemThreadPool>(
+                JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers,
+                static_cast<int>(settings_.numWorkerThreads));
+        }
 
         contactListener_.setPhysicsWorldImpl(this);
 
@@ -106,14 +114,14 @@ struct PhysicsWorld::Impl {
         return BodyHandle{};
     }
 
-    JPH::JobSystemThreadPool jobSystem_;
+    std::unique_ptr<JPH::JobSystem> jobSystem_;
     JPH::PhysicsSystem physicsSystem_;
     BPLayerInterfaceImpl broadPhaseLayerInterface_;
     ObjectVsBroadPhaseLayerFilterImpl objectVsBroadphaseLayerFilter_;
     ObjectLayerPairFilterImpl objectVsObjectLayerFilter_;
     std::vector<BodySlot> slots_;
     std::vector<uint32_t> freeSlots_;
-    JPH::TempAllocatorImpl tempAllocator_;
+    JPH::TempAllocatorMalloc tempAllocator_;
     ContactListenerImpl contactListener_;
     float accumulatedTime_{0.0F};
     uint32_t aliveCount_{0};
@@ -480,7 +488,7 @@ Result<uint32_t> PhysicsWorld::step(float deltaTime) {
     while (impl_->accumulatedTime_ >= impl_->settings_.fixedDeltaTime &&
            substeps < impl_->settings_.maxSubSteps) {
         impl_->physicsSystem_.Update(impl_->settings_.fixedDeltaTime, 1, &impl_->tempAllocator_,
-                                     &impl_->jobSystem_);
+                                     impl_->jobSystem_.get());
         impl_->accumulatedTime_ -= impl_->settings_.fixedDeltaTime;
         ++substeps;
     }

@@ -41,6 +41,10 @@ struct PhysicsWorldSettings {
 
     /// Maximum fixed substeps executed per step() call to prevent runaway death spiral.
     uint32_t maxSubSteps{4};
+
+    /// Number of worker threads for physics simulation (0 = synchronous single-threaded, >=1 =
+    /// multi-threaded pool).
+    uint32_t numWorkerThreads{0};
 };
 
 /// @class PhysicsWorld
