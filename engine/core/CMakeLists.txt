@@ -5,6 +5,8 @@
 add_library(engine_core STATIC
     src/arena_allocator.cpp
     src/assert.cpp
+    src/budget.cpp
+    src/clock.cpp
     src/linear_allocator.cpp
     src/pool_allocator.cpp
 )
