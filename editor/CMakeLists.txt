@@ -6,6 +6,8 @@ if(NOT HIKARI_BUILD_EDITOR)
     return()
 endif()
 
+find_package(Vulkan REQUIRED)
+
 include(FetchContent)
 
 FetchContent_Declare(
@@ -23,11 +25,17 @@ if(NOT imgui_POPULATED)
         ${imgui_SOURCE_DIR}/imgui_tables.cpp
         ${imgui_SOURCE_DIR}/imgui_widgets.cpp
         ${imgui_SOURCE_DIR}/imgui_demo.cpp
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
     )
     set_target_properties(imgui_static PROPERTIES SYSTEM TRUE)
     target_include_directories(imgui_static
         SYSTEM PUBLIC
             ${imgui_SOURCE_DIR}
+            ${imgui_SOURCE_DIR}/backends
+    )
+    target_link_libraries(imgui_static
+        PUBLIC
+            Vulkan::Vulkan
     )
     target_compile_options(imgui_static PRIVATE -w)
 endif()
@@ -45,6 +53,7 @@ target_include_directories(editor_lib
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
     SYSTEM PRIVATE
         ${imgui_SOURCE_DIR}
+        ${imgui_SOURCE_DIR}/backends
 )
 
 target_link_libraries(editor_lib
@@ -55,6 +64,9 @@ target_link_libraries(editor_lib
         hikari::engine_rhi
         hikari::engine_world
         hikari::engine_framework
+        hikari::engine_physics
+        hikari::engine_script
     PRIVATE
         imgui_static
+        Vulkan::Vulkan
 )

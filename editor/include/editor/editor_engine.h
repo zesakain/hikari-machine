@@ -57,6 +57,24 @@ struct EditorConfig {
 
     /// Whether the structured console log viewer panel is open.
     bool showConsolePanel{true};
+
+    /// Whether the entity hierarchy panel is open.
+    bool showHierarchyPanel{true};
+
+    /// Whether the 3D scene viewport panel is open.
+    bool showViewportPanel{true};
+
+    /// Whether the project content browser panel is open.
+    bool showContentBrowser{true};
+
+    /// Whether the diagnostic "HIKARI EDITOR" banner window is open.
+    bool showDiagnosticPanel{true};
+
+    /// Whether the main toolbar is visible.
+    bool showToolbar{true};
+
+    /// Whether the Dear ImGui demo window is visible.
+    bool showDemoWindow{false};
 };
 
 /// @class EditorEngine
@@ -107,6 +125,12 @@ public:
 
     /// Returns the total number of ImGui vertices rendered in the last frame.
     [[nodiscard]] uint32_t lastVertexCount() const noexcept;
+
+    /// Returns the total number of ImGui indices uploaded in the last frame.
+    [[nodiscard]] uint32_t lastIndexCount() const noexcept;
+
+    /// Returns the cumulative number of executed editor passes.
+    [[nodiscard]] uint64_t executedEditorPasses() const noexcept;
 
 private:
     struct Impl;
