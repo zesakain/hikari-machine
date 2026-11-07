@@ -48,4 +48,5 @@ tracy.log
 
 # OS specific files
 .DS_Store
+*.ini
 Thumbs.db
