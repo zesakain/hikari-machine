@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Core Slot Map (Phase 1.5)**:
+  - `SlotMap<T>` in `<core/slot_map.h>` providing a stable-reference, generational object container indexed by `GenerationalHandle` over caller-provided backing memory.
+  - Zero heap allocation and no dynamic resizing; explicit capacity bounds and safe failure modes.
+  - O(1) in-place construction (`emplace`) and destruction (`erase`) supporting non-copyable and non-movable non-trivial types.
+  - Generation tracking with safe overflow handling (`kRetiredGeneration`) preventing ABA stale-handle resurrection.
+  - Comprehensive unit test suite in `tests/unit/core/slot_map_test.cpp`.
 - **Core Structured Logging (Phase 1.4)**:
   - `LogLevel` enum and string conversion in `<core/log.h>` providing `Trace`, `Debug`, `Info`, `Warning`, `Error`, and `Critical` severity tiers.
   - `LogRecord` structured record layout capturing monotonic timestamp, severity, category tag, source location, and fixed-capacity message payload.
