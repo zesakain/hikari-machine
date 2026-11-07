@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Core Strong IDs & Type Utilities (Phase 1.6)**:
+  - `StrongId<Tag, Rep>` in `<core/id.h>` providing zero-overhead, compile-time differentiated identifiers over unsigned integer representations.
+  - Invalid sentinel support (`kInvalidValue = 0`, `isValid()`, explicit `bool` operator, explicit conversions).
+  - `IdGenerator<Id>` providing monotonic identifier generation with saturation detection and overflow protection without wraparound.
+  - Compile-time type utilities (`kIsStrongId`, `StrongIdType`, `UnderlyingIdType`, `IdLike`).
+  - Comprehensive unit test suite in `tests/unit/core/id_test.cpp`.
 - **Core Slot Map (Phase 1.5)**:
   - `SlotMap<T>` in `<core/slot_map.h>` providing a stable-reference, generational object container indexed by `GenerationalHandle` over caller-provided backing memory.
   - Zero heap allocation and no dynamic resizing; explicit capacity bounds and safe failure modes.
