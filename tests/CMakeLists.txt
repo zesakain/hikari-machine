@@ -107,6 +107,12 @@ add_executable(anim_test unit/anim/anim_test.cpp)
 target_link_libraries(anim_test PRIVATE hikari::engine_anim)
 add_test(NAME anim_test COMMAND anim_test)
 
+# Script Unit Tests
+add_executable(script_test unit/script/script_test.cpp)
+target_link_libraries(script_test PRIVATE hikari::engine_script hikari::engine_world)
+add_test(NAME script_test COMMAND script_test)
+
+
 
 
 

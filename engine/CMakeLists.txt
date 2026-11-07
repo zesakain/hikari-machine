@@ -15,6 +15,7 @@ add_subdirectory(framework)
 add_subdirectory(render)
 add_subdirectory(physics)
 add_subdirectory(anim)
+add_subdirectory(script)
 
 add_library(engine_base INTERFACE)
 add_library(hikari::engine_base ALIAS engine_base)
@@ -30,4 +31,5 @@ target_link_libraries(engine_base
         hikari::engine_render
         hikari::engine_physics
         hikari::engine_anim
+        hikari::engine_script
 )
