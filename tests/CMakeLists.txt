@@ -60,6 +60,11 @@ add_executable(platform_test unit/platform/platform_test.cpp)
 target_link_libraries(platform_test PRIVATE hikari::engine_platform)
 add_test(NAME platform_test COMMAND platform_test)
 
+# RHI Unit Tests
+add_executable(null_rhi_test unit/rhi/null_rhi_test.cpp)
+target_link_libraries(null_rhi_test PRIVATE hikari::engine_rhi)
+add_test(NAME null_rhi_test COMMAND null_rhi_test)
+
 
 
 
