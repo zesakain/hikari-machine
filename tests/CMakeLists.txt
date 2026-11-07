@@ -102,6 +102,11 @@ add_executable(physics_test unit/physics/physics_test.cpp)
 target_link_libraries(physics_test PRIVATE hikari::engine_physics)
 add_test(NAME physics_test COMMAND physics_test)
 
+# Animation Unit Tests
+add_executable(anim_test unit/anim/anim_test.cpp)
+target_link_libraries(anim_test PRIVATE hikari::engine_anim)
+add_test(NAME anim_test COMMAND anim_test)
+
 
 
 
