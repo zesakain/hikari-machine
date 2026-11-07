@@ -7,6 +7,7 @@ add_library(engine_core STATIC
     src/assert.cpp
     src/budget.cpp
     src/clock.cpp
+    src/event.cpp
     src/linear_allocator.cpp
     src/log.cpp
     src/pool_allocator.cpp
