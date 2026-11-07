@@ -228,6 +228,65 @@ static int testResourceLifetime() {
     return 0;
 }
 
+static int testGraphExecutionWithNullDevice() {
+    auto devRes = createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto device = std::move(devRes.value());
+
+    auto cmdRes = device->createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto cmdList = std::move(cmdRes.value());
+
+    RenderGraph graph;
+    auto texColor = graph.createTransientTexture(
+        "ColorTarget",
+        TextureDesc{.type = TextureType::Texture2D,
+                    .format = TextureFormat::RGBA8_UNORM,
+                    .width = 1920,
+                    .height = 1080,
+                    .usage = TextureUsageFlags::ColorAttachment | TextureUsageFlags::Sampled});
+
+    bool pass1Ran = false;
+    bool pass2Ran = false;
+
+    graph.addPass(
+        "RenderScene",
+        [&](RenderPassBuilder& builder) {
+            builder.writeTexture(texColor, TextureUsageFlags::ColorAttachment);
+        },
+        [&](RhiCommandList& cmd) {
+            pass1Ran = true;
+            cmd.setViewport(0.0F, 0.0F, 1920.0F, 1080.0F);
+        });
+
+    graph.addPass(
+        "PostProcess",
+        [&](RenderPassBuilder& builder) {
+            builder.readTexture(texColor, TextureUsageFlags::Sampled);
+        },
+        [&](RhiCommandList& cmd) {
+            pass2Ran = true;
+            cmd.setScissor(0, 0, 1920, 1080);
+        });
+
+    auto compileRes = graph.compile();
+    TEST_CHECK(compileRes.hasValue());
+
+    cmdList->begin();
+    auto execRes = graph.execute(*device, *cmdList);
+    TEST_CHECK(execRes.hasValue());
+    cmdList->end();
+
+    TEST_CHECK(pass1Ran);
+    TEST_CHECK(pass2Ran);
+
+    auto submitRes = device->submit(cmdList.get());
+    TEST_CHECK(submitRes.hasValue());
+    device->waitIdle();
+
+    return 0;
+}
+
 int main() {
     if (testLinearOrdering() != 0) {
         return 1;
@@ -239,6 +298,9 @@ int main() {
         return 1;
     }
     if (testResourceLifetime() != 0) {
+        return 1;
+    }
+    if (testGraphExecutionWithNullDevice() != 0) {
         return 1;
     }
     std::cout << "All Render Graph unit tests passed successfully.\n";
