@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Core Typed Event System (Phase 1.7)**:
+  - Type-safe, RTTI-free event dispatching with unique compile-time generated `EventTypeId` (`StrongId<EventTypeTag, uint32_t>`) and `ListenerToken` (`StrongId<ListenerTag, uint64_t>`).
+  - `EventDispatcher` in `<core/event.h>` and `src/event.cpp` supporting multiple listeners per event type over caller-provided storage with zero heap allocation.
+  - Safe reentrancy semantics: listeners registered during active dispatch are deferred until subsequent dispatches; unregistration is deferred until outermost dispatch completion.
+  - Type-erased function pointer and context dispatch supporting free functions, lambdas, and member functions without `std::function` or virtual inheritance.
+  - `EventQueue<Event>` in `<core/event.h>` providing a bounded, circular ring buffer for deferred FIFO event processing over caller-provided memory.
+  - Zero heap allocation on enqueue and drain paths, explicit capacity overflow rejection with dropped count tracking, and non-trivial payload lifecycle management.
+  - Comprehensive unit test suite in `tests/unit/core/event_test.cpp`.
 - **Core Strong IDs & Type Utilities (Phase 1.6)**:
   - `StrongId<Tag, Rep>` in `<core/id.h>` providing zero-overhead, compile-time differentiated identifiers over unsigned integer representations.
   - Invalid sentinel support (`kInvalidValue = 0`, `isValid()`, explicit `bool` operator, explicit conversions).
