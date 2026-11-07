@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Vulkan RHI Backend & Dynamic Rendering (Phase 4.1)**:
+  - Concrete hardware-accelerated Vulkan backend (`eng::rhi::vk::VulkanDevice`) in `engine/rhi/src/vulkan/` supporting Vulkan 1.3+ core capabilities.
+  - Zero graphics API headers leaked outside `/engine/rhi` in compliance with Section 2 Rule 3.
+  - Dynamic validation layer discovery (`VK_LAYER_KHRONOS_validation`) with graceful fallback when unavailable.
+  - GPU capability scoring and enumeration mapping hardware to `GpuCaps` (Pascal GT 1030 Tier 0 test floor).
+  - Explicit GPU memory management (`VulkanMemoryManager`) for device-local and host-visible/coherent allocations.
+  - Generational resource tables for buffers, textures (2D, 3D, Cubemap), and samplers with stale handle protection.
+  - Command list recording (`VulkanCommandList`) with synchronization2 barriers, dynamic rendering viewports/scissors, and CPU-to-GPU staging updates.
+  - Presentation and swapchain management (`VulkanSwapchain`) integrated with SDL3 Vulkan surfaces.
+- **Render Graph Architecture & Pass Scheduler (Phase 4.2)**:
+  - Backend-independent DAG Render Graph (`eng::render::RenderGraph`) in `engine/render/include/render/render_graph.h`.
+  - Pass declaration builder (`RenderPassBuilder`) for resource read/write dependency tracking with explicit access types.
+  - Two-phase resource edge compilation with Kahn's topological sort and DFS cycle detection (`ErrorCode::RenderGraphCompilationFailed = 307`).
+  - Transient resource lifetime analysis (`ResourceLifetime::overlaps`) for optimal memory alias planning.
+  - State transition and barrier synchronization planning between passes.
+  - Polymorphic pass executor dispatching recorded commands to `RhiCommandList`.
+- **Architecture Documentation (ADR-0010 & ADR-0011)**:
+  - `ADR-0010`: Vulkan 1.3+ RHI backend architecture, dynamic rendering, synchronization2, memory management, and SDL3 swapchain.
+  - `ADR-0011`: Render graph DAG architecture, topological pass scheduling, cycle detection, and transient resource planning.
+- **Testing & Quality Assurance (Phase 4.3)**:
+  - Unit tests for render graph compilation, reverse pass ordering, diamond dependencies, cycle detection, and execution in `tests/unit/render/render_graph_test.cpp`.
+  - Integration tests for physical Vulkan GPU detection, buffer/texture/sampler lifecycle, staging uploads, and queue submission in `tests/unit/rhi/vulkan_rhi_test.cpp`.
+
 - **Shared World & Flecs ECS Integration (Phase 3.1)**:
   - Unified simulation `eng::world::World` in `<world/world.h>` wrapping Flecs ECS amalgamation v4.0.4 compiled as isolated C static library (`flecs_static`).
   - 64-bit generational `EntityHandle` in `<world/entity.h>` encapsulating entity ID and generation.
