@@ -648,4 +648,22 @@ bool VulkanDevice::isSamplerValid(SamplerHandle handle) const noexcept {
     return slot.alive && slot.generation == handle.generation();
 }
 
+Result<uint32_t> VulkanDevice::acquireNextImage() {
+    if (!swapchain_) {
+        return 0;
+    }
+    auto acqRes = swapchain_->acquireNextImage();
+    if (acqRes.hasValue()) {
+        currentSwapchainImageIndex_ = acqRes.value();
+    }
+    return acqRes;
+}
+
+Result<void> VulkanDevice::present() {
+    if (!swapchain_) {
+        return Result<void>::success();
+    }
+    return swapchain_->present(presentQueue_, currentSwapchainImageIndex_, VK_NULL_HANDLE);
+}
+
 } // namespace eng::rhi::vk

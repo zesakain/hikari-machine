@@ -13,7 +13,14 @@ VulkanSwapchain::VulkanSwapchain(VkInstance instance, VkPhysicalDevice physicalD
                                  VkDevice device, VkSurfaceKHR surface,
                                  uint32_t graphicsQueueFamily, uint32_t presentQueueFamily) noexcept
     : instance_(instance), physicalDevice_(physicalDevice), device_(device), surface_(surface),
-      graphicsQueueFamily_(graphicsQueueFamily), presentQueueFamily_(presentQueueFamily) {}
+      graphicsQueueFamily_(graphicsQueueFamily), presentQueueFamily_(presentQueueFamily) {
+    VkSemaphoreCreateInfo semInfo{
+        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+    };
+    (void)vkCreateSemaphore(device_, &semInfo, nullptr, &acquireSemaphore_);
+}
 
 VulkanSwapchain::~VulkanSwapchain() noexcept {
     cleanup();
@@ -24,6 +31,11 @@ VulkanSwapchain::~VulkanSwapchain() noexcept {
 }
 
 void VulkanSwapchain::cleanup() noexcept {
+    if (acquireSemaphore_ != VK_NULL_HANDLE) {
+        vkDestroySemaphore(device_, acquireSemaphore_, nullptr);
+        acquireSemaphore_ = VK_NULL_HANDLE;
+    }
+
     for (VkImageView view : imageViews_) {
         if (view != VK_NULL_HANDLE) {
             vkDestroyImageView(device_, view, nullptr);
@@ -221,7 +233,15 @@ Result<void> VulkanSwapchain::recreate(uint32_t newWidth, uint32_t newHeight) {
     return Result<void>::success();
 }
 
+Result<uint32_t> VulkanSwapchain::acquireNextImage() noexcept {
+    return acquireNextImage(acquireSemaphore_);
+}
+
 Result<uint32_t> VulkanSwapchain::acquireNextImage(VkSemaphore semaphore) noexcept {
+    if (swapchain_ == VK_NULL_HANDLE) {
+        return 0;
+    }
+
     uint32_t imageIndex = 0;
     VkResult res = vkAcquireNextImageKHR(device_, swapchain_, UINT64_MAX, semaphore, VK_NULL_HANDLE,
                                          &imageIndex);
@@ -238,6 +258,10 @@ Result<uint32_t> VulkanSwapchain::acquireNextImage(VkSemaphore semaphore) noexce
 
 Result<void> VulkanSwapchain::present(VkQueue queue, uint32_t imageIndex,
                                       VkSemaphore waitSemaphore) noexcept {
+    if (swapchain_ == VK_NULL_HANDLE) {
+        return Result<void>::success();
+    }
+
     VkPresentInfoKHR presentInfo{
         .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
         .pNext = nullptr,

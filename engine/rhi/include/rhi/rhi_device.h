@@ -79,6 +79,16 @@ public:
 
     /// Blocks CPU thread until all in-flight GPU commands complete execution.
     virtual void waitIdle() = 0;
+
+    /// Acquires the next swapchain backbuffer image index for rendering.
+    ///
+    /// @return Result containing 0-based image index, or 0 in headless/null mode.
+    [[nodiscard]] virtual Result<uint32_t> acquireNextImage() { return 0; }
+
+    /// Presents the current frame buffer to the presentation surface.
+    ///
+    /// @return Result indicating presentation success or failure (no-op in headless/null mode).
+    virtual Result<void> present() { return Result<void>::success(); }
 };
 
 /// Instantiates the in-memory headless Null RHI device.

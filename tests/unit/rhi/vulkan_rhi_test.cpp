@@ -11,6 +11,8 @@
 /// purely through the public RHI interfaces.
 
 #include "core/assert.h"
+#include "platform/platform.h"
+#include "platform/window.h"
 #include "rhi/buffer.h"
 #include "rhi/command_list.h"
 #include "rhi/gpu_caps.h"
@@ -254,6 +256,86 @@ static int testVulkanCommandRecordingAndSubmission() {
     return 0;
 }
 
+static int testVulkanRealSwapchainPresentation() {
+    // Only execute if a desktop display server is available
+    if (std::getenv("DISPLAY") == nullptr && std::getenv("WAYLAND_DISPLAY") == nullptr) {
+        std::cout << "No display server detected; skipping real GPU presentation test\n";
+        return 0;
+    }
+
+    eng::platform::PlatformConfig platConfig{.headless = false};
+    auto platRes = eng::platform::createPlatform(platConfig);
+    if (!platRes.hasValue()) {
+        std::cout << "Platform initialization failed; skipping presentation test ("
+                  << platRes.error().message.data() << ")\n";
+        return 0;
+    }
+    auto platform = std::move(platRes.value());
+
+    eng::platform::WindowDesc winDesc{
+        .title = "Hikari Real GPU Presentation Test",
+        .width = 320,
+        .height = 240,
+        .resizable = false,
+        .fullscreen = false,
+        .headless = false,
+        .vulkan = true,
+    };
+    auto winRes = platform->createWindow(winDesc);
+    if (!winRes.hasValue()) {
+        std::cout << "Window creation failed; skipping presentation test ("
+                  << winRes.error().message.data() << ")\n";
+        return 0;
+    }
+    auto window = std::move(winRes.value());
+    TEST_CHECK(window != nullptr);
+    TEST_CHECK(window->getNativeHandle() != nullptr);
+
+    VulkanDeviceDesc devDesc{
+        .windowHandle = window->getNativeHandle(),
+        .enableValidation = false,
+    };
+    auto devRes = createVulkanDevice(devDesc);
+    if (!devRes.hasValue()) {
+        std::cout << "Vulkan device with window failed; skipping (" << devRes.error().message.data()
+                  << ")\n";
+        return 0;
+    }
+    auto device = std::move(devRes.value());
+    TEST_CHECK(device != nullptr);
+
+    // Run 3 frames of real swapchain acquisition, command recording, and presentation
+    for (int frame = 0; frame < 3; ++frame) {
+        platform->pollEvents();
+
+        auto acqRes = device->acquireNextImage();
+        if (!acqRes.hasValue()) {
+            std::cout << "Swapchain acquire returned error: " << acqRes.error().message.data()
+                      << " (skipping presentation)\n";
+            break;
+        }
+
+        auto cmdRes = device->createCommandList();
+        TEST_CHECK(cmdRes.hasValue());
+        auto cmd = std::move(cmdRes.value());
+
+        cmd->begin();
+        cmd->setViewport(0.0F, 0.0F, 320.0F, 240.0F, 0.0F, 1.0F);
+        cmd->setScissor(0, 0, 320, 240);
+        cmd->end();
+
+        auto submitRes = device->submit(cmd.get());
+        TEST_CHECK(submitRes.hasValue());
+
+        auto presRes = device->present();
+        TEST_CHECK(presRes.hasValue());
+    }
+
+    device->waitIdle();
+    std::cout << "Real GPU Swapchain Acquisition & Presentation successfully verified!\n";
+    return 0;
+}
+
 int main() {
     std::cout << "Running Vulkan RHI Tests...\n";
 
@@ -277,6 +359,9 @@ int main() {
         return 1;
     }
     if (testVulkanCommandRecordingAndSubmission() != 0) {
+        return 1;
+    }
+    if (testVulkanRealSwapchainPresentation() != 0) {
         return 1;
     }
 

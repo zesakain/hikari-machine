@@ -35,7 +35,10 @@ public:
     VulkanSwapchain(VulkanSwapchain&&) noexcept = delete;
     VulkanSwapchain& operator=(VulkanSwapchain&&) noexcept = delete;
 
-    /// Acquires the next swapchain image index for rendering.
+    /// Acquires the next swapchain image index using the internal acquisition semaphore.
+    [[nodiscard]] Result<uint32_t> acquireNextImage() noexcept;
+
+    /// Acquires the next swapchain image index for rendering with an explicit semaphore.
     [[nodiscard]] Result<uint32_t> acquireNextImage(VkSemaphore semaphore) noexcept;
 
     /// Queues the rendered image for presentation on the display.
@@ -71,6 +74,7 @@ private:
     VkSwapchainKHR swapchain_{VK_NULL_HANDLE};
     VkFormat imageFormat_{VK_FORMAT_B8G8R8A8_UNORM};
     VkExtent2D extent_{.width = 0, .height = 0};
+    VkSemaphore acquireSemaphore_{VK_NULL_HANDLE};
     std::vector<VkImage> images_;
     std::vector<VkImageView> imageViews_;
 };

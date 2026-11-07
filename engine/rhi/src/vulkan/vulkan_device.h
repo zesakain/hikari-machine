@@ -52,6 +52,9 @@ public:
     Result<void> submit(RhiCommandList* commandList) override;
     void waitIdle() override;
 
+    [[nodiscard]] Result<uint32_t> acquireNextImage() override;
+    Result<void> present() override;
+
     // Internal backend helpers
     [[nodiscard]] VkDevice getLogicalDevice() const noexcept { return device_; }
     [[nodiscard]] VkBuffer resolveBuffer(BufferHandle handle) const noexcept;
@@ -78,6 +81,7 @@ private:
     VkCommandPool commandPool_{VK_NULL_HANDLE};
     std::unique_ptr<VulkanMemoryManager> memoryManager_;
     std::unique_ptr<VulkanSwapchain> swapchain_;
+    uint32_t currentSwapchainImageIndex_{0};
 
     std::vector<VulkanBufferSlot> buffers_;
     std::vector<VulkanTextureSlot> textures_;
