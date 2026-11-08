@@ -19,8 +19,40 @@ namespace eng::editor {
 
 namespace {
 
-void drawVec3Property(const char* label, float values[3], float resetValue = 0.0F,
-                      float speed = 0.1F) {
+void quatToEulerDegrees(const Quat& qIn, float outEuler[3]) {
+    Quat q = qIn.normalized();
+    constexpr float kRadToDeg = 57.29577951308232F;
+
+    // Pitch (X-axis rotation)
+    float sinp = 2.0F * ((q.w * q.x) - (q.y * q.z));
+    if (std::abs(sinp) >= 1.0F) {
+        outEuler[0] = std::copysign(90.0F, sinp);
+    } else {
+        outEuler[0] = std::asin(sinp) * kRadToDeg;
+    }
+
+    // Yaw (Y-axis rotation)
+    float siny_cosp = 2.0F * ((q.w * q.y) + (q.x * q.z));
+    float cosy_cosp = 1.0F - (2.0F * ((q.x * q.x) + (q.y * q.y)));
+    outEuler[1] = std::atan2(siny_cosp, cosy_cosp) * kRadToDeg;
+
+    // Roll (Z-axis rotation)
+    float sinr_cosp = 2.0F * ((q.w * q.z) + (q.x * q.y));
+    float cosr_cosp = 1.0F - (2.0F * ((q.x * q.x) + (q.z * q.z)));
+    outEuler[2] = std::atan2(sinr_cosp, cosr_cosp) * kRadToDeg;
+}
+
+Quat eulerDegreesToQuat(const float euler[3]) {
+    constexpr float kDegToRad = 0.017453292519943295F;
+    Quat qx = Quat::fromAxisAngle(Vec3(1.0F, 0.0F, 0.0F), euler[0] * kDegToRad);
+    Quat qy = Quat::fromAxisAngle(Vec3(0.0F, 1.0F, 0.0F), euler[1] * kDegToRad);
+    Quat qz = Quat::fromAxisAngle(Vec3(0.0F, 0.0F, 1.0F), euler[2] * kDegToRad);
+    return (qy * qx * qz).normalized();
+}
+
+bool drawVec3Property(const char* label, float values[3], float resetValue = 0.0F,
+                      float speed = 0.1F, float minValue = -1e9F, float maxValue = 1e9F) {
+    bool modified = false;
     ImGui::PushID(label);
     ImGui::Columns(2, nullptr, false);
     ImGui::SetColumnWidth(0, ThemeMetrics::kPropertyLabelWidth);
@@ -41,11 +73,14 @@ void drawVec3Property(const char* label, float values[3], float resetValue = 0.0
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.70F, 0.15F, 0.15F, 1.0F));
     if (ImGui::Button("X", ImVec2(18.0F, 0.0F))) {
         values[0] = resetValue;
+        modified = true;
     }
     ImGui::PopStyleColor(3);
     ImGui::SameLine();
     ImGui::SetNextItemWidth(itemW);
-    ImGui::DragFloat("##X", &values[0], speed, 0.0F, 0.0F, "%.2f");
+    if (ImGui::DragFloat("##X", &values[0], speed, minValue, maxValue, "%.2f")) {
+        modified = true;
+    }
     ImGui::SameLine();
 
     // Y Axis (Green)
@@ -54,11 +89,14 @@ void drawVec3Property(const char* label, float values[3], float resetValue = 0.0
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.10F, 0.60F, 0.20F, 1.0F));
     if (ImGui::Button("Y", ImVec2(18.0F, 0.0F))) {
         values[1] = resetValue;
+        modified = true;
     }
     ImGui::PopStyleColor(3);
     ImGui::SameLine();
     ImGui::SetNextItemWidth(itemW);
-    ImGui::DragFloat("##Y", &values[1], speed, 0.0F, 0.0F, "%.2f");
+    if (ImGui::DragFloat("##Y", &values[1], speed, minValue, maxValue, "%.2f")) {
+        modified = true;
+    }
     ImGui::SameLine();
 
     // Z Axis (Blue)
@@ -67,15 +105,19 @@ void drawVec3Property(const char* label, float values[3], float resetValue = 0.0
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.15F, 0.35F, 0.75F, 1.0F));
     if (ImGui::Button("Z", ImVec2(18.0F, 0.0F))) {
         values[2] = resetValue;
+        modified = true;
     }
     ImGui::PopStyleColor(3);
     ImGui::SameLine();
     ImGui::SetNextItemWidth(itemW);
-    ImGui::DragFloat("##Z", &values[2], speed, 0.0F, 0.0F, "%.2f");
+    if (ImGui::DragFloat("##Z", &values[2], speed, minValue, maxValue, "%.2f")) {
+        modified = true;
+    }
 
     ImGui::PopStyleVar();
     ImGui::Columns(1);
     ImGui::PopID();
+    return modified;
 }
 
 } // namespace
@@ -189,26 +231,44 @@ void InspectorPanel::draw(EditorContext& ctx) {
 
                     if (headerOpen) {
                         auto* tc = e.get_mut<physics::PhysicsTransformComponent>();
+                        bool changed = false;
 
+                        // Position
                         float pos[3] = {tc->transform.position.x, tc->transform.position.y,
                                         tc->transform.position.z};
-                        drawVec3Property("Position", pos, 0.0F, 0.05F);
-                        tc->transform.position = Vec3(pos[0], pos[1], pos[2]);
+                        if (drawVec3Property("Position", pos, 0.0F, 0.05F)) {
+                            tc->transform.position = Vec3(pos[0], pos[1], pos[2]);
+                            changed = true;
+                        }
 
                         // Display Euler angles in degrees
-                        float rot[3] = {tc->transform.rotation.x * 57.2957795F,
-                                        tc->transform.rotation.y * 57.2957795F,
-                                        tc->transform.rotation.z * 57.2957795F};
-                        drawVec3Property("Rotation", rot, 0.0F, 0.5F);
-                        tc->transform.rotation =
-                            Quat(rot[0] * 0.0174532925F, rot[1] * 0.0174532925F,
-                                 rot[2] * 0.0174532925F, 1.0F)
-                                .normalized();
+                        float rot[3]{0.0F, 0.0F, 0.0F};
+                        quatToEulerDegrees(tc->transform.rotation, rot);
+                        if (drawVec3Property("Rotation", rot, 0.0F, 0.5F)) {
+                            tc->transform.rotation = eulerDegreesToQuat(rot);
+                            changed = true;
+                        }
 
+                        // Scale with minimum positive threshold
                         float scl[3] = {tc->transform.scale.x, tc->transform.scale.y,
                                         tc->transform.scale.z};
-                        drawVec3Property("Scale", scl, 1.0F, 0.05F);
-                        tc->transform.scale = Vec3(scl[0], scl[1], scl[2]);
+                        if (drawVec3Property("Scale", scl, 1.0F, 0.05F, 0.001F, 1000.0F)) {
+                            if (scl[0] < 0.001F) {
+                                scl[0] = 0.001F;
+                            }
+                            if (scl[1] < 0.001F) {
+                                scl[1] = 0.001F;
+                            }
+                            if (scl[2] < 0.001F) {
+                                scl[2] = 0.001F;
+                            }
+                            tc->transform.scale = Vec3(scl[0], scl[1], scl[2]);
+                            changed = true;
+                        }
+
+                        if (changed) {
+                            e.modified<physics::PhysicsTransformComponent>();
+                        }
 
                         ImGui::Spacing();
                         if (ImGui::SmallButton("Remove Transform")) {
