@@ -691,15 +691,17 @@ void VulkanCommandList::draw(uint32_t vertexCount, uint32_t instanceCount, uint3
                 pDesc->colorAttachmentFormats[0] != activeColorFormat_) {
                 hasFormatMismatch_ = true;
                 ENG_LOG_WARN("Vulkan",
-                             "draw warning: pipeline color format does not match active render "
+                             "draw skipped: pipeline color format does not match active render "
                              "target format");
+                return;
             }
             if (pDesc->depthAttachmentFormat != TextureFormat::Undefined &&
                 pDesc->depthAttachmentFormat != activeDepthFormat_) {
                 hasFormatMismatch_ = true;
                 ENG_LOG_WARN("Vulkan",
-                             "draw warning: pipeline depth format does not match active render "
+                             "draw skipped: pipeline depth format does not match active render "
                              "target depth format");
+                return;
             }
         }
     }
@@ -724,15 +726,17 @@ void VulkanCommandList::drawIndexed(uint32_t indexCount, uint32_t instanceCount,
                 pDesc->colorAttachmentFormats[0] != activeColorFormat_) {
                 hasFormatMismatch_ = true;
                 ENG_LOG_WARN("Vulkan",
-                             "drawIndexed warning: pipeline color format does not match active "
+                             "drawIndexed skipped: pipeline color format does not match active "
                              "render target format");
+                return;
             }
             if (pDesc->depthAttachmentFormat != TextureFormat::Undefined &&
                 pDesc->depthAttachmentFormat != activeDepthFormat_) {
                 hasFormatMismatch_ = true;
                 ENG_LOG_WARN("Vulkan",
-                             "drawIndexed warning: pipeline depth format does not match active "
+                             "drawIndexed skipped: pipeline depth format does not match active "
                              "render target depth format");
+                return;
             }
         }
     }

@@ -187,16 +187,20 @@ void NullCommandList::draw(uint32_t vertexCount, uint32_t instanceCount, uint32_
     ENG_ASSERT(state_ == State::Recording, "draw called outside begin()/end()");
     if (!isPipelineBound()) {
         hasUnboundDraw_ = true;
-    } else if (isInsideRenderPass_) {
+        return;
+    }
+    if (isInsideRenderPass_) {
         const auto* pDesc = device_.getPipelineDesc(boundPipeline_);
         if (pDesc != nullptr) {
             if (!pDesc->colorAttachmentFormats.empty() &&
                 pDesc->colorAttachmentFormats[0] != activeColorFormat_) {
                 hasFormatMismatch_ = true;
+                return;
             }
             if (pDesc->depthAttachmentFormat != TextureFormat::Undefined &&
                 pDesc->depthAttachmentFormat != activeDepthFormat_) {
                 hasFormatMismatch_ = true;
+                return;
             }
         }
     }
@@ -212,16 +216,20 @@ void NullCommandList::drawIndexed(uint32_t indexCount, uint32_t instanceCount, u
     ENG_ASSERT(state_ == State::Recording, "drawIndexed called outside begin()/end()");
     if (!isPipelineBound()) {
         hasUnboundDraw_ = true;
-    } else if (isInsideRenderPass_) {
+        return;
+    }
+    if (isInsideRenderPass_) {
         const auto* pDesc = device_.getPipelineDesc(boundPipeline_);
         if (pDesc != nullptr) {
             if (!pDesc->colorAttachmentFormats.empty() &&
                 pDesc->colorAttachmentFormats[0] != activeColorFormat_) {
                 hasFormatMismatch_ = true;
+                return;
             }
             if (pDesc->depthAttachmentFormat != TextureFormat::Undefined &&
                 pDesc->depthAttachmentFormat != activeDepthFormat_) {
                 hasFormatMismatch_ = true;
+                return;
             }
         }
     }

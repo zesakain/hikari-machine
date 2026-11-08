@@ -1065,8 +1065,10 @@ static int testVulkanOffscreenPipelineCompatibility() {
     cmd->beginRenderPass(passInfo);
     cmd->bindPipeline(mismatchPipeRes.value());
 
-    // Drawing with mismatched pipeline format is safely caught and skipped without crashing
+    // Drawing with mismatched pipeline format is safely caught and suppressed without issuing GPU
+    // draws
     cmd->draw(3, 1, 0, 0);
+    cmd->drawIndexed(6, 1, 0, 0, 0);
 
     cmd->endRenderPass();
     cmd->end();

@@ -828,11 +828,14 @@ static int testOffscreenPipelineCompatibility() {
     cmd->beginRenderPass(matchPass);
     cmd->bindPipeline(pipeline);
     cmd->draw(3, 1, 0, 0);
+    cmd->drawIndexed(6, 1, 0, 0, 0);
     TEST_CHECK(!nullCmd->hasFormatMismatch());
+    TEST_CHECK(nullCmd->getDrawCount() == 1);
+    TEST_CHECK(nullCmd->getDrawIndexedCount() == 1);
     cmd->endRenderPass();
     cmd->end();
 
-    // 2. Draw with mismatched color format -> should flag format mismatch
+    // 2. Draw with mismatched color format -> should flag format mismatch and SUPPRESS draw
     cmd->begin();
     RenderPassBeginInfo colorMismatchPass{
         .colorTarget = bgraColorTex,
@@ -842,10 +845,11 @@ static int testOffscreenPipelineCompatibility() {
     cmd->bindPipeline(pipeline);
     cmd->draw(3, 1, 0, 0);
     TEST_CHECK(nullCmd->hasFormatMismatch());
+    TEST_CHECK(nullCmd->getDrawCount() == 0); // Suppressed! Not recorded!
     cmd->endRenderPass();
     cmd->end();
 
-    // 3. Draw with mismatched depth format -> should flag format mismatch
+    // 3. Draw with mismatched depth format -> should flag format mismatch and SUPPRESS drawIndexed
     cmd->begin();
     RenderPassBeginInfo depthMismatchPass{
         .colorTarget = colorTex,
@@ -853,8 +857,9 @@ static int testOffscreenPipelineCompatibility() {
     };
     cmd->beginRenderPass(depthMismatchPass);
     cmd->bindPipeline(pipeline);
-    cmd->draw(3, 1, 0, 0);
+    cmd->drawIndexed(6, 1, 0, 0, 0);
     TEST_CHECK(nullCmd->hasFormatMismatch());
+    TEST_CHECK(nullCmd->getDrawIndexedCount() == 0); // Suppressed! Not recorded!
     cmd->endRenderPass();
     cmd->end();
 
