@@ -82,8 +82,7 @@ struct EditorEngine::Impl {
         void* nativeSampler = rhiDevice->getNativeSampler(viewportSampler);
         if (nativeView != nullptr && nativeSampler != nullptr) {
             viewportDescriptorSet = ImGui_ImplVulkan_AddTexture(
-                static_cast<VkSampler>(nativeSampler),
-                static_cast<VkImageView>(nativeView),
+                static_cast<VkSampler>(nativeSampler), static_cast<VkImageView>(nativeView),
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             context.viewportTextureId = static_cast<void*>(viewportDescriptorSet);
             context.gpuRenderingActive = (viewportDescriptorSet != VK_NULL_HANDLE);
@@ -265,6 +264,10 @@ void EditorEngine::shutdown() {
             (void)impl_->workspaceManager.saveLayout();
         }
 
+        if (impl_->runtimeSession != nullptr && impl_->runtimeSession->isSimulating()) {
+            (void)impl_->runtimeSession->stop();
+        }
+
         if (impl_->rhiDevice != nullptr) {
             impl_->rhiDevice->waitIdle();
         }
@@ -279,6 +282,7 @@ void EditorEngine::shutdown() {
         }
 
         impl_->sceneRenderer.shutdown();
+        impl_->assetManager.unloadAll();
 
         if (impl_->rhiDevice != nullptr && impl_->viewportSampler.isValid()) {
             impl_->rhiDevice->destroySampler(impl_->viewportSampler);
@@ -384,7 +388,8 @@ bool EditorEngine::resizeViewport(uint32_t width, uint32_t height) {
 }
 
 void EditorEngine::renderScene(rhi::RhiCommandList& cmdList) {
-    if (!impl_->initialized || impl_->rhiDevice == nullptr || !impl_->sceneRenderer.isInitialized()) {
+    if (!impl_->initialized || impl_->rhiDevice == nullptr ||
+        !impl_->sceneRenderer.isInitialized()) {
         return;
     }
     if (impl_->viewportWidth == 0 || impl_->viewportHeight == 0) {
