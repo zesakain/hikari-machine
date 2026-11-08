@@ -4,6 +4,7 @@
 
 add_library(engine_framework STATIC
     src/conductor.cpp
+    src/runtime_session.cpp
     src/scene.cpp
     src/scene_serializer.cpp
 )
@@ -23,5 +24,6 @@ target_link_libraries(engine_framework
         hikari::engine_core
         hikari::engine_world
         hikari::engine_physics
+        hikari::engine_anim
         hikari::engine_script
 )
