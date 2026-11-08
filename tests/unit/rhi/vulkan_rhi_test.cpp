@@ -16,9 +16,12 @@
 #include "rhi/buffer.h"
 #include "rhi/command_list.h"
 #include "rhi/gpu_caps.h"
+#include "rhi/pipeline.h"
 #include "rhi/rhi_device.h"
 #include "rhi/sampler.h"
+#include "rhi/shader.h"
 #include "rhi/texture.h"
+#include "test_shaders.h"
 
 #include <cstring>
 #include <iostream>
@@ -81,7 +84,7 @@ static int testVulkanDeviceCapabilities() {
 }
 
 static int testVulkanBufferLifecycle() {
-    VulkanDeviceDesc devDesc{.windowHandle = nullptr, .enableValidation = false};
+    VulkanDeviceDesc devDesc{.windowHandle = nullptr, .enableValidation = true};
     auto devRes = createVulkanDevice(devDesc);
     if (!devRes.hasValue()) {
         std::cout << "Vulkan device unavailable; skipping buffer test\n";
@@ -123,7 +126,7 @@ static int testVulkanBufferLifecycle() {
 }
 
 static int testVulkanTextureLifecycle() {
-    VulkanDeviceDesc devDesc{.windowHandle = nullptr, .enableValidation = false};
+    VulkanDeviceDesc devDesc{.windowHandle = nullptr, .enableValidation = true};
     auto devRes = createVulkanDevice(devDesc);
     if (!devRes.hasValue()) {
         std::cout << "Vulkan device unavailable; skipping texture test\n";
@@ -174,7 +177,7 @@ static int testVulkanTextureLifecycle() {
 }
 
 static int testVulkanSamplerLifecycle() {
-    VulkanDeviceDesc devDesc{.windowHandle = nullptr, .enableValidation = false};
+    VulkanDeviceDesc devDesc{.windowHandle = nullptr, .enableValidation = true};
     auto devRes = createVulkanDevice(devDesc);
     if (!devRes.hasValue()) {
         std::cout << "Vulkan device unavailable; skipping sampler test\n";
@@ -200,7 +203,7 @@ static int testVulkanSamplerLifecycle() {
 }
 
 static int testVulkanCommandRecordingAndSubmission() {
-    VulkanDeviceDesc devDesc{.windowHandle = nullptr, .enableValidation = false};
+    VulkanDeviceDesc devDesc{.windowHandle = nullptr, .enableValidation = true};
     auto devRes = createVulkanDevice(devDesc);
     if (!devRes.hasValue()) {
         std::cout << "Vulkan device unavailable; skipping command test\n";
@@ -531,6 +534,279 @@ static int testRepeatedDeviceInitializationShutdown() {
     return 0;
 }
 
+static int testVulkanShaderLifecycleAndValidation() {
+    VulkanDeviceDesc desc{.windowHandle = nullptr, .enableValidation = false};
+    auto devRes = createVulkanDevice(desc);
+    if (!devRes.hasValue()) {
+        std::cout << "Vulkan device unavailable; skipping shader test\n";
+        return 0;
+    }
+    auto device = std::move(devRes.value());
+
+    // 1. Invalid stage
+    ShaderDesc badStageDesc{
+        .stage = ShaderStageFlags::None,
+        .spirvCode = eng::rhi::test::kTestVertexShaderSpirv,
+        .entryPoint = "main",
+        .debugName = {},
+    };
+    auto failStage = device->createShader(badStageDesc);
+    TEST_CHECK(!failStage.hasValue());
+
+    // 2. Bad magic number
+    uint32_t badMagic[] = {0x12345678U, 0, 0, 0, 0};
+    ShaderDesc badMagicDesc{
+        .stage = ShaderStageFlags::Vertex,
+        .spirvCode = badMagic,
+        .entryPoint = "main",
+        .debugName = {},
+    };
+    auto failMagic = device->createShader(badMagicDesc);
+    TEST_CHECK(!failMagic.hasValue());
+
+    // 3. Valid creation
+    ShaderDesc vsDesc{
+        .stage = ShaderStageFlags::Vertex,
+        .spirvCode = eng::rhi::test::kTestVertexShaderSpirv,
+        .entryPoint = "main",
+        .debugName = "VkTestVS",
+    };
+    auto vsRes = device->createShader(vsDesc);
+    TEST_CHECK(vsRes.hasValue());
+    ShaderHandle vsHandle = vsRes.value();
+    TEST_CHECK(vsHandle.isValid());
+
+    ShaderDesc fsDesc{
+        .stage = ShaderStageFlags::Fragment,
+        .spirvCode = eng::rhi::test::kTestFragmentShaderSpirv,
+        .entryPoint = "main",
+        .debugName = "VkTestFS",
+    };
+    auto fsRes = device->createShader(fsDesc);
+    TEST_CHECK(fsRes.hasValue());
+    ShaderHandle fsHandle = fsRes.value();
+    TEST_CHECK(fsHandle.isValid());
+
+    // 4. Destruction and reuse
+    device->destroyShader(vsHandle);
+    auto vsRes2 = device->createShader(vsDesc);
+    TEST_CHECK(vsRes2.hasValue());
+    ShaderHandle vsHandle2 = vsRes2.value();
+    TEST_CHECK(vsHandle2.index() == vsHandle.index());
+    TEST_CHECK(vsHandle2.generation() != vsHandle.generation());
+
+    device->destroyShader(vsHandle2);
+    device->destroyShader(fsHandle);
+    std::cout << "Vulkan shader module lifecycle and validation verified!\n";
+    return 0;
+}
+
+static int testVulkanPipelineLayoutLifecycle() {
+    VulkanDeviceDesc desc{.windowHandle = nullptr, .enableValidation = false};
+    auto devRes = createVulkanDevice(desc);
+    if (!devRes.hasValue()) {
+        std::cout << "Vulkan device unavailable; skipping pipeline layout test\n";
+        return 0;
+    }
+    auto device = std::move(devRes.value());
+
+    // 1. Invalid push constant (unaligned)
+    PipelineLayoutDesc badLayoutDesc{
+        .pushConstants = {{.stageFlags = ShaderStageFlags::Vertex, .offset = 3, .size = 16}},
+        .descriptorSetLayouts = {},
+        .debugName = {},
+    };
+    auto failLayout = device->createPipelineLayout(badLayoutDesc);
+    TEST_CHECK(!failLayout.hasValue());
+
+    // 2. Valid layout
+    PipelineLayoutDesc validDesc{
+        .pushConstants = {{.stageFlags = ShaderStageFlags::Vertex, .offset = 0, .size = 64}},
+        .descriptorSetLayouts = {DescriptorSetLayoutDesc{
+            .bindings =
+                {
+                    DescriptorSetLayoutBinding{
+                        .binding = 0,
+                        .descriptorType = DescriptorType::UniformBuffer,
+                        .descriptorCount = 1,
+                        .stageFlags = ShaderStageFlags::Vertex,
+                    },
+                },
+        }},
+        .debugName = "VkMainLayout",
+    };
+    auto layoutRes = device->createPipelineLayout(validDesc);
+    TEST_CHECK(layoutRes.hasValue());
+    PipelineLayoutHandle layoutHandle = layoutRes.value();
+    TEST_CHECK(layoutHandle.isValid());
+
+    device->destroyPipelineLayout(layoutHandle);
+    std::cout << "Vulkan pipeline layout lifecycle verified!\n";
+    return 0;
+}
+
+static int testVulkanGraphicsPipelineLifecycle() {
+    VulkanDeviceDesc desc{.windowHandle = nullptr, .enableValidation = true};
+    auto devRes = createVulkanDevice(desc);
+    if (!devRes.hasValue()) {
+        std::cout << "Vulkan device unavailable; skipping graphics pipeline test\n";
+        return 0;
+    }
+    auto device = std::move(devRes.value());
+
+    ShaderDesc vsDesc{
+        .stage = ShaderStageFlags::Vertex,
+        .spirvCode = eng::rhi::test::kTestVertexShaderSpirv,
+        .entryPoint = "main",
+        .debugName = "VkVS",
+    };
+    auto vsRes = device->createShader(vsDesc);
+    TEST_CHECK(vsRes.hasValue());
+
+    ShaderDesc fsDesc{
+        .stage = ShaderStageFlags::Fragment,
+        .spirvCode = eng::rhi::test::kTestFragmentShaderSpirv,
+        .entryPoint = "main",
+        .debugName = "VkFS",
+    };
+    auto fsRes = device->createShader(fsDesc);
+    TEST_CHECK(fsRes.hasValue());
+
+    PipelineLayoutDesc layoutDesc{
+        .pushConstants = {{.stageFlags = ShaderStageFlags::Vertex, .offset = 0, .size = 64}},
+        .descriptorSetLayouts = {},
+        .debugName = "VkPipelineLayout",
+    };
+    auto layoutRes = device->createPipelineLayout(layoutDesc);
+    TEST_CHECK(layoutRes.hasValue());
+
+    // Valid graphics pipeline with dynamic rendering attachment format
+    GraphicsPipelineDesc pipeDesc{
+        .vertexShader = vsRes.value(),
+        .fragmentShader = fsRes.value(),
+        .vertexInput =
+            {
+                .bindings = {{.binding = 0, .stride = 32, .inputRate = VertexInputRate::Vertex}},
+                .attributes =
+                    {
+                        {.location = 0, .binding = 0, .format = VertexFormat::Float3, .offset = 0},
+                        {.location = 1, .binding = 0, .format = VertexFormat::Float3, .offset = 12},
+                        {.location = 2, .binding = 0, .format = VertexFormat::Float2, .offset = 24},
+                    },
+            },
+        .topology = PrimitiveTopology::TriangleList,
+        .rasterization =
+            {
+                .polygonMode = PolygonMode::Fill,
+                .cullMode = CullMode::Back,
+                .frontFace = FrontFace::CounterClockwise,
+            },
+        .depthStencil =
+            {
+                .depthTestEnable = true,
+                .depthWriteEnable = true,
+                .depthCompareOp = CompareOp::Less,
+            },
+        .colorBlendAttachments = {},
+        .layout = layoutRes.value(),
+        .colorAttachmentFormats = {TextureFormat::RGBA8_UNORM},
+        .depthAttachmentFormat = TextureFormat::D32_FLOAT,
+        .debugName = "VkRealMeshPipeline",
+    };
+    auto pipeRes = device->createGraphicsPipeline(pipeDesc);
+    TEST_CHECK(pipeRes.hasValue());
+    PipelineHandle pipeHandle = pipeRes.value();
+    TEST_CHECK(pipeHandle.isValid());
+
+    device->destroyGraphicsPipeline(pipeHandle);
+    device->destroyPipelineLayout(layoutRes.value());
+    device->destroyShader(fsRes.value());
+    device->destroyShader(vsRes.value());
+    std::cout << "Vulkan graphics pipeline lifecycle verified!\n";
+    return 0;
+}
+
+static int testVulkanCommandListPipelineBinding() {
+    VulkanDeviceDesc desc{.windowHandle = nullptr, .enableValidation = false};
+    auto devRes = createVulkanDevice(desc);
+    if (!devRes.hasValue()) {
+        std::cout << "Vulkan device unavailable; skipping command list pipeline binding test\n";
+        return 0;
+    }
+    auto device = std::move(devRes.value());
+
+    ShaderDesc vsDesc{
+        .stage = ShaderStageFlags::Vertex,
+        .spirvCode = eng::rhi::test::kTestVertexShaderSpirv,
+        .entryPoint = "main",
+        .debugName = "VkVS",
+    };
+    auto vsRes = device->createShader(vsDesc);
+    ShaderDesc fsDesc{
+        .stage = ShaderStageFlags::Fragment,
+        .spirvCode = eng::rhi::test::kTestFragmentShaderSpirv,
+        .entryPoint = "main",
+        .debugName = "VkFS",
+    };
+    auto fsRes = device->createShader(fsDesc);
+
+    PipelineLayoutDesc layoutDesc{
+        .pushConstants = {{.stageFlags = ShaderStageFlags::Vertex, .offset = 0, .size = 64}},
+        .descriptorSetLayouts = {},
+        .debugName = {},
+    };
+    auto layoutRes = device->createPipelineLayout(layoutDesc);
+
+    GraphicsPipelineDesc pipeDesc{
+        .vertexShader = vsRes.value(),
+        .fragmentShader = fsRes.value(),
+        .vertexInput = {},
+        .topology = PrimitiveTopology::TriangleList,
+        .rasterization = {},
+        .depthStencil = {},
+        .colorBlendAttachments = {},
+        .layout = layoutRes.value(),
+        .colorAttachmentFormats = {TextureFormat::RGBA8_UNORM},
+        .depthAttachmentFormat = TextureFormat::Undefined,
+        .debugName = {},
+    };
+    auto pipeRes = device->createGraphicsPipeline(pipeDesc);
+    TEST_CHECK(pipeRes.hasValue());
+
+    auto cmdRes = device->createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto cmd = std::move(cmdRes.value());
+
+    cmd->begin();
+
+    // 1. Draw without pipeline bound -> skipped safely without crashing Vulkan driver
+    cmd->draw(3, 1, 0, 0);
+
+    // 2. Bind pipeline
+    cmd->bindPipeline(pipeRes.value());
+
+    // 3. Push constants
+    float mvp[16] = {1.0f};
+    cmd->pushConstants(layoutRes.value(), ShaderStageFlags::Vertex, 0, sizeof(mvp), mvp);
+
+    // 4. Bind invalid pipeline
+    cmd->bindPipeline(PipelineHandle{});
+
+    cmd->end();
+
+    auto subRes = device->submit(cmd.get());
+    TEST_CHECK(subRes.hasValue());
+    device->waitIdle();
+
+    device->destroyGraphicsPipeline(pipeRes.value());
+    device->destroyPipelineLayout(layoutRes.value());
+    device->destroyShader(fsRes.value());
+    device->destroyShader(vsRes.value());
+
+    std::cout << "Vulkan command list pipeline binding verified!\n";
+    return 0;
+}
+
 int main() {
     std::cout << "Running Vulkan RHI Tests...\n";
 
@@ -572,6 +848,18 @@ int main() {
         return 1;
     }
     if (testRepeatedDeviceInitializationShutdown() != 0) {
+        return 1;
+    }
+    if (testVulkanShaderLifecycleAndValidation() != 0) {
+        return 1;
+    }
+    if (testVulkanPipelineLayoutLifecycle() != 0) {
+        return 1;
+    }
+    if (testVulkanGraphicsPipelineLifecycle() != 0) {
+        return 1;
+    }
+    if (testVulkanCommandListPipelineBinding() != 0) {
         return 1;
     }
 

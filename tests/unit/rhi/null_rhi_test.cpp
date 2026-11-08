@@ -5,9 +5,12 @@
 #include "rhi/buffer.h"
 #include "rhi/command_list.h"
 #include "rhi/gpu_caps.h"
+#include "rhi/pipeline.h"
 #include "rhi/rhi_device.h"
 #include "rhi/sampler.h"
+#include "rhi/shader.h"
 #include "rhi/texture.h"
+#include "test_shaders.h"
 
 #include <cstring>
 #include <iostream>
@@ -167,6 +170,368 @@ static int testCommandRecordingAndExecution() {
     return 0;
 }
 
+static int testShaderLifecycleAndValidation() {
+    auto devRes = createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto device = std::move(devRes.value());
+
+    // 1. Invalid shader stage
+    ShaderDesc invalidStageDesc{
+        .stage = ShaderStageFlags::None,
+        .spirvCode = eng::rhi::test::kTestVertexShaderSpirv,
+    };
+    auto failStageRes = device->createShader(invalidStageDesc);
+    TEST_CHECK(!failStageRes.hasValue());
+
+    // 2. Empty code
+    ShaderDesc emptyDesc{
+        .stage = ShaderStageFlags::Vertex,
+        .spirvCode = {},
+    };
+    auto failEmptyRes = device->createShader(emptyDesc);
+    TEST_CHECK(!failEmptyRes.hasValue());
+
+    // 3. Short binary (< 5 words)
+    uint32_t shortWords[] = {0x07230203U, 0x00010000U};
+    ShaderDesc shortDesc{
+        .stage = ShaderStageFlags::Vertex,
+        .spirvCode = shortWords,
+    };
+    auto failShortRes = device->createShader(shortDesc);
+    TEST_CHECK(!failShortRes.hasValue());
+
+    // 4. Invalid magic number
+    uint32_t badMagicWords[] = {0x12345678U, 0x00010000U, 0, 0, 0};
+    ShaderDesc badMagicDesc{
+        .stage = ShaderStageFlags::Vertex,
+        .spirvCode = badMagicWords,
+    };
+    auto failMagicRes = device->createShader(badMagicDesc);
+    TEST_CHECK(!failMagicRes.hasValue());
+
+    // 5. Valid vertex shader creation
+    ShaderDesc vsDesc{
+        .stage = ShaderStageFlags::Vertex,
+        .spirvCode = eng::rhi::test::kTestVertexShaderSpirv,
+        .entryPoint = "main",
+        .debugName = "TestVS",
+    };
+    auto vsRes = device->createShader(vsDesc);
+    TEST_CHECK(vsRes.hasValue());
+    ShaderHandle vsHandle = vsRes.value();
+    TEST_CHECK(vsHandle.isValid());
+
+    // 6. Valid fragment shader creation
+    ShaderDesc fsDesc{
+        .stage = ShaderStageFlags::Fragment,
+        .spirvCode = eng::rhi::test::kTestFragmentShaderSpirv,
+        .entryPoint = "main",
+        .debugName = "TestFS",
+    };
+    auto fsRes = device->createShader(fsDesc);
+    TEST_CHECK(fsRes.hasValue());
+    ShaderHandle fsHandle = fsRes.value();
+    TEST_CHECK(fsHandle.isValid());
+
+    // 7. Destruction and generational invalidation
+    device->destroyShader(vsHandle);
+    auto vsRes2 = device->createShader(vsDesc);
+    TEST_CHECK(vsRes2.hasValue());
+    ShaderHandle vsHandle2 = vsRes2.value();
+    TEST_CHECK(vsHandle2.index() == vsHandle.index());
+    TEST_CHECK(vsHandle2.generation() != vsHandle.generation());
+
+    device->destroyShader(vsHandle2);
+    device->destroyShader(fsHandle);
+
+    return 0;
+}
+
+static int testPipelineLayoutLifecycleAndValidation() {
+    auto devRes = createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto device = std::move(devRes.value());
+
+    // 1. Invalid push constant alignment
+    PipelineLayoutDesc unalignedDesc{
+        .pushConstants = {{.stageFlags = ShaderStageFlags::Vertex, .offset = 3, .size = 16}},
+        .descriptorSetLayouts = {},
+        .debugName = {},
+    };
+    auto failUnaligned = device->createPipelineLayout(unalignedDesc);
+    TEST_CHECK(!failUnaligned.hasValue());
+
+    // 2. Push constant size > 128
+    PipelineLayoutDesc tooBigDesc{
+        .pushConstants = {{.stageFlags = ShaderStageFlags::Vertex, .offset = 0, .size = 144}},
+        .descriptorSetLayouts = {},
+        .debugName = {},
+    };
+    auto failTooBig = device->createPipelineLayout(tooBigDesc);
+    TEST_CHECK(!failTooBig.hasValue());
+
+    // 3. Duplicate descriptor set binding
+    PipelineLayoutDesc dupBindingDesc{
+        .pushConstants = {},
+        .descriptorSetLayouts = {DescriptorSetLayoutDesc{
+            .bindings =
+                {
+                    DescriptorSetLayoutBinding{.binding = 0,
+                                               .descriptorType = DescriptorType::UniformBuffer,
+                                               .descriptorCount = 1,
+                                               .stageFlags = ShaderStageFlags::AllGraphics},
+                    DescriptorSetLayoutBinding{.binding = 0,
+                                               .descriptorType = DescriptorType::SampledImage,
+                                               .descriptorCount = 1,
+                                               .stageFlags = ShaderStageFlags::AllGraphics},
+                },
+        }},
+        .debugName = {},
+    };
+    auto failDup = device->createPipelineLayout(dupBindingDesc);
+    TEST_CHECK(!failDup.hasValue());
+
+    // 4. Valid layout creation
+    PipelineLayoutDesc validDesc{
+        .pushConstants = {{.stageFlags = ShaderStageFlags::Vertex, .offset = 0, .size = 64}},
+        .descriptorSetLayouts = {DescriptorSetLayoutDesc{
+            .bindings =
+                {
+                    DescriptorSetLayoutBinding{
+                        .binding = 0,
+                        .descriptorType = DescriptorType::UniformBuffer,
+                        .descriptorCount = 1,
+                        .stageFlags = ShaderStageFlags::Vertex,
+                    },
+                    DescriptorSetLayoutBinding{
+                        .binding = 1,
+                        .descriptorType = DescriptorType::CombinedImageSampler,
+                        .descriptorCount = 1,
+                        .stageFlags = ShaderStageFlags::Fragment,
+                    },
+                },
+        }},
+        .debugName = "MainPipelineLayout",
+    };
+    auto layoutRes = device->createPipelineLayout(validDesc);
+    TEST_CHECK(layoutRes.hasValue());
+    PipelineLayoutHandle layoutHandle = layoutRes.value();
+    TEST_CHECK(layoutHandle.isValid());
+
+    // 5. Destruction and reuse
+    device->destroyPipelineLayout(layoutHandle);
+    auto layoutRes2 = device->createPipelineLayout(validDesc);
+    TEST_CHECK(layoutRes2.hasValue());
+    PipelineLayoutHandle layoutHandle2 = layoutRes2.value();
+    TEST_CHECK(layoutHandle2.index() == layoutHandle.index());
+    TEST_CHECK(layoutHandle2.generation() != layoutHandle.generation());
+
+    device->destroyPipelineLayout(layoutHandle2);
+
+    return 0;
+}
+
+static int testGraphicsPipelineLifecycleAndValidation() {
+    auto devRes = createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto device = std::move(devRes.value());
+
+    // Setup shaders and layout
+    ShaderDesc vsDesc{
+        .stage = ShaderStageFlags::Vertex,
+        .spirvCode = eng::rhi::test::kTestVertexShaderSpirv,
+    };
+    auto vsRes = device->createShader(vsDesc);
+    TEST_CHECK(vsRes.hasValue());
+    ShaderHandle vsHandle = vsRes.value();
+
+    ShaderDesc fsDesc{
+        .stage = ShaderStageFlags::Fragment,
+        .spirvCode = eng::rhi::test::kTestFragmentShaderSpirv,
+    };
+    auto fsRes = device->createShader(fsDesc);
+    TEST_CHECK(fsRes.hasValue());
+    ShaderHandle fsHandle = fsRes.value();
+
+    PipelineLayoutDesc layoutDesc{
+        .pushConstants = {{.stageFlags = ShaderStageFlags::Vertex, .offset = 0, .size = 64}},
+        .descriptorSetLayouts = {},
+        .debugName = {},
+    };
+    auto layoutRes = device->createPipelineLayout(layoutDesc);
+    TEST_CHECK(layoutRes.hasValue());
+    PipelineLayoutHandle layoutHandle = layoutRes.value();
+
+    // 1. Missing vertex shader
+    GraphicsPipelineDesc missingVsDesc{
+        .vertexShader = {},
+        .fragmentShader = fsHandle,
+        .layout = layoutHandle,
+        .colorAttachmentFormats = {TextureFormat::RGBA8_UNORM},
+    };
+    auto failMissingVs = device->createGraphicsPipeline(missingVsDesc);
+    TEST_CHECK(!failMissingVs.hasValue());
+
+    // 2. Incompatible stage (passing fragment shader as vertex shader)
+    GraphicsPipelineDesc wrongStageDesc{
+        .vertexShader = fsHandle,
+        .fragmentShader = fsHandle,
+        .layout = layoutHandle,
+        .colorAttachmentFormats = {TextureFormat::RGBA8_UNORM},
+    };
+    auto failWrongStage = device->createGraphicsPipeline(wrongStageDesc);
+    TEST_CHECK(!failWrongStage.hasValue());
+
+    // 3. Invalid vertex attribute referencing non-existent binding
+    GraphicsPipelineDesc badAttrDesc{
+        .vertexShader = vsHandle,
+        .fragmentShader = fsHandle,
+        .vertexInput =
+            {
+                .bindings = {{.binding = 0, .stride = 32}},
+                .attributes = {{.location = 0, .binding = 1, .format = VertexFormat::Float3}},
+            },
+        .layout = layoutHandle,
+        .colorAttachmentFormats = {TextureFormat::RGBA8_UNORM},
+    };
+    auto failBadAttr = device->createGraphicsPipeline(badAttrDesc);
+    TEST_CHECK(!failBadAttr.hasValue());
+
+    // 4. Missing attachments
+    GraphicsPipelineDesc noAttachDesc{
+        .vertexShader = vsHandle,
+        .fragmentShader = fsHandle,
+        .layout = layoutHandle,
+        .colorAttachmentFormats = {},
+        .depthAttachmentFormat = TextureFormat::Undefined,
+    };
+    auto failNoAttach = device->createGraphicsPipeline(noAttachDesc);
+    TEST_CHECK(!failNoAttach.hasValue());
+
+    // 5. Valid Graphics Pipeline Creation
+    GraphicsPipelineDesc validPipelineDesc{
+        .vertexShader = vsHandle,
+        .fragmentShader = fsHandle,
+        .vertexInput =
+            {
+                .bindings = {{.binding = 0, .stride = 32, .inputRate = VertexInputRate::Vertex}},
+                .attributes =
+                    {
+                        {.location = 0, .binding = 0, .format = VertexFormat::Float3, .offset = 0},
+                        {.location = 1, .binding = 0, .format = VertexFormat::Float3, .offset = 12},
+                        {.location = 2, .binding = 0, .format = VertexFormat::Float2, .offset = 24},
+                    },
+            },
+        .topology = PrimitiveTopology::TriangleList,
+        .rasterization =
+            {
+                .polygonMode = PolygonMode::Fill,
+                .cullMode = CullMode::Back,
+                .frontFace = FrontFace::CounterClockwise,
+            },
+        .depthStencil =
+            {
+                .depthTestEnable = true,
+                .depthWriteEnable = true,
+                .depthCompareOp = CompareOp::Less,
+            },
+        .layout = layoutHandle,
+        .colorAttachmentFormats = {TextureFormat::RGBA8_UNORM},
+        .depthAttachmentFormat = TextureFormat::D32_FLOAT,
+        .debugName = "MeshPipeline",
+    };
+    auto pipeRes = device->createGraphicsPipeline(validPipelineDesc);
+    TEST_CHECK(pipeRes.hasValue());
+    PipelineHandle pipeHandle = pipeRes.value();
+    TEST_CHECK(pipeHandle.isValid());
+
+    // 6. Destruction and generational reuse
+    device->destroyGraphicsPipeline(pipeHandle);
+    auto pipeRes2 = device->createGraphicsPipeline(validPipelineDesc);
+    TEST_CHECK(pipeRes2.hasValue());
+    PipelineHandle pipeHandle2 = pipeRes2.value();
+    TEST_CHECK(pipeHandle2.index() == pipeHandle.index());
+    TEST_CHECK(pipeHandle2.generation() != pipeHandle.generation());
+
+    device->destroyGraphicsPipeline(pipeHandle2);
+    device->destroyPipelineLayout(layoutHandle);
+    device->destroyShader(fsHandle);
+    device->destroyShader(vsHandle);
+
+    return 0;
+}
+
+static int testCommandListPipelineBindingAndValidation() {
+    auto devRes = createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto device = std::move(devRes.value());
+
+    // Setup pipeline
+    ShaderDesc vsDesc{
+        .stage = ShaderStageFlags::Vertex,
+        .spirvCode = eng::rhi::test::kTestVertexShaderSpirv,
+    };
+    auto vsRes = device->createShader(vsDesc);
+    ShaderDesc fsDesc{
+        .stage = ShaderStageFlags::Fragment,
+        .spirvCode = eng::rhi::test::kTestFragmentShaderSpirv,
+    };
+    auto fsRes = device->createShader(fsDesc);
+
+    PipelineLayoutDesc layoutDesc{
+        .pushConstants = {{.stageFlags = ShaderStageFlags::Vertex, .offset = 0, .size = 64}},
+        .descriptorSetLayouts = {},
+        .debugName = {},
+    };
+    auto layoutRes = device->createPipelineLayout(layoutDesc);
+
+    GraphicsPipelineDesc pipeDesc{
+        .vertexShader = vsRes.value(),
+        .fragmentShader = fsRes.value(),
+        .layout = layoutRes.value(),
+        .colorAttachmentFormats = {TextureFormat::RGBA8_UNORM},
+    };
+    auto pipeRes = device->createGraphicsPipeline(pipeDesc);
+    PipelineHandle pipeline = pipeRes.value();
+
+    auto cmdRes = device->createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto cmd = std::move(cmdRes.value());
+
+    cmd->begin();
+
+    // 1. Draw without pipeline bound -> flagged as unbound draw
+    cmd->draw(3, 1, 0, 0);
+
+    // 2. Bind valid pipeline
+    cmd->bindPipeline(pipeline);
+
+    // 3. Push constants with valid layout
+    float matrix[16] = {1.0f};
+    cmd->pushConstants(layoutRes.value(), ShaderStageFlags::Vertex, 0, sizeof(matrix), matrix);
+
+    // 4. Draw with pipeline bound
+    cmd->drawIndexed(6, 1, 0, 0, 0);
+
+    // 5. Bind invalid pipeline handle
+    cmd->bindPipeline(PipelineHandle{});
+
+    // 6. Bind destroyed pipeline handle
+    device->destroyGraphicsPipeline(pipeline);
+    cmd->bindPipeline(pipeline);
+
+    cmd->end();
+
+    auto subRes = device->submit(cmd.get());
+    TEST_CHECK(subRes.hasValue());
+
+    device->destroyPipelineLayout(layoutRes.value());
+    device->destroyShader(fsRes.value());
+    device->destroyShader(vsRes.value());
+
+    return 0;
+}
+
 int main() {
     if (testGpuCapsQuery() != 0) {
         return 1;
@@ -178,6 +543,18 @@ int main() {
         return 1;
     }
     if (testCommandRecordingAndExecution() != 0) {
+        return 1;
+    }
+    if (testShaderLifecycleAndValidation() != 0) {
+        return 1;
+    }
+    if (testPipelineLayoutLifecycleAndValidation() != 0) {
+        return 1;
+    }
+    if (testGraphicsPipelineLifecycleAndValidation() != 0) {
+        return 1;
+    }
+    if (testCommandListPipelineBindingAndValidation() != 0) {
         return 1;
     }
     std::cout << "All Null RHI unit tests passed!\n";
