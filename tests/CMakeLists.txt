@@ -96,6 +96,10 @@ target_link_libraries(scene_test PRIVATE hikari::engine_framework)
 target_compile_definitions(scene_test PRIVATE HIKARI_SAMPLE_SCENE_PATH="${CMAKE_SOURCE_DIR}/assets/scenes/sample.hikari")
 add_test(NAME scene_test COMMAND scene_test)
 
+add_executable(runtime_session_test unit/framework/runtime_session_test.cpp)
+target_link_libraries(runtime_session_test PRIVATE hikari::engine_framework)
+add_test(NAME runtime_session_test COMMAND runtime_session_test)
+
 # Headless Integration / Stress Tests
 add_executable(conductor_stress_test headless/conductor_stress_test.cpp)
 target_link_libraries(conductor_stress_test PRIVATE hikari::engine_framework)
