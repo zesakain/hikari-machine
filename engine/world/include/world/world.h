@@ -58,6 +58,12 @@ public:
     /// Checks if an entity handle references an active, alive entity in the world.
     [[nodiscard]] bool isAlive(EntityHandle entity) const;
 
+    /// Retrieves the name of an entity if set, or empty string_view if unnamed.
+    [[nodiscard]] std::string_view getEntityName(EntityHandle entity) const;
+
+    /// Sets or updates the diagnostic name of an entity.
+    void setEntityName(EntityHandle entity, std::string_view name);
+
     /// Sets or replaces a component on an entity.
     /// If T is an empty struct (tag component), adds the tag without allocating component storage.
     template <typename T> void setComponent(EntityHandle entity, T component) {

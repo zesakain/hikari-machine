@@ -57,6 +57,27 @@ bool World::isAlive(EntityHandle entity) const {
     return ecs_.is_alive(entity.id);
 }
 
+std::string_view World::getEntityName(EntityHandle entity) const {
+    if (!isAlive(entity)) {
+        return "";
+    }
+    const char* name = ecs_.entity(entity.id).name().c_str();
+    return (name != nullptr) ? std::string_view(name) : std::string_view("");
+}
+
+void World::setEntityName(EntityHandle entity, std::string_view name) {
+    if (!isAlive(entity)) {
+        return;
+    }
+    std::array<char, 256> buf{};
+    const size_t copyLen = std::min(name.size(), buf.size() - 1);
+    for (size_t i = 0; i < copyLen; ++i) {
+        buf[i] = name[i];
+    }
+    buf[copyLen] = '\0';
+    ecs_.entity(entity.id).set_name(buf.data());
+}
+
 void World::registerSystem(SystemGroup group, flecs::system system) {
     const auto idx = static_cast<size_t>(group);
     ENG_ASSERT(idx < groupSystems_.size(), "Invalid SystemGroup index");

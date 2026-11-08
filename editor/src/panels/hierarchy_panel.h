@@ -4,8 +4,10 @@
 #pragma once
 
 #include "editor/editor_panel.h"
+#include "world/entity.h"
 
 #include <array>
+#include <string_view>
 
 namespace eng::editor {
 
@@ -24,8 +26,20 @@ public:
 
     void draw(EditorContext& ctx) override;
 
+    /// Initiates an inline rename for an entity.
+    void startRenaming(world::EntityHandle entity, std::string_view currentName);
+
+    /// Commits the active inline rename if valid.
+    void commitRename(EditorContext& ctx);
+
+    /// Cancels the active inline rename.
+    void cancelRename() noexcept;
+
 private:
     std::array<char, 64> searchFilter_{};
+    world::EntityHandle renamingEntity_{};
+    std::array<char, 64> renameBuffer_{};
+    bool focusRenameInput_{false};
 };
 
 } // namespace eng::editor

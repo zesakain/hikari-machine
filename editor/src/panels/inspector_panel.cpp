@@ -105,7 +105,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                 ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 90.0F);
                 if (ImGui::InputText("##EntityNameInput", nameBuf, sizeof(nameBuf),
                                      ImGuiInputTextFlags_EnterReturnsTrue)) {
-                    e.set_name(nameBuf);
+                    ctx.world->setEntityName(world::EntityHandle(e.id()), nameBuf);
                 }
                 ImGui::SameLine();
                 ImGui::TextDisabled("#%llu", static_cast<unsigned long long>(e.id()));
