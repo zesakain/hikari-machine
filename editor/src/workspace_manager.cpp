@@ -5,9 +5,9 @@
 
 #include "core/log.h"
 #include "editor/editor_theme.h"
+#include "editor/hierarchy_panel.h"
 #include "editor/selection_model.h"
 #include "framework/conductor.h"
-#include "panels/hierarchy_panel.h"
 #include "physics/physics_components.h"
 #include "rhi/rhi_device.h"
 #include "world/world.h"

@@ -3,10 +3,12 @@
 
 #include "editor/editor_engine.h"
 #include "editor/editor_theme.h"
+#include "editor/hierarchy_panel.h"
 #include "editor/selection_model.h"
 #include "editor/workspace_manager.h"
 #include "framework/conductor.h"
 #include "framework/mode.h"
+#include "physics/physics_components.h"
 #include "platform/input_snapshot.h"
 #include "rhi/command_list.h"
 #include "rhi/rhi_device.h"
@@ -625,6 +627,148 @@ static void testInvalidEntityLookupSafety() {
     std::cout << "[PASS] testInvalidEntityLookupSafety\n";
 }
 
+static void testPhysicsObjectCreationAndUniqueNamingRegression() {
+    world::World world;
+    flecs::world& ecs = world.getRawWorld();
+
+    // 1. Calling generateUniqueEntityName for a non-existent name returns the exact name without
+    // crashing
+    std::string name1 = HierarchyPanel::generateUniqueEntityName(ecs, "PhysicsCube");
+    TEST_CHECK(name1 == "PhysicsCube");
+
+    // 2. Create the first Physics Object with transform and rigid body components
+    auto cube1 = world.createEntity(name1);
+    TEST_CHECK(cube1.isValid());
+    world.setComponent(cube1,
+                       physics::PhysicsTransformComponent{.transform = Transform{Vec3{0, 2, 0}}});
+    world.setComponent(cube1, physics::RigidBodyComponent{
+                                  .bodyHandle = {},
+                                  .motionType = physics::MotionType::Dynamic,
+                                  .collisionLayer = physics::CollisionLayer::kMoving,
+                              });
+    TEST_CHECK(world.isAlive(cube1));
+
+    // 3. Second call generates collision-free suffix "_1"
+    std::string name2 = HierarchyPanel::generateUniqueEntityName(ecs, "PhysicsCube");
+    TEST_CHECK(name2 == "PhysicsCube_1");
+
+    auto cube2 = world.createEntity(name2);
+    TEST_CHECK(cube2.isValid());
+    world.setComponent(cube2,
+                       physics::PhysicsTransformComponent{.transform = Transform{Vec3{1, 3, 0}}});
+    world.setComponent(cube2, physics::RigidBodyComponent{
+                                  .bodyHandle = {},
+                                  .motionType = physics::MotionType::Dynamic,
+                                  .collisionLayer = physics::CollisionLayer::kMoving,
+                              });
+
+    // 4. Third call generates suffix "_2"
+    std::string name3 = HierarchyPanel::generateUniqueEntityName(ecs, "PhysicsCube");
+    TEST_CHECK(name3 == "PhysicsCube_2");
+
+    // 5. If cube2 is destroyed, recycled name "PhysicsCube_1" is cleanly available
+    world.destroyEntity(cube2);
+    TEST_CHECK(!world.isAlive(cube2));
+
+    std::string recycled = HierarchyPanel::generateUniqueEntityName(ecs, "PhysicsCube");
+    TEST_CHECK(recycled == "PhysicsCube_1");
+
+    // 6. Null and empty base names fall back safely to "Entity"
+    std::string nullFallback = HierarchyPanel::generateUniqueEntityName(ecs, nullptr);
+    TEST_CHECK(nullFallback == "Entity");
+
+    std::string emptyFallback = HierarchyPanel::generateUniqueEntityName(ecs, "");
+    TEST_CHECK(emptyFallback == "Entity");
+
+    // 7. World-based overload works identically
+    std::string sphereName = HierarchyPanel::generateUniqueEntityName(world, "PhysicsSphere");
+    TEST_CHECK(sphereName == "PhysicsSphere");
+
+    std::cout << "[PASS] testPhysicsObjectCreationAndUniqueNamingRegression\n";
+}
+
+static void testRepeatedPhysicsObjectCreationAndHierarchyRendering() {
+    auto devRes = rhi::createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto nullDevice = std::move(devRes.value());
+
+    auto cmdRes = nullDevice->createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto nullCmd = std::move(cmdRes.value());
+
+    world::World world;
+    auto modeA = std::make_unique<DummyEditorMode>("StateA");
+    auto modeB = std::make_unique<DummyEditorMode>("StateB");
+    framework::Conductor conductor(world, std::move(modeA), std::move(modeB));
+    TEST_CHECK(conductor.initialize(framework::ActiveSlot::SlotA).hasValue());
+
+    EditorEngine editor;
+    TEST_CHECK(editor.initialize(*nullDevice));
+    editor.bindWorld(&world);
+    editor.bindConductor(&conductor);
+
+    // 1. Repeatedly create 10 Physics Objects (alternating cubes and spheres)
+    std::vector<world::EntityHandle> createdPhysicsObjects;
+    createdPhysicsObjects.reserve(10);
+
+    for (int i = 0; i < 10; ++i) {
+        const char* baseName = (i % 2 == 0) ? "PhysicsCube" : "PhysicsSphere";
+        std::string uniqueName =
+            HierarchyPanel::generateUniqueEntityName(world.getRawWorld(), baseName);
+        auto h = world.createEntity(uniqueName);
+        TEST_CHECK(h.isValid());
+        TEST_CHECK(world.isAlive(h));
+
+        world.setComponent(h, physics::PhysicsTransformComponent{
+                                  .transform = Transform{Vec3{static_cast<float>(i), 5.0F, 0.0F}},
+                              });
+        world.setComponent(h, physics::RigidBodyComponent{
+                                  .bodyHandle = {},
+                                  .motionType = physics::MotionType::Dynamic,
+                                  .collisionLayer = physics::CollisionLayer::kMoving,
+                              });
+
+        createdPhysicsObjects.push_back(h);
+    }
+
+    // 2. Select all physics objects
+    editor.getSelectionModel().selectAll(createdPhysicsObjects);
+    TEST_CHECK(editor.getSelectionModel().count() == 10);
+
+    // 3. Render 3 full editor frames with all 10 physics entities active
+    for (int f = 0; f < 3; ++f) {
+        nullCmd->begin();
+        editor.beginFrame(Duration::fromMilliseconds(16));
+        editor.drawPanels();
+        editor.endFrame(*nullCmd);
+        nullCmd->end();
+
+        TEST_CHECK(editor.lastDrawCallCount() > 0);
+        TEST_CHECK(editor.lastVertexCount() > 0);
+    }
+
+    // 4. Destroy half of the physics entities mid-simulation
+    for (size_t i = 0; i < 5; ++i) {
+        world.destroyEntity(createdPhysicsObjects[i]);
+        TEST_CHECK(!world.isAlive(createdPhysicsObjects[i]));
+    }
+
+    // 5. Subsequent frames must immediately purge destroyed entities from selection and render
+    // remaining 5 cleanly
+    nullCmd->begin();
+    editor.beginFrame(Duration::fromMilliseconds(16));
+    editor.drawPanels();
+    editor.endFrame(*nullCmd);
+    nullCmd->end();
+
+    TEST_CHECK(editor.getSelectionModel().count() == 5);
+    TEST_CHECK(editor.lastDrawCallCount() > 0);
+
+    editor.shutdown();
+    conductor.shutdown();
+    std::cout << "[PASS] testRepeatedPhysicsObjectCreationAndHierarchyRendering\n";
+}
+
 int main() {
     std::cout << "Running Editor subsystem unit tests...\n";
     testThemeTokens();
@@ -639,6 +783,8 @@ int main() {
     testSelectionModelValidationAndStaleHandles();
     testEditorEntityLifecycleAndConductorGating();
     testInvalidEntityLookupSafety();
+    testPhysicsObjectCreationAndUniqueNamingRegression();
+    testRepeatedPhysicsObjectCreationAndHierarchyRendering();
     std::cout << "All Editor subsystem tests PASSED!\n";
     return 0;
 }

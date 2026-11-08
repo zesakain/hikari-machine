@@ -1,7 +1,7 @@
 /// @file hierarchy_panel.cpp
 /// @brief Scene hierarchy panel implementation with modern desktop tree presentation.
 
-#include "panels/hierarchy_panel.h"
+#include "editor/hierarchy_panel.h"
 
 #include "core/log.h"
 #include "editor/editor_theme.h"
