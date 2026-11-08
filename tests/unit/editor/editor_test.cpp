@@ -2317,6 +2317,58 @@ static void testContentBrowserImportWorkflow() {
     std::cout << "[PASS] testContentBrowserImportWorkflow\n";
 }
 
+static void testEditorShutdownWithUploadedMeshAssets() {
+    // 1. Test explicit shutdown with uploaded GPU mesh assets
+    {
+        auto devRes = rhi::createNullDevice();
+        TEST_CHECK(devRes.hasValue());
+        auto nullDev = std::move(devRes.value());
+
+        EditorEngine editor;
+        EditorConfig config{.autoSaveLayout = false};
+        TEST_CHECK(editor.initialize(*nullDev, config));
+
+        auto loadRes = editor.getAssetManager().loadMesh("assets/models/cube.obj");
+        TEST_CHECK(loadRes.hasValue());
+        auto uploadRes = editor.getAssetManager().uploadMesh(loadRes.value(), *nullDev);
+        TEST_CHECK(uploadRes.hasValue());
+        TEST_CHECK(uploadRes.value() != nullptr);
+
+        // Explicit shutdown must unload AssetManager while nullDev is still valid and alive
+        editor.shutdown();
+        TEST_CHECK(!editor.isInitialized());
+
+        // Now destroy the device
+        nullDev.reset();
+        // EditorEngine is destroyed at end of scope without crashing
+    }
+
+    // 2. Test implicit RAII destructor shutdown with uploaded GPU mesh assets
+    {
+        auto devRes = rhi::createNullDevice();
+        TEST_CHECK(devRes.hasValue());
+        auto nullDev = std::move(devRes.value());
+
+        {
+            EditorEngine editor;
+            EditorConfig config{.autoSaveLayout = false};
+            TEST_CHECK(editor.initialize(*nullDev, config));
+
+            auto loadRes = editor.getAssetManager().loadMesh("assets/models/cube.obj");
+            TEST_CHECK(loadRes.hasValue());
+            auto uploadRes = editor.getAssetManager().uploadMesh(loadRes.value(), *nullDev);
+            TEST_CHECK(uploadRes.hasValue());
+
+            // Exiting this inner scope destructs EditorEngine BEFORE nullDev is destroyed
+        }
+
+        // nullDev safely destroyed here
+        nullDev.reset();
+    }
+
+    std::cout << "[PASS] testEditorShutdownWithUploadedMeshAssets\n";
+}
+
 int main() {
     std::cout << "Running Editor subsystem unit tests...\n";
     const std::filesystem::path candidates[] = {"assets/models", "../../../assets/models",
@@ -2331,6 +2383,7 @@ int main() {
             break;
         }
     }
+    testEditorShutdownWithUploadedMeshAssets();
     testObjDragAndDropSpawning();
     testContentBrowserImportWorkflow();
     testThemeTokens();
