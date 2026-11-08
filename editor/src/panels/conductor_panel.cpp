@@ -20,26 +20,46 @@ void ConductorPanel::draw(EditorContext& ctx) {
             auto activeSlot = ctx.conductor->getActiveSlot();
             auto state = ctx.conductor->getState();
 
+            std::string_view slotAName =
+                ctx.conductor->getSlotDisplayName(framework::ActiveSlot::SlotA);
+            const auto& metaA = ctx.conductor->getSlotMetadata(framework::ActiveSlot::SlotA);
+
+            std::string_view slotBName =
+                ctx.conductor->getSlotDisplayName(framework::ActiveSlot::SlotB);
+            const auto& metaB = ctx.conductor->getSlotMetadata(framework::ActiveSlot::SlotB);
+
             // 1. Two-State Mirrored Cards (Slot A vs Slot B)
             ImGui::Columns(2, nullptr, true);
 
-            // Card 1: Slot A (Exploration)
+            // Card 1: Slot A
             bool isSlotAActive = (activeSlot == framework::ActiveSlot::SlotA);
             if (isSlotAActive) {
                 ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.12F, 0.18F, 0.28F, 1.0F));
             }
             ImGui::BeginChild("SlotACard", ImVec2(0.0F, 110.0F), true);
-            ImGui::TextColored(isSlotAActive ? ImVec4(0.38F, 0.74F, 0.98F, 1.0F)
-                                             : ImVec4(0.6F, 0.6F, 0.6F, 1.0F),
-                               "STATE A: ExplorationMode");
+            if (metaA.displayName.empty()) {
+                ImGui::TextColored(isSlotAActive ? ImVec4(0.38F, 0.74F, 0.98F, 1.0F)
+                                                 : ImVec4(0.6F, 0.6F, 0.6F, 1.0F),
+                                   "State A");
+            } else {
+                ImGui::TextColored(isSlotAActive ? ImVec4(0.38F, 0.74F, 0.98F, 1.0F)
+                                                 : ImVec4(0.6F, 0.6F, 0.6F, 1.0F),
+                                   "State A (%.*s)", static_cast<int>(metaA.displayName.size()),
+                                   metaA.displayName.data());
+            }
             ImGui::Separator();
             if (isSlotAActive) {
-                ImGui::TextColored(ImVec4(0.06F, 0.73F, 0.51F, 1.0F), "[AUTHORITATIVE ACTIVE]");
-                ImGui::TextDisabled("Simulation: Continuous + State A");
-                ImGui::TextDisabled("Clock: Normal Speed (1.0x)");
+                ImGui::TextColored(ImVec4(0.06F, 0.73F, 0.51F, 1.0F), "[ACTIVE]");
+                ImGui::TextDisabled("Role: Authoritative Execution");
+                if (!metaA.description.empty()) {
+                    ImGui::TextDisabled("%.*s", static_cast<int>(metaA.description.size()),
+                                        metaA.description.data());
+                } else {
+                    ImGui::TextDisabled("Simulation: Continuous + State A");
+                }
             } else {
                 ImGui::TextColored(ImVec4(0.96F, 0.62F, 0.04F, 1.0F), "[STANDBY]");
-                ImGui::TextDisabled("Status: Preparing Entry Cache");
+                ImGui::TextDisabled("Role: Standby Preparation");
                 ImGui::TextDisabled("Budget: 0.50 ms/frame");
             }
             ImGui::EndChild();
@@ -48,23 +68,35 @@ void ConductorPanel::draw(EditorContext& ctx) {
             }
             ImGui::NextColumn();
 
-            // Card 2: Slot B (Skill)
+            // Card 2: Slot B
             bool isSlotBActive = (activeSlot == framework::ActiveSlot::SlotB);
             if (isSlotBActive) {
                 ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.28F, 0.20F, 0.12F, 1.0F));
             }
             ImGui::BeginChild("SlotBCard", ImVec2(0.0F, 110.0F), true);
-            ImGui::TextColored(isSlotBActive ? ImVec4(0.96F, 0.62F, 0.04F, 1.0F)
-                                             : ImVec4(0.6F, 0.6F, 0.6F, 1.0F),
-                               "STATE B: SkillMode");
+            if (metaB.displayName.empty()) {
+                ImGui::TextColored(isSlotBActive ? ImVec4(0.96F, 0.62F, 0.04F, 1.0F)
+                                                 : ImVec4(0.6F, 0.6F, 0.6F, 1.0F),
+                                   "State B");
+            } else {
+                ImGui::TextColored(isSlotBActive ? ImVec4(0.96F, 0.62F, 0.04F, 1.0F)
+                                                 : ImVec4(0.6F, 0.6F, 0.6F, 1.0F),
+                                   "State B (%.*s)", static_cast<int>(metaB.displayName.size()),
+                                   metaB.displayName.data());
+            }
             ImGui::Separator();
             if (isSlotBActive) {
-                ImGui::TextColored(ImVec4(0.06F, 0.73F, 0.51F, 1.0F), "[AUTHORITATIVE ACTIVE]");
-                ImGui::TextDisabled("Simulation: Continuous + State B");
-                ImGui::TextDisabled("Clock: Precision Mode");
+                ImGui::TextColored(ImVec4(0.06F, 0.73F, 0.51F, 1.0F), "[ACTIVE]");
+                ImGui::TextDisabled("Role: Authoritative Execution");
+                if (!metaB.description.empty()) {
+                    ImGui::TextDisabled("%.*s", static_cast<int>(metaB.description.size()),
+                                        metaB.description.data());
+                } else {
+                    ImGui::TextDisabled("Simulation: Continuous + State B");
+                }
             } else {
                 ImGui::TextColored(ImVec4(0.96F, 0.62F, 0.04F, 1.0F), "[STANDBY]");
-                ImGui::TextDisabled("Status: Preparing Option Matrix");
+                ImGui::TextDisabled("Role: Standby Preparation");
                 ImGui::TextDisabled("Budget: 0.50 ms/frame");
             }
             ImGui::EndChild();
@@ -124,10 +156,10 @@ void ConductorPanel::draw(EditorContext& ctx) {
 
             // 3. Interactive Transition Controls
             if (state == framework::ConductorState::Active) {
-                const char* targetName =
-                    isSlotAActive ? "State B (Skill)" : "State A (Exploration)";
+                std::string_view targetName = isSlotAActive ? slotBName : slotAName;
                 char btnLabel[64];
-                std::snprintf(btnLabel, sizeof(btnLabel), "Request Transition to %s", targetName);
+                std::snprintf(btnLabel, sizeof(btnLabel), "Request Transition to %.*s",
+                              static_cast<int>(targetName.size()), targetName.data());
                 if (ImGui::Button(btnLabel, ImVec2(-1.0F, 30.0F))) {
                     (void)ctx.conductor->requestTransition();
                 }

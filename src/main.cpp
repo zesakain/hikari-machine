@@ -39,30 +39,28 @@ namespace {
 // Demonstration Gameplay Modes
 // -----------------------------------------------------------------------------
 
-class ExplorationMode final : public framework::Mode {
+class StateAMode final : public framework::Mode {
 public:
-    [[nodiscard]] std::string_view getName() const noexcept override {
-        return "ExplorationMode (State A)";
-    }
+    [[nodiscard]] std::string_view getName() const noexcept override { return "State A"; }
 
     [[nodiscard]] Result<void> enter(world::World& /*world*/) override {
-        ENG_LOG_INFO("Conductor", "Entering ExplorationMode (State A)");
+        ENG_LOG_INFO("Conductor", "Entering State A (Active Role)");
         return Result<void>::success();
     }
 
     void update(world::World& /*world*/, Duration /*delta*/) override {
-        // Authoritative State A continuous gameplay update
+        // Authoritative State A continuous simulation update
     }
 
     [[nodiscard]] Result<void> exit(world::World& /*world*/) override {
-        ENG_LOG_INFO("Conductor", "Exiting ExplorationMode (State A)");
+        ENG_LOG_INFO("Conductor", "Exiting State A");
         return Result<void>::success();
     }
 
     [[nodiscard]] Result<framework::PreparationStatus> prepare(world::World& /*world*/,
                                                                const Budget& /*budget*/
                                                                ) override {
-        // Speculatively prepares options and pose for State A
+        // Speculatively prepares entry state for State A
         return framework::PreparationStatus::Ready;
     }
 
@@ -77,30 +75,28 @@ public:
     }
 };
 
-class SkillMode final : public framework::Mode {
+class StateBMode final : public framework::Mode {
 public:
-    [[nodiscard]] std::string_view getName() const noexcept override {
-        return "SkillMode (State B)";
-    }
+    [[nodiscard]] std::string_view getName() const noexcept override { return "State B"; }
 
     [[nodiscard]] Result<void> enter(world::World& /*world*/) override {
-        ENG_LOG_INFO("Conductor", "Entering SkillMode (State B) with entry slow-motion");
+        ENG_LOG_INFO("Conductor", "Entering State B (Active Role) with entry slow-motion");
         return Result<void>::success();
     }
 
     void update(world::World& /*world*/, Duration /*delta*/) override {
-        // Authoritative State B gameplay update
+        // Authoritative State B continuous simulation update
     }
 
     [[nodiscard]] Result<void> exit(world::World& /*world*/) override {
-        ENG_LOG_INFO("Conductor", "Exiting SkillMode (State B)");
+        ENG_LOG_INFO("Conductor", "Exiting State B");
         return Result<void>::success();
     }
 
     [[nodiscard]] Result<framework::PreparationStatus> prepare(world::World& /*world*/,
                                                                const Budget& /*budget*/
                                                                ) override {
-        // Standby preparation: pre-warms effects, target option matrix, camera
+        // Standby preparation: speculatively prepares entry state for State B
         return framework::PreparationStatus::Ready;
     }
 
@@ -269,8 +265,8 @@ body {
     }
 
     // 6. Two-State Conductor
-    auto modeA = std::make_unique<ExplorationMode>();
-    auto modeB = std::make_unique<SkillMode>();
+    auto modeA = std::make_unique<StateAMode>();
+    auto modeB = std::make_unique<StateBMode>();
     framework::Conductor conductor(world, std::move(modeA), std::move(modeB));
     auto initRes = conductor.initialize();
     if (!initRes.hasValue()) {

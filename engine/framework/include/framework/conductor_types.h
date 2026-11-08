@@ -35,6 +35,20 @@ enum class ConductorState : uint8_t {
 /// @brief Identifier of the mode slot currently occupying the Active role.
 enum class ActiveSlot : uint8_t { SlotA = 0, SlotB = 1 };
 
+/// @struct StateMetadata
+/// @brief Optional display and diagnostic metadata for a Conductor state slot.
+///
+/// Allows game layers or tools to annotate State A and State B with user-friendly
+/// display names and descriptions without baking gameplay-specific types into engine core.
+struct StateMetadata {
+    /// Human-readable display label (e.g. "Overworld", "Combat", "Tactical").
+    /// An empty string_view indicates default generic naming ("State A" / "State B").
+    std::string_view displayName{};
+
+    /// Optional descriptive summary of the state's responsibilities for tooling and telemetry.
+    std::string_view description{};
+};
+
 /// @struct ModeTransitionRequestedEvent
 /// @brief Emitted when a mode transition begins standby preparation.
 struct ModeTransitionRequestedEvent {

@@ -302,6 +302,74 @@ static void testResponsiveViewports() {
     std::cout << "[PASS] testResponsiveViewports\n";
 }
 
+static void testGenericConductorStateIdentity() {
+    auto devRes = rhi::createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto nullDevice = std::move(devRes.value());
+
+    auto cmdRes = nullDevice->createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto nullCmd = std::move(cmdRes.value());
+
+    world::World world;
+    auto modeA = std::make_unique<DummyEditorMode>("ModeA");
+    auto modeB = std::make_unique<DummyEditorMode>("ModeB");
+    framework::Conductor conductor(world, std::move(modeA), std::move(modeB));
+    TEST_CHECK(conductor.initialize(framework::ActiveSlot::SlotA).hasValue());
+
+    // 1. Verify pure generic default identities
+    TEST_CHECK(conductor.getSlotDisplayName(framework::ActiveSlot::SlotA) == "State A");
+    TEST_CHECK(conductor.getSlotDisplayName(framework::ActiveSlot::SlotB) == "State B");
+
+    EditorEngine editor;
+    TEST_CHECK(editor.initialize(*nullDevice));
+    editor.bindWorld(&world);
+    editor.bindConductor(&conductor);
+
+    // Frame with Slot A active
+    nullCmd->begin();
+    editor.beginFrame(Duration::fromMilliseconds(16), 1920, 1080);
+    editor.drawPanels();
+    editor.endFrame(*nullCmd);
+    nullCmd->end();
+    TEST_CHECK(editor.lastDrawCallCount() > 0);
+
+    // Switch roles to Slot B active
+    TEST_CHECK(conductor.requestTransition().hasValue());
+    conductor.update(Duration::fromMilliseconds(16));
+    TEST_CHECK(conductor.executeTransition().hasValue());
+    TEST_CHECK(conductor.getActiveSlot() == framework::ActiveSlot::SlotB);
+
+    // Frame with Slot B active
+    nullCmd->begin();
+    editor.beginFrame(Duration::fromMilliseconds(16), 1920, 1080);
+    editor.drawPanels();
+    editor.endFrame(*nullCmd);
+    nullCmd->end();
+    TEST_CHECK(editor.lastDrawCallCount() > 0);
+
+    // 2. Set optional user metadata and verify rendering
+    conductor.setSlotMetadata(
+        framework::ActiveSlot::SlotA,
+        framework::StateMetadata{.displayName = "Exploration", .description = "Free roaming"});
+    conductor.setSlotMetadata(
+        framework::ActiveSlot::SlotB,
+        framework::StateMetadata{.displayName = "Skill", .description = "Skill casting"});
+
+    TEST_CHECK(conductor.getSlotDisplayName(framework::ActiveSlot::SlotA) == "Exploration");
+    TEST_CHECK(conductor.getSlotDisplayName(framework::ActiveSlot::SlotB) == "Skill");
+
+    nullCmd->begin();
+    editor.beginFrame(Duration::fromMilliseconds(16), 1920, 1080);
+    editor.drawPanels();
+    editor.endFrame(*nullCmd);
+    nullCmd->end();
+    TEST_CHECK(editor.lastDrawCallCount() > 0);
+
+    editor.shutdown();
+    std::cout << "[PASS] testGenericConductorStateIdentity\n";
+}
+
 int main() {
     std::cout << "Running Editor subsystem unit tests...\n";
     testThemeTokens();
@@ -311,6 +379,7 @@ int main() {
     testEditorFrameAndPanels();
     testEditorInputProcessing();
     testResponsiveViewports();
+    testGenericConductorStateIdentity();
     std::cout << "All Editor subsystem tests PASSED!\n";
     return 0;
 }

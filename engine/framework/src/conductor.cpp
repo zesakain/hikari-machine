@@ -183,4 +183,31 @@ const Mode& Conductor::getStandbyMode() const noexcept {
     return (activeSlot_ == ActiveSlot::SlotA) ? *modeB_ : *modeA_;
 }
 
+void Conductor::setSlotMetadata(ActiveSlot slot, StateMetadata metadata) noexcept {
+    if (slot == ActiveSlot::SlotA) {
+        config_.slotAMetadata = metadata;
+    } else {
+        config_.slotBMetadata = metadata;
+    }
+}
+
+const StateMetadata& Conductor::getSlotMetadata(ActiveSlot slot) const noexcept {
+    return (slot == ActiveSlot::SlotA) ? config_.slotAMetadata : config_.slotBMetadata;
+}
+
+std::string_view Conductor::getSlotDisplayName(ActiveSlot slot) const noexcept {
+    const auto& meta = (slot == ActiveSlot::SlotA) ? config_.slotAMetadata : config_.slotBMetadata;
+    if (!meta.displayName.empty()) {
+        return meta.displayName;
+    }
+    const auto* mode = (slot == ActiveSlot::SlotA) ? modeA_.get() : modeB_.get();
+    if (mode != nullptr) {
+        std::string_view modeDisplay = mode->getDisplayName();
+        if (!modeDisplay.empty()) {
+            return modeDisplay;
+        }
+    }
+    return (slot == ActiveSlot::SlotA) ? "State A" : "State B";
+}
+
 } // namespace eng::framework

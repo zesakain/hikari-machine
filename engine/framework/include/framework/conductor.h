@@ -39,6 +39,12 @@ struct ConductorConfig {
 
     /// Initial time scale applied to ActionClock at the start of a transition entry curve.
     float slowMotionInitialScale{0.2F};
+
+    /// Optional user-defined display and diagnostic metadata for Slot A.
+    StateMetadata slotAMetadata{};
+
+    /// Optional user-defined display and diagnostic metadata for Slot B.
+    StateMetadata slotBMetadata{};
 };
 
 /// @class Conductor
@@ -95,6 +101,28 @@ public:
 
     /// Returns current lifecycle state of the Conductor.
     [[nodiscard]] ConductorState getState() const noexcept { return state_; }
+
+    /// Returns a reference to Mode in Slot A.
+    [[nodiscard]] Mode& getModeA() noexcept { return *modeA_; }
+
+    /// Returns a const reference to Mode in Slot A.
+    [[nodiscard]] const Mode& getModeA() const noexcept { return *modeA_; }
+
+    /// Returns a reference to Mode in Slot B.
+    [[nodiscard]] Mode& getModeB() noexcept { return *modeB_; }
+
+    /// Returns a const reference to Mode in Slot B.
+    [[nodiscard]] const Mode& getModeB() const noexcept { return *modeB_; }
+
+    /// Sets optional user-defined metadata for a state slot (e.g., custom display name).
+    void setSlotMetadata(ActiveSlot slot, StateMetadata metadata) noexcept;
+
+    /// Retrieves user-defined metadata for a state slot.
+    [[nodiscard]] const StateMetadata& getSlotMetadata(ActiveSlot slot) const noexcept;
+
+    /// Returns human-readable label for a state slot ("State A" / "State B", or user-defined
+    /// displayName if set).
+    [[nodiscard]] std::string_view getSlotDisplayName(ActiveSlot slot) const noexcept;
 
     /// Returns the currently active mode slot.
     [[nodiscard]] ActiveSlot getActiveSlot() const noexcept { return activeSlot_; }

@@ -1,5 +1,5 @@
 /// @file content_browser_panel.cpp
-/// @brief Content browser panel implementation with two-pane asset exploration and metadata cards.
+/// @brief Content browser panel implementation with two-pane asset browsing and metadata cards.
 
 #include "panels/content_browser_panel.h"
 
@@ -21,14 +21,14 @@ struct AssetItem {
 };
 
 const AssetItem kSampleAssets[] = {
-    {"player", ".gltf", "2.4 MB", "[3D]", ImVec4(0.23F, 0.51F, 0.96F, 1.0F)},
-    {"arena_level", ".gltf", "8.1 MB", "[3D]", ImVec4(0.23F, 0.51F, 0.96F, 1.0F)},
+    {"player_mesh", ".gltf", "2.4 MB", "[3D]", ImVec4(0.23F, 0.51F, 0.96F, 1.0F)},
+    {"environment", ".gltf", "8.1 MB", "[3D]", ImVec4(0.23F, 0.51F, 0.96F, 1.0F)},
     {"albedo_grid", ".png", "1.2 MB", "[TEX]", ImVec4(0.13F, 0.77F, 0.37F, 1.0F)},
     {"normal_noise", ".png", "512 KB", "[TEX]", ImVec4(0.13F, 0.77F, 0.37F, 1.0F)},
-    {"skill_cast", ".wav", "340 KB", "[AUD]", ImVec4(0.96F, 0.62F, 0.04F, 1.0F)},
-    {"hit_impact", ".wav", "180 KB", "[AUD]", ImVec4(0.96F, 0.62F, 0.04F, 1.0F)},
-    {"skills", ".toml", "24 KB", "[DATA]", ImVec4(0.70F, 0.40F, 0.90F, 1.0F)},
-    {"characters", ".toml", "16 KB", "[DATA]", ImVec4(0.70F, 0.40F, 0.90F, 1.0F)},
+    {"audio_sample", ".wav", "340 KB", "[AUD]", ImVec4(0.96F, 0.62F, 0.04F, 1.0F)},
+    {"ambient_loop", ".wav", "180 KB", "[AUD]", ImVec4(0.96F, 0.62F, 0.04F, 1.0F)},
+    {"game_config", ".toml", "24 KB", "[DATA]", ImVec4(0.70F, 0.40F, 0.90F, 1.0F)},
+    {"entities", ".toml", "16 KB", "[DATA]", ImVec4(0.70F, 0.40F, 0.90F, 1.0F)},
     {"main", ".lua", "8 KB", "[LUA]", ImVec4(0.92F, 0.30F, 0.60F, 1.0F)},
 };
 

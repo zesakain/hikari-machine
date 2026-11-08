@@ -375,23 +375,30 @@ struct WorkspaceManager::Impl {
                 auto activeSlot = ctx.conductor->getActiveSlot();
                 auto state = ctx.conductor->getState();
 
-                const char* slotName = (activeSlot == framework::ActiveSlot::SlotA)
-                                           ? "State A: Exploration"
-                                           : "State B: Skill";
+                std::string_view slotName = ctx.conductor->getSlotDisplayName(activeSlot);
                 ImVec4 badgeColor = (activeSlot == framework::ActiveSlot::SlotA)
                                         ? ImVec4(0.23F, 0.51F, 0.96F, 1.0F)
                                         : ImVec4(0.96F, 0.62F, 0.04F, 1.0F);
 
                 if (state == framework::ConductorState::Transitioning) {
-                    slotName = "Transitioning...";
                     badgeColor = ImVec4(0.85F, 0.35F, 0.85F, 1.0F);
+                    ImGui::TextColored(badgeColor, "[Active: %.*s (Transitioning)]",
+                                       static_cast<int>(slotName.size()), slotName.data());
+                } else {
+                    ImGui::TextColored(badgeColor, "[Active: %.*s]",
+                                       static_cast<int>(slotName.size()), slotName.data());
                 }
-
-                ImGui::TextColored(badgeColor, "[Active: %s]", slotName);
 
                 ImGui::SameLine();
                 if (state == framework::ConductorState::Active) {
-                    if (ImGui::SmallButton("Request Switch")) {
+                    auto targetSlot = (activeSlot == framework::ActiveSlot::SlotA)
+                                          ? framework::ActiveSlot::SlotB
+                                          : framework::ActiveSlot::SlotA;
+                    std::string_view targetName = ctx.conductor->getSlotDisplayName(targetSlot);
+                    char switchLabel[64];
+                    std::snprintf(switchLabel, sizeof(switchLabel), "Switch to %.*s",
+                                  static_cast<int>(targetName.size()), targetName.data());
+                    if (ImGui::SmallButton(switchLabel)) {
                         (void)ctx.conductor->requestTransition();
                     }
                 } else if (state == framework::ConductorState::Prepared) {

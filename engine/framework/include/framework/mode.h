@@ -97,6 +97,10 @@ public:
     /// Returns human-readable diagnostic name of this mode.
     [[nodiscard]] virtual std::string_view getName() const noexcept = 0;
 
+    /// Returns an optional human-readable display label for tooling and editor inspection.
+    /// Default implementation returns an empty string_view (generic slot identity is used).
+    [[nodiscard]] virtual std::string_view getDisplayName() const noexcept { return ""; }
+
     /// Returns the current runtime role of this mode.
     [[nodiscard]] virtual ModeState getModeState() const noexcept = 0;
 };

@@ -253,6 +253,84 @@ static int testCancelTransition() {
     return 0;
 }
 
+static int testGenericStateIdentityWithoutMetadata() {
+    World world;
+    auto modeA = std::make_unique<MockMode>("ModeA");
+    auto modeB = std::make_unique<MockMode>("ModeB");
+
+    Conductor conductor(world, std::move(modeA), std::move(modeB));
+    (void)conductor.initialize(ActiveSlot::SlotA);
+
+    // 1. Initial State: Slot A is Active, Slot B is Standby
+    TEST_CHECK(conductor.getActiveSlot() == ActiveSlot::SlotA);
+    TEST_CHECK(conductor.getSlotDisplayName(ActiveSlot::SlotA) == "State A");
+    TEST_CHECK(conductor.getSlotDisplayName(ActiveSlot::SlotB) == "State B");
+    TEST_CHECK(conductor.getSlotMetadata(ActiveSlot::SlotA).displayName.empty());
+    TEST_CHECK(conductor.getSlotMetadata(ActiveSlot::SlotB).displayName.empty());
+    TEST_CHECK(conductor.getActiveMode().getName() == "ModeA");
+    TEST_CHECK(conductor.getStandbyMode().getName() == "ModeB");
+    TEST_CHECK(conductor.getModeA().getName() == "ModeA");
+    TEST_CHECK(conductor.getModeB().getName() == "ModeB");
+
+    // 2. Perform transition to Slot B
+    (void)conductor.requestTransition();
+    conductor.update(Duration::fromMilliseconds(16));
+    TEST_CHECK(conductor.getState() == ConductorState::Prepared);
+
+    (void)conductor.executeTransition();
+    TEST_CHECK(conductor.getState() == ConductorState::Transitioning);
+
+    // 3. Reversed Roles: Slot B is now Active, Slot A is Standby
+    TEST_CHECK(conductor.getActiveSlot() == ActiveSlot::SlotB);
+    TEST_CHECK(conductor.getActiveMode().getName() == "ModeB");
+    TEST_CHECK(conductor.getStandbyMode().getName() == "ModeA");
+
+    // Identities remain generically State A and State B
+    TEST_CHECK(conductor.getSlotDisplayName(ActiveSlot::SlotA) == "State A");
+    TEST_CHECK(conductor.getSlotDisplayName(ActiveSlot::SlotB) == "State B");
+
+    return 0;
+}
+
+static int testUserDefinedStateMetadata() {
+    World world;
+    auto modeA = std::make_unique<MockMode>("ModeA");
+    auto modeB = std::make_unique<MockMode>("ModeB");
+
+    ConductorConfig config;
+    config.slotAMetadata = StateMetadata{
+        .displayName = "Overworld",
+        .description = "Primary continuous exploration and navigation state",
+    };
+    config.slotBMetadata = StateMetadata{
+        .displayName = "Tactical",
+        .description = "Target selection and precision interaction mode",
+    };
+
+    Conductor conductor(world, std::move(modeA), std::move(modeB), config);
+    (void)conductor.initialize(ActiveSlot::SlotA);
+
+    // Verify configured user metadata
+    TEST_CHECK(conductor.getSlotDisplayName(ActiveSlot::SlotA) == "Overworld");
+    TEST_CHECK(conductor.getSlotDisplayName(ActiveSlot::SlotB) == "Tactical");
+    TEST_CHECK(conductor.getSlotMetadata(ActiveSlot::SlotA).description ==
+               "Primary continuous exploration and navigation state");
+    TEST_CHECK(conductor.getSlotMetadata(ActiveSlot::SlotB).description ==
+               "Target selection and precision interaction mode");
+
+    // Dynamically update metadata at runtime
+    conductor.setSlotMetadata(ActiveSlot::SlotA, StateMetadata{.displayName = "Combat",
+                                                               .description = "Real-time action"});
+    TEST_CHECK(conductor.getSlotDisplayName(ActiveSlot::SlotA) == "Combat");
+    TEST_CHECK(conductor.getSlotMetadata(ActiveSlot::SlotA).description == "Real-time action");
+
+    // Clearing display name falls back to generic "State A"
+    conductor.setSlotMetadata(ActiveSlot::SlotA, StateMetadata{});
+    TEST_CHECK(conductor.getSlotDisplayName(ActiveSlot::SlotA) == "State A");
+
+    return 0;
+}
+
 int main() {
     if (testConductorInitialization() != 0) {
         return 1;
@@ -264,6 +342,12 @@ int main() {
         return 1;
     }
     if (testCancelTransition() != 0) {
+        return 1;
+    }
+    if (testGenericStateIdentityWithoutMetadata() != 0) {
+        return 1;
+    }
+    if (testUserDefinedStateMetadata() != 0) {
         return 1;
     }
     std::cout << "All Conductor unit tests passed successfully.\n";
