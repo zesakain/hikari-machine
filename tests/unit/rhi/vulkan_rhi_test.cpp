@@ -807,6 +807,284 @@ static int testVulkanCommandListPipelineBinding() {
     return 0;
 }
 
+static int testVulkanOffscreenTextureLifecycle() {
+    VulkanDeviceDesc devDesc{.windowHandle = nullptr, .enableValidation = true};
+    auto devRes = createVulkanDevice(devDesc);
+    if (!devRes.hasValue()) {
+        std::cout << "Vulkan device unavailable; skipping offscreen texture test\n";
+        return 0;
+    }
+    auto device = std::move(devRes.value());
+
+    // 1. Valid offscreen color texture (RGBA8_UNORM)
+    TextureDesc colorDesc{
+        .type = TextureType::Texture2D,
+        .format = TextureFormat::RGBA8_UNORM,
+        .width = 1280,
+        .height = 720,
+        .depth = 1,
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .usage = TextureUsageFlags::ColorAttachment | TextureUsageFlags::Sampled,
+        .debugName = "VkOffscreenColor",
+    };
+    auto colorRes = device->createTexture(colorDesc);
+    TEST_CHECK(colorRes.hasValue());
+    TextureHandle colorTex = colorRes.value();
+    TEST_CHECK(colorTex.isValid());
+
+    const auto* queriedColorDesc = device->getTextureDesc(colorTex);
+    TEST_CHECK(queriedColorDesc != nullptr);
+    TEST_CHECK(queriedColorDesc->width == 1280);
+    TEST_CHECK(queriedColorDesc->height == 720);
+    TEST_CHECK(queriedColorDesc->format == TextureFormat::RGBA8_UNORM);
+
+    // 2. Valid offscreen depth texture (D32_FLOAT)
+    TextureDesc depthDesc{
+        .type = TextureType::Texture2D,
+        .format = TextureFormat::D32_FLOAT,
+        .width = 1280,
+        .height = 720,
+        .depth = 1,
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .usage = TextureUsageFlags::DepthStencilAttachment,
+        .debugName = "VkOffscreenDepth",
+    };
+    auto depthRes = device->createTexture(depthDesc);
+    TEST_CHECK(depthRes.hasValue());
+    TextureHandle depthTex = depthRes.value();
+    TEST_CHECK(depthTex.isValid());
+
+    const auto* queriedDepthDesc = device->getTextureDesc(depthTex);
+    TEST_CHECK(queriedDepthDesc != nullptr);
+    TEST_CHECK(queriedDepthDesc->width == 1280);
+    TEST_CHECK(queriedDepthDesc->height == 720);
+    TEST_CHECK(queriedDepthDesc->format == TextureFormat::D32_FLOAT);
+
+    // 3. Validation failure paths
+    TextureDesc undefDesc = colorDesc;
+    undefDesc.format = TextureFormat::Undefined;
+    TEST_CHECK(!device->createTexture(undefDesc).hasValue());
+
+    TextureDesc zeroWidthDesc = colorDesc;
+    zeroWidthDesc.width = 0;
+    TEST_CHECK(!device->createTexture(zeroWidthDesc).hasValue());
+
+    // 4. Destroy textures
+    device->destroyTexture(colorTex);
+    TEST_CHECK(device->getTextureDesc(colorTex) == nullptr);
+
+    device->destroyTexture(depthTex);
+    TEST_CHECK(device->getTextureDesc(depthTex) == nullptr);
+
+    std::cout << "Vulkan offscreen texture lifecycle verified!\n";
+    return 0;
+}
+
+static int testVulkanOffscreenDynamicRendering() {
+    VulkanDeviceDesc devDesc{.windowHandle = nullptr, .enableValidation = true};
+    auto devRes = createVulkanDevice(devDesc);
+    if (!devRes.hasValue()) {
+        std::cout << "Vulkan device unavailable; skipping offscreen dynamic rendering test\n";
+        return 0;
+    }
+    auto device = std::move(devRes.value());
+
+    // 1. Create color and depth textures
+    TextureDesc colorDesc{
+        .type = TextureType::Texture2D,
+        .format = TextureFormat::RGBA8_UNORM,
+        .width = 640,
+        .height = 480,
+        .depth = 1,
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .usage = TextureUsageFlags::ColorAttachment | TextureUsageFlags::Sampled,
+        .debugName = "VkDynColor",
+    };
+    auto colorTex = device->createTexture(colorDesc).value();
+
+    TextureDesc depthDesc{
+        .type = TextureType::Texture2D,
+        .format = TextureFormat::D32_FLOAT,
+        .width = 640,
+        .height = 480,
+        .depth = 1,
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .usage = TextureUsageFlags::DepthStencilAttachment,
+        .debugName = "VkDynDepth",
+    };
+    auto depthTex = device->createTexture(depthDesc).value();
+
+    // 2. Create shaders and pipeline
+    ShaderDesc vsDesc{
+        .stage = ShaderStageFlags::Vertex,
+        .spirvCode = eng::rhi::test::kTestVertexShaderSpirv,
+        .entryPoint = "main",
+    };
+    auto vsRes = device->createShader(vsDesc);
+    ShaderDesc fsDesc{
+        .stage = ShaderStageFlags::Fragment,
+        .spirvCode = eng::rhi::test::kTestFragmentShaderSpirv,
+        .entryPoint = "main",
+    };
+    auto fsRes = device->createShader(fsDesc);
+
+    PipelineLayoutDesc layoutDesc{
+        .pushConstants = {{.stageFlags = ShaderStageFlags::Vertex, .offset = 0, .size = 64}},
+    };
+    auto layoutRes = device->createPipelineLayout(layoutDesc);
+
+    GraphicsPipelineDesc pipeDesc{
+        .vertexShader = vsRes.value(),
+        .fragmentShader = fsRes.value(),
+        .vertexInput = {},
+        .topology = PrimitiveTopology::TriangleList,
+        .rasterization = {},
+        .depthStencil =
+            {
+                .depthTestEnable = true,
+                .depthWriteEnable = true,
+                .depthCompareOp = CompareOp::LessOrEqual,
+            },
+        .colorBlendAttachments = {{
+            .blendEnable = false,
+        }},
+        .layout = layoutRes.value(),
+        .colorAttachmentFormats = {TextureFormat::RGBA8_UNORM},
+        .depthAttachmentFormat = TextureFormat::D32_FLOAT,
+        .debugName = "VkDynPipe",
+    };
+    auto pipeRes = device->createGraphicsPipeline(pipeDesc);
+    TEST_CHECK(pipeRes.hasValue());
+
+    // 3. Create command list and record offscreen rendering pass
+    auto cmdRes = device->createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto cmd = std::move(cmdRes.value());
+
+    cmd->begin();
+
+    RenderPassBeginInfo passInfo{
+        .colorTarget = colorTex,
+        .depthTarget = depthTex,
+        .clearColor = {0.1F, 0.2F, 0.3F, 1.0F},
+        .clearDepth = 1.0F,
+        .clearTarget = true,
+        .clearDepthTarget = true,
+    };
+    cmd->beginRenderPass(passInfo);
+
+    cmd->bindPipeline(pipeRes.value());
+
+    float mvp[16] = {1.0F};
+    cmd->pushConstants(layoutRes.value(), ShaderStageFlags::Vertex, 0, sizeof(mvp), mvp);
+
+    // Draw triangle in offscreen pass
+    cmd->draw(3, 1, 0, 0);
+
+    // End pass: transitions color texture to VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL and depth to
+    // VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
+    cmd->endRenderPass();
+
+    cmd->end();
+
+    // 4. Submit to GPU and wait idle
+    auto subRes = device->submit(cmd.get());
+    TEST_CHECK(subRes.hasValue());
+    device->waitIdle();
+
+    // 5. Clean up
+    device->destroyGraphicsPipeline(pipeRes.value());
+    device->destroyPipelineLayout(layoutRes.value());
+    device->destroyShader(fsRes.value());
+    device->destroyShader(vsRes.value());
+    device->destroyTexture(depthTex);
+    device->destroyTexture(colorTex);
+
+    std::cout << "Vulkan offscreen dynamic rendering verified!\n";
+    return 0;
+}
+
+static int testVulkanOffscreenPipelineCompatibility() {
+    VulkanDeviceDesc devDesc{.windowHandle = nullptr, .enableValidation = true};
+    auto devRes = createVulkanDevice(devDesc);
+    if (!devRes.hasValue()) {
+        std::cout << "Vulkan device unavailable; skipping pipeline compatibility test\n";
+        return 0;
+    }
+    auto device = std::move(devRes.value());
+
+    TextureDesc colorDesc{
+        .type = TextureType::Texture2D,
+        .format = TextureFormat::RGBA8_UNORM,
+        .width = 320,
+        .height = 240,
+        .depth = 1,
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .usage = TextureUsageFlags::ColorAttachment,
+    };
+    auto colorTex = device->createTexture(colorDesc).value();
+
+    ShaderDesc vsDesc{
+        .stage = ShaderStageFlags::Vertex,
+        .spirvCode = eng::rhi::test::kTestVertexShaderSpirv,
+        .entryPoint = "main",
+    };
+    auto vsRes = device->createShader(vsDesc);
+    ShaderDesc fsDesc{
+        .stage = ShaderStageFlags::Fragment,
+        .spirvCode = eng::rhi::test::kTestFragmentShaderSpirv,
+        .entryPoint = "main",
+    };
+    auto fsRes = device->createShader(fsDesc);
+
+    PipelineLayoutDesc layoutDesc{};
+    auto layoutRes = device->createPipelineLayout(layoutDesc);
+
+    // Pipeline with BGRA8_UNORM (mismatched with colorTex which is RGBA8_UNORM)
+    GraphicsPipelineDesc mismatchPipeDesc{
+        .vertexShader = vsRes.value(),
+        .fragmentShader = fsRes.value(),
+        .layout = layoutRes.value(),
+        .colorAttachmentFormats = {TextureFormat::BGRA8_UNORM},
+    };
+    auto mismatchPipeRes = device->createGraphicsPipeline(mismatchPipeDesc);
+    TEST_CHECK(mismatchPipeRes.hasValue());
+
+    auto cmdRes = device->createCommandList();
+    auto cmd = std::move(cmdRes.value());
+
+    cmd->begin();
+    RenderPassBeginInfo passInfo{
+        .colorTarget = colorTex,
+    };
+    cmd->beginRenderPass(passInfo);
+    cmd->bindPipeline(mismatchPipeRes.value());
+
+    // Drawing with mismatched pipeline format is safely caught and skipped without crashing
+    cmd->draw(3, 1, 0, 0);
+
+    cmd->endRenderPass();
+    cmd->end();
+
+    auto subRes = device->submit(cmd.get());
+    TEST_CHECK(subRes.hasValue());
+    device->waitIdle();
+
+    device->destroyGraphicsPipeline(mismatchPipeRes.value());
+    device->destroyPipelineLayout(layoutRes.value());
+    device->destroyShader(fsRes.value());
+    device->destroyShader(vsRes.value());
+    device->destroyTexture(colorTex);
+
+    std::cout << "Vulkan offscreen pipeline format compatibility check verified!\n";
+    return 0;
+}
+
 int main() {
     std::cout << "Running Vulkan RHI Tests...\n";
 
@@ -860,6 +1138,15 @@ int main() {
         return 1;
     }
     if (testVulkanCommandListPipelineBinding() != 0) {
+        return 1;
+    }
+    if (testVulkanOffscreenTextureLifecycle() != 0) {
+        return 1;
+    }
+    if (testVulkanOffscreenDynamicRendering() != 0) {
+        return 1;
+    }
+    if (testVulkanOffscreenPipelineCompatibility() != 0) {
         return 1;
     }
 

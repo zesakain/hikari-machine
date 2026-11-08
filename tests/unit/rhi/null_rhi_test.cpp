@@ -1,6 +1,7 @@
 /// @file null_rhi_test.cpp
 /// @brief Unit tests for RHI abstractions and Null headless backend.
 
+#include "../../../engine/rhi/src/null/null_command_list.h"
 #include "core/assert.h"
 #include "rhi/buffer.h"
 #include "rhi/command_list.h"
@@ -532,6 +533,344 @@ static int testCommandListPipelineBindingAndValidation() {
     return 0;
 }
 
+static int testOffscreenTextureLifecycleAndValidation() {
+    auto devRes = createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto device = std::move(devRes.value());
+
+    // 1. Valid offscreen color attachment
+    TextureDesc colorDesc{
+        .type = TextureType::Texture2D,
+        .format = TextureFormat::RGBA8_UNORM,
+        .width = 1280,
+        .height = 720,
+        .depth = 1,
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .usage = TextureUsageFlags::ColorAttachment | TextureUsageFlags::Sampled,
+        .debugName = "OffscreenColorTarget",
+    };
+    auto colorRes = device->createTexture(colorDesc);
+    TEST_CHECK(colorRes.hasValue());
+    TextureHandle colorTex = colorRes.value();
+    TEST_CHECK(colorTex.isValid());
+
+    const auto* queriedColorDesc = device->getTextureDesc(colorTex);
+    TEST_CHECK(queriedColorDesc != nullptr);
+    TEST_CHECK(queriedColorDesc->width == 1280);
+    TEST_CHECK(queriedColorDesc->height == 720);
+    TEST_CHECK(queriedColorDesc->format == TextureFormat::RGBA8_UNORM);
+
+    // 2. Valid offscreen depth attachment
+    TextureDesc depthDesc{
+        .type = TextureType::Texture2D,
+        .format = TextureFormat::D32_FLOAT,
+        .width = 1280,
+        .height = 720,
+        .depth = 1,
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .usage = TextureUsageFlags::DepthStencilAttachment,
+        .debugName = "OffscreenDepthTarget",
+    };
+    auto depthRes = device->createTexture(depthDesc);
+    TEST_CHECK(depthRes.hasValue());
+    TextureHandle depthTex = depthRes.value();
+    TEST_CHECK(depthTex.isValid());
+
+    const auto* queriedDepthDesc = device->getTextureDesc(depthTex);
+    TEST_CHECK(queriedDepthDesc != nullptr);
+    TEST_CHECK(queriedDepthDesc->width == 1280);
+    TEST_CHECK(queriedDepthDesc->height == 720);
+    TEST_CHECK(queriedDepthDesc->format == TextureFormat::D32_FLOAT);
+
+    // 3. Validation negative tests
+    // 3a. Undefined format
+    TextureDesc undefDesc = colorDesc;
+    undefDesc.format = TextureFormat::Undefined;
+    TEST_CHECK(!device->createTexture(undefDesc).hasValue());
+
+    // 3b. Zero width
+    TextureDesc zeroWidthDesc = colorDesc;
+    zeroWidthDesc.width = 0;
+    TEST_CHECK(!device->createTexture(zeroWidthDesc).hasValue());
+
+    // 3c. Zero height
+    TextureDesc zeroHeightDesc = colorDesc;
+    zeroHeightDesc.height = 0;
+    TEST_CHECK(!device->createTexture(zeroHeightDesc).hasValue());
+
+    // 3d. Dimension exceeding limit (limit is 4096 on NullDevice)
+    TextureDesc overflowDesc = colorDesc;
+    overflowDesc.width = 8192;
+    TEST_CHECK(!device->createTexture(overflowDesc).hasValue());
+
+    // 4. Destruction and handle invalidation
+    device->destroyTexture(colorTex);
+    TEST_CHECK(device->getTextureDesc(colorTex) == nullptr);
+
+    device->destroyTexture(depthTex);
+    TEST_CHECK(device->getTextureDesc(depthTex) == nullptr);
+
+    return 0;
+}
+
+static int testOffscreenDynamicRendering() {
+    auto devRes = createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto device = std::move(devRes.value());
+
+    // Create color target (1280x720)
+    TextureDesc colorDesc{
+        .type = TextureType::Texture2D,
+        .format = TextureFormat::RGBA8_UNORM,
+        .width = 1280,
+        .height = 720,
+        .depth = 1,
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .usage = TextureUsageFlags::ColorAttachment | TextureUsageFlags::Sampled,
+    };
+    auto colorTex = device->createTexture(colorDesc).value();
+
+    // Create depth target (1280x720)
+    TextureDesc depthDesc{
+        .type = TextureType::Texture2D,
+        .format = TextureFormat::D32_FLOAT,
+        .width = 1280,
+        .height = 720,
+        .depth = 1,
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .usage = TextureUsageFlags::DepthStencilAttachment,
+    };
+    auto depthTex = device->createTexture(depthDesc).value();
+
+    // Create mismatched depth target (800x600)
+    TextureDesc badDepthDesc = depthDesc;
+    badDepthDesc.width = 800;
+    badDepthDesc.height = 600;
+    auto badDepthTex = device->createTexture(badDepthDesc).value();
+
+    auto cmdRes = device->createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto cmd = std::move(cmdRes.value());
+    auto* nullCmd = static_cast<NullCommandList*>(cmd.get());
+
+    // Test 1: Color-only offscreen render pass
+    cmd->begin();
+    RenderPassBeginInfo colorOnlyPass{
+        .colorTarget = colorTex,
+        .clearColor = {0.1F, 0.2F, 0.3F, 1.0F},
+    };
+    cmd->beginRenderPass(colorOnlyPass);
+    TEST_CHECK(nullCmd->isInsideRenderPass());
+    TEST_CHECK(nullCmd->getActiveColorTarget() == colorTex);
+    TEST_CHECK(!nullCmd->getActiveDepthTarget().isValid());
+    TEST_CHECK(nullCmd->getActiveColorFormat() == TextureFormat::RGBA8_UNORM);
+    TEST_CHECK(nullCmd->getActiveDepthFormat() == TextureFormat::Undefined);
+    TEST_CHECK(nullCmd->getActiveWidth() == 1280);
+    TEST_CHECK(nullCmd->getActiveHeight() == 720);
+    cmd->endRenderPass();
+    TEST_CHECK(!nullCmd->isInsideRenderPass());
+    cmd->end();
+
+    // Test 2: Color + Depth offscreen render pass
+    cmd->begin();
+    RenderPassBeginInfo colorDepthPass{
+        .colorTarget = colorTex,
+        .depthTarget = depthTex,
+        .clearDepth = 1.0F,
+        .clearDepthTarget = true,
+    };
+    cmd->beginRenderPass(colorDepthPass);
+    TEST_CHECK(nullCmd->isInsideRenderPass());
+    TEST_CHECK(nullCmd->getActiveColorTarget() == colorTex);
+    TEST_CHECK(nullCmd->getActiveDepthTarget() == depthTex);
+    TEST_CHECK(nullCmd->getActiveColorFormat() == TextureFormat::RGBA8_UNORM);
+    TEST_CHECK(nullCmd->getActiveDepthFormat() == TextureFormat::D32_FLOAT);
+    cmd->endRenderPass();
+    TEST_CHECK(!nullCmd->isInsideRenderPass());
+    cmd->end();
+
+    // Test 3: Backward compatible Swapchain render pass (colorTarget is default invalid handle)
+    cmd->begin();
+    RenderPassBeginInfo swapchainPass{
+        .colorTarget = {},
+    };
+    cmd->beginRenderPass(swapchainPass);
+    TEST_CHECK(nullCmd->isInsideRenderPass());
+    TEST_CHECK(!nullCmd->getActiveColorTarget().isValid());
+    cmd->endRenderPass();
+    TEST_CHECK(!nullCmd->isInsideRenderPass());
+    cmd->end();
+
+    // Negative Test 4: Invalid color attachment handle (destroyed)
+    auto tempTex = device->createTexture(colorDesc).value();
+    device->destroyTexture(tempTex);
+    cmd->begin();
+    RenderPassBeginInfo invalidColorPass{
+        .colorTarget = tempTex,
+    };
+    cmd->beginRenderPass(invalidColorPass);
+    TEST_CHECK(nullCmd->hasInvalidAttachment());
+    cmd->endRenderPass();
+    cmd->end();
+
+    // Negative Test 5: Dimension mismatch between color and depth
+    cmd->begin();
+    RenderPassBeginInfo mismatchPass{
+        .colorTarget = colorTex,
+        .depthTarget = badDepthTex,
+    };
+    cmd->beginRenderPass(mismatchPass);
+    TEST_CHECK(nullCmd->hasDimensionMismatch());
+    cmd->endRenderPass();
+    cmd->end();
+
+    // Negative Test 6: Nested beginRenderPass
+    cmd->begin();
+    cmd->beginRenderPass(colorDepthPass);
+    cmd->beginRenderPass(colorDepthPass);
+    TEST_CHECK(nullCmd->hasNestedRenderPass());
+    cmd->endRenderPass();
+    cmd->end();
+
+    // Negative Test 7: Orphan endRenderPass
+    cmd->begin();
+    cmd->endRenderPass();
+    TEST_CHECK(nullCmd->hasOrphanEndPass());
+    cmd->end();
+
+    device->destroyTexture(badDepthTex);
+    device->destroyTexture(depthTex);
+    device->destroyTexture(colorTex);
+
+    return 0;
+}
+
+static int testOffscreenPipelineCompatibility() {
+    auto devRes = createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto device = std::move(devRes.value());
+
+    ShaderDesc vsDesc{
+        .stage = ShaderStageFlags::Vertex,
+        .spirvCode = eng::rhi::test::kTestVertexShaderSpirv,
+    };
+    auto vsRes = device->createShader(vsDesc);
+    ShaderDesc fsDesc{
+        .stage = ShaderStageFlags::Fragment,
+        .spirvCode = eng::rhi::test::kTestFragmentShaderSpirv,
+    };
+    auto fsRes = device->createShader(fsDesc);
+
+    PipelineLayoutDesc layoutDesc{};
+    auto layoutRes = device->createPipelineLayout(layoutDesc);
+
+    // Create pipeline configured for RGBA8_UNORM color attachment and D32_FLOAT depth attachment
+    GraphicsPipelineDesc pipeDesc{
+        .vertexShader = vsRes.value(),
+        .fragmentShader = fsRes.value(),
+        .layout = layoutRes.value(),
+        .colorAttachmentFormats = {TextureFormat::RGBA8_UNORM},
+        .depthAttachmentFormat = TextureFormat::D32_FLOAT,
+    };
+    auto pipeRes = device->createGraphicsPipeline(pipeDesc);
+    TEST_CHECK(pipeRes.hasValue());
+    PipelineHandle pipeline = pipeRes.value();
+
+    // Create matching color & depth textures
+    TextureDesc colorDesc{
+        .type = TextureType::Texture2D,
+        .format = TextureFormat::RGBA8_UNORM,
+        .width = 800,
+        .height = 600,
+        .depth = 1,
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .usage = TextureUsageFlags::ColorAttachment,
+    };
+    auto colorTex = device->createTexture(colorDesc).value();
+
+    TextureDesc depthDesc{
+        .type = TextureType::Texture2D,
+        .format = TextureFormat::D32_FLOAT,
+        .width = 800,
+        .height = 600,
+        .depth = 1,
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .usage = TextureUsageFlags::DepthStencilAttachment,
+    };
+    auto depthTex = device->createTexture(depthDesc).value();
+
+    // Create mismatched color texture (BGRA8_UNORM)
+    TextureDesc bgraColorDesc = colorDesc;
+    bgraColorDesc.format = TextureFormat::BGRA8_UNORM;
+    auto bgraColorTex = device->createTexture(bgraColorDesc).value();
+
+    // Create mismatched depth texture (D24_UNORM_S8_UINT)
+    TextureDesc d24DepthDesc = depthDesc;
+    d24DepthDesc.format = TextureFormat::D24_UNORM_S8_UINT;
+    auto d24DepthTex = device->createTexture(d24DepthDesc).value();
+
+    auto cmdRes = device->createCommandList();
+    auto cmd = std::move(cmdRes.value());
+    auto* nullCmd = static_cast<NullCommandList*>(cmd.get());
+
+    // 1. Draw with matching pipeline and attachments -> should NOT have format mismatch
+    cmd->begin();
+    RenderPassBeginInfo matchPass{
+        .colorTarget = colorTex,
+        .depthTarget = depthTex,
+    };
+    cmd->beginRenderPass(matchPass);
+    cmd->bindPipeline(pipeline);
+    cmd->draw(3, 1, 0, 0);
+    TEST_CHECK(!nullCmd->hasFormatMismatch());
+    cmd->endRenderPass();
+    cmd->end();
+
+    // 2. Draw with mismatched color format -> should flag format mismatch
+    cmd->begin();
+    RenderPassBeginInfo colorMismatchPass{
+        .colorTarget = bgraColorTex,
+        .depthTarget = depthTex,
+    };
+    cmd->beginRenderPass(colorMismatchPass);
+    cmd->bindPipeline(pipeline);
+    cmd->draw(3, 1, 0, 0);
+    TEST_CHECK(nullCmd->hasFormatMismatch());
+    cmd->endRenderPass();
+    cmd->end();
+
+    // 3. Draw with mismatched depth format -> should flag format mismatch
+    cmd->begin();
+    RenderPassBeginInfo depthMismatchPass{
+        .colorTarget = colorTex,
+        .depthTarget = d24DepthTex,
+    };
+    cmd->beginRenderPass(depthMismatchPass);
+    cmd->bindPipeline(pipeline);
+    cmd->draw(3, 1, 0, 0);
+    TEST_CHECK(nullCmd->hasFormatMismatch());
+    cmd->endRenderPass();
+    cmd->end();
+
+    // Clean up
+    device->destroyTexture(d24DepthTex);
+    device->destroyTexture(bgraColorTex);
+    device->destroyTexture(depthTex);
+    device->destroyTexture(colorTex);
+    device->destroyGraphicsPipeline(pipeline);
+    device->destroyPipelineLayout(layoutRes.value());
+    device->destroyShader(fsRes.value());
+    device->destroyShader(vsRes.value());
+
+    return 0;
+}
+
 int main() {
     if (testGpuCapsQuery() != 0) {
         return 1;
@@ -555,6 +894,15 @@ int main() {
         return 1;
     }
     if (testCommandListPipelineBindingAndValidation() != 0) {
+        return 1;
+    }
+    if (testOffscreenTextureLifecycleAndValidation() != 0) {
+        return 1;
+    }
+    if (testOffscreenDynamicRendering() != 0) {
+        return 1;
+    }
+    if (testOffscreenPipelineCompatibility() != 0) {
         return 1;
     }
     std::cout << "All Null RHI unit tests passed!\n";
