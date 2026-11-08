@@ -18,6 +18,7 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 
@@ -1118,6 +1119,69 @@ static void testMultiSelectionPropertyEditingAndBatchOperations() {
     std::cout << "[PASS] testMultiSelectionPropertyEditingAndBatchOperations\n";
 }
 
+static void testWorkspaceSceneLifecycleAndFileOperations() {
+    world::World world;
+    SelectionModel selection;
+    WorkspaceManager wm;
+
+    TEST_CHECK(!wm.isSceneDirty());
+    TEST_CHECK(wm.getCurrentScenePath().empty());
+
+    // 1. Mark dirty and clear dirty
+    wm.markSceneDirty();
+    TEST_CHECK(wm.isSceneDirty());
+    wm.clearSceneDirty();
+    TEST_CHECK(!wm.isSceneDirty());
+
+    // 2. Create entities and select one
+    auto e1 = world.createEntity("SceneEntity1");
+    auto e2 = world.createEntity("SceneEntity2");
+    selection.select(e1);
+    TEST_CHECK(selection.count() == 1);
+    TEST_CHECK(selection.isSelected(e1));
+
+    // 3. Save Scene to file
+    const std::string testScenePath = "/tmp/hikari_editor_test_scene.hikari";
+    std::filesystem::remove(testScenePath);
+
+    wm.markSceneDirty();
+    bool saveOk = wm.saveScene(world, testScenePath.c_str());
+    TEST_CHECK(saveOk);
+    TEST_CHECK(!wm.isSceneDirty());
+    TEST_CHECK(wm.getCurrentScenePath() == testScenePath);
+    TEST_CHECK(std::filesystem::exists(testScenePath));
+
+    // 4. New Scene clears entities, selection, and scene path
+    bool newOk = wm.newScene(world, &selection);
+    TEST_CHECK(newOk);
+    TEST_CHECK(selection.empty());
+    TEST_CHECK(!world.isAlive(e1));
+    TEST_CHECK(!world.isAlive(e2));
+    TEST_CHECK(world.getAllEntities().empty());
+    TEST_CHECK(wm.getCurrentScenePath().empty());
+    TEST_CHECK(!wm.isSceneDirty());
+
+    // 5. Open Scene restores entities from saved file
+    bool openOk = wm.openScene(world, testScenePath.c_str(), &selection);
+    TEST_CHECK(openOk);
+    TEST_CHECK(wm.getCurrentScenePath() == testScenePath);
+    TEST_CHECK(!wm.isSceneDirty());
+    auto restoredEntities = world.getAllEntities();
+    TEST_CHECK(restoredEntities.size() == 2);
+
+    // 6. Failed Open Scene (non-existent file) does not corrupt state
+    bool badOpenOk = wm.openScene(world, "/tmp/non_existent_scene_file.hikari", &selection);
+    TEST_CHECK(!badOpenOk);
+    // World still has its 2 entities
+    TEST_CHECK(world.getAllEntities().size() == 2);
+    // Path remains what it was before failure
+    TEST_CHECK(wm.getCurrentScenePath() == testScenePath);
+
+    // Clean up
+    std::filesystem::remove(testScenePath);
+    std::cout << "[PASS] testWorkspaceSceneLifecycleAndFileOperations\n";
+}
+
 int main() {
     std::cout << "Running Editor subsystem unit tests...\n";
     testThemeTokens();
@@ -1138,6 +1202,7 @@ int main() {
     testInspectorComponentManagementLifecycle();
     testTransformAndPhysicsPropertyEditing();
     testMultiSelectionPropertyEditingAndBatchOperations();
+    testWorkspaceSceneLifecycleAndFileOperations();
     std::cout << "All Editor subsystem tests PASSED!\n";
     return 0;
 }
