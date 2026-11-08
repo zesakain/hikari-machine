@@ -40,9 +40,10 @@
 #endif
 
 #if defined(HIKARI_HAS_ASAN)
-// Suppress known one-time process-lifetime allocations within OS graphics driver / dbus stacks
+// Suppress known one-time process-lifetime allocations within OS graphics driver / dbus / wayland
+// stacks
 extern "C" const char* __lsan_default_suppressions() {
-    return "leak:libdbus-1\nleak:libvulkan\nleak:nvidia\n";
+    return "leak:libdbus-1\nleak:libvulkan\nleak:nvidia\nleak:libwayland\n";
 }
 #endif
 
