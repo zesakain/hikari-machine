@@ -23,7 +23,9 @@
 #include "rhi/buffer.h"
 #include "rhi/command_list.h"
 #include "rhi/gpu_caps.h"
+#include "rhi/pipeline.h"
 #include "rhi/sampler.h"
+#include "rhi/shader.h"
 #include "rhi/texture.h"
 
 #include <memory>
@@ -93,6 +95,35 @@ public:
 
     /// Releases a texture sampler and invalidates its generational handle.
     virtual void destroySampler(SamplerHandle handle) = 0;
+
+    /// Compiles a new shader module from SPIR-V bytecode.
+    ///
+    /// @param desc Shader descriptor containing stage and SPIR-V code span.
+    /// @return Result containing valid ShaderHandle or error.
+    [[nodiscard]] virtual Result<ShaderHandle> createShader(const ShaderDesc& desc) = 0;
+
+    /// Releases a shader module and invalidates its generational handle.
+    virtual void destroyShader(ShaderHandle handle) = 0;
+
+    /// Creates a pipeline layout defining push constants and descriptor set bindings.
+    ///
+    /// @param desc Pipeline layout descriptor.
+    /// @return Result containing valid PipelineLayoutHandle or error.
+    [[nodiscard]] virtual Result<PipelineLayoutHandle>
+    createPipelineLayout(const PipelineLayoutDesc& desc) = 0;
+
+    /// Releases a pipeline layout and invalidates its generational handle.
+    virtual void destroyPipelineLayout(PipelineLayoutHandle handle) = 0;
+
+    /// Creates a graphics pipeline state object.
+    ///
+    /// @param desc Graphics pipeline descriptor with shader stages, vertex layout, and states.
+    /// @return Result containing valid PipelineHandle or error.
+    [[nodiscard]] virtual Result<PipelineHandle>
+    createGraphicsPipeline(const GraphicsPipelineDesc& desc) = 0;
+
+    /// Releases a graphics pipeline state object and invalidates its generational handle.
+    virtual void destroyGraphicsPipeline(PipelineHandle handle) = 0;
 
     /// Creates an independent command recording list.
     ///

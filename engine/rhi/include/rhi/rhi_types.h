@@ -54,6 +54,7 @@ struct BufferTag {};
 struct TextureTag {};
 struct SamplerTag {};
 struct PipelineTag {};
+struct PipelineLayoutTag {};
 struct ShaderTag {};
 
 /// Generational handle for GPU buffer resources.
@@ -68,8 +69,132 @@ using SamplerHandle = ResourceHandle<SamplerTag>;
 /// Generational handle for compiled graphics/compute pipeline state objects.
 using PipelineHandle = ResourceHandle<PipelineTag>;
 
+/// Generational handle for pipeline layouts (push constants and descriptor sets).
+using PipelineLayoutHandle = ResourceHandle<PipelineLayoutTag>;
+
 /// Generational handle for compiled shader modules.
 using ShaderHandle = ResourceHandle<ShaderTag>;
+
+/// @enum ShaderStageFlags
+/// @brief Bitmask specifying shader stages (vertex, fragment, compute).
+enum class ShaderStageFlags : uint32_t {
+    None = 0,
+    Vertex = 1 << 0,
+    Fragment = 1 << 1,
+    Compute = 1 << 2,
+    AllGraphics = Vertex | Fragment,
+    All = 0x7FFFFFFF
+};
+
+constexpr ShaderStageFlags operator|(ShaderStageFlags a, ShaderStageFlags b) noexcept {
+    return static_cast<ShaderStageFlags>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
+}
+constexpr ShaderStageFlags operator&(ShaderStageFlags a, ShaderStageFlags b) noexcept {
+    return static_cast<ShaderStageFlags>(static_cast<uint32_t>(a) & static_cast<uint32_t>(b));
+}
+constexpr ShaderStageFlags& operator|=(ShaderStageFlags& a, ShaderStageFlags b) noexcept {
+    a = a | b;
+    return a;
+}
+constexpr ShaderStageFlags& operator&=(ShaderStageFlags& a, ShaderStageFlags b) noexcept {
+    a = a & b;
+    return a;
+}
+constexpr bool hasFlag(ShaderStageFlags flags, ShaderStageFlags test) noexcept {
+    return (flags & test) == test;
+}
+
+/// @enum VertexFormat
+/// @brief Vertex attribute component layout and data format.
+enum class VertexFormat : uint8_t {
+    Float = 0,
+    Float2 = 1,
+    Float3 = 2,
+    Float4 = 3,
+    Byte4Norm = 4,
+    UByte4Norm = 5,
+    Short2 = 6,
+    Short4 = 7,
+    Int = 8,
+    UInt = 9
+};
+
+/// @enum VertexInputRate
+/// @brief Step rate for vertex buffer attribute reading.
+enum class VertexInputRate : uint8_t { Vertex = 0, Instance = 1 };
+
+/// @enum PrimitiveTopology
+/// @brief Primitive assembly interpretation.
+enum class PrimitiveTopology : uint8_t {
+    TriangleList = 0,
+    TriangleStrip = 1,
+    LineList = 2,
+    LineStrip = 3,
+    PointList = 4
+};
+
+/// @enum PolygonMode
+/// @brief Rasterization polygon fill mode.
+enum class PolygonMode : uint8_t { Fill = 0, Line = 1, Point = 2 };
+
+/// @enum CullMode
+/// @brief Face culling mode.
+enum class CullMode : uint8_t { None = 0, Front = 1, Back = 2, FrontAndBack = 3 };
+
+/// @enum FrontFace
+/// @brief Front-facing winding order.
+enum class FrontFace : uint8_t { CounterClockwise = 0, Clockwise = 1 };
+
+/// @enum BlendFactor
+/// @brief Source and destination blend factors for color blending.
+enum class BlendFactor : uint8_t {
+    Zero = 0,
+    One = 1,
+    SrcColor = 2,
+    OneMinusSrcColor = 3,
+    DstColor = 4,
+    OneMinusDstColor = 5,
+    SrcAlpha = 6,
+    OneMinusSrcAlpha = 7,
+    DstAlpha = 8,
+    OneMinusDstAlpha = 9
+};
+
+/// @enum BlendOp
+/// @brief Arithmetic operations for color blending.
+enum class BlendOp : uint8_t { Add = 0, Subtract = 1, ReverseSubtract = 2, Min = 3, Max = 4 };
+
+/// @enum ColorComponentFlags
+/// @brief Bitmask for color attachment channel write masks.
+enum class ColorComponentFlags : uint8_t {
+    None = 0,
+    R = 1 << 0,
+    G = 1 << 1,
+    B = 1 << 2,
+    A = 1 << 3,
+    All = R | G | B | A
+};
+
+constexpr ColorComponentFlags operator|(ColorComponentFlags a, ColorComponentFlags b) noexcept {
+    return static_cast<ColorComponentFlags>(static_cast<uint8_t>(a) | static_cast<uint8_t>(b));
+}
+constexpr ColorComponentFlags operator&(ColorComponentFlags a, ColorComponentFlags b) noexcept {
+    return static_cast<ColorComponentFlags>(static_cast<uint8_t>(a) & static_cast<uint8_t>(b));
+}
+constexpr bool hasFlag(ColorComponentFlags flags, ColorComponentFlags test) noexcept {
+    return (flags & test) == test;
+}
+
+/// @enum DescriptorType
+/// @brief Type of resource referenced in descriptor set bindings.
+enum class DescriptorType : uint8_t {
+    UniformBuffer = 0,
+    StorageBuffer = 1,
+    SampledImage = 2,
+    Sampler = 3,
+    CombinedImageSampler = 4,
+    StorageImage = 5
+};
 
 /// @enum MemoryUsage
 /// @brief Intended GPU/CPU memory domain and cache residency.

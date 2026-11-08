@@ -70,6 +70,13 @@ public:
     /// Sets the active scissor test rectangle.
     virtual void setScissor(int32_t x, int32_t y, uint32_t width, uint32_t height) = 0;
 
+    /// Binds an active graphics pipeline for subsequent draw calls.
+    virtual void bindPipeline(PipelineHandle pipeline) = 0;
+
+    /// Updates push constant block data for the active pipeline.
+    virtual void pushConstants(PipelineLayoutHandle layout, ShaderStageFlags stages,
+                               uint32_t offset, uint32_t size, const void* data) = 0;
+
     /// Binds a vertex buffer to a specific binding slot.
     virtual void bindVertexBuffer(uint32_t binding, BufferHandle buffer, size_t offset = 0) = 0;
 
