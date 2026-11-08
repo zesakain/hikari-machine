@@ -24,10 +24,24 @@ enum class CameraProjectionMode : uint8_t {
     Orthographic = 1,
 };
 
+/// @enum EditorCameraMode
+/// @brief Navigation mode style for the editor camera.
+enum class EditorCameraMode : uint8_t {
+    Orbit = 0,
+    Fly = 1,
+};
+
 /// @class EditorCamera
 /// @brief Editor-only interactive 3D camera.
 class EditorCamera {
 public:
+    static constexpr float kDefaultMoveSpeed = 5.0F;        // 5.0 meters / second
+    static constexpr float kFastSpeedMultiplier = 4.0F;     // 5.0 * 4.0 = 20.0 m/s (Shift)
+    static constexpr float kSlowSpeedMultiplier = 0.2F;     // 5.0 * 0.2 = 1.0 m/s (Ctrl)
+    static constexpr float kMinMoveSpeed = 0.5F;            // minimum flight speed
+    static constexpr float kMaxMoveSpeed = 100.0F;          // maximum flight speed
+    static constexpr float kDefaultMouseSensitivity = 0.003F; // radians / pixel
+
     EditorCamera() noexcept;
 
     /// Resets camera to default framing looking at the world origin.
@@ -129,8 +143,15 @@ public:
     [[nodiscard]] float getFarPlane() const noexcept { return farPlane_; }
     void setFarPlane(float farPlane) noexcept { farPlane_ = farPlane; }
 
+    [[nodiscard]] EditorCameraMode getCameraMode() const noexcept { return cameraMode_; }
+    void setCameraMode(EditorCameraMode mode) noexcept { cameraMode_ = mode; }
+
+    [[nodiscard]] bool isNavigating() const noexcept { return isNavigating_; }
+    void setNavigating(bool navigating) noexcept { isNavigating_ = navigating; }
+
     [[nodiscard]] float getMoveSpeed() const noexcept { return moveSpeed_; }
-    void setMoveSpeed(float speed) noexcept { moveSpeed_ = speed; }
+    void setMoveSpeed(float speed) noexcept;
+    void adjustMoveSpeed(float delta) noexcept;
 
     [[nodiscard]] float getMouseSensitivity() const noexcept { return mouseSensitivity_; }
     void setMouseSensitivity(float sens) noexcept { mouseSensitivity_ = sens; }
@@ -157,8 +178,10 @@ private:
     float farPlane_{1000.0F};
     float aspectRatio_{16.0F / 9.0F};
 
-    float moveSpeed_{6.0F};          // meters / second
-    float mouseSensitivity_{0.003F}; // radians / pixel
+    EditorCameraMode cameraMode_{EditorCameraMode::Orbit};
+    bool isNavigating_{false};
+    float moveSpeed_{kDefaultMoveSpeed};          // meters / second
+    float mouseSensitivity_{kDefaultMouseSensitivity}; // radians / pixel
 
     Mat4 viewMatrix_{Mat4::identity()};
     Mat4 projectionMatrix_{Mat4::identity()};

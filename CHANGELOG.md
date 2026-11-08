@@ -8,6 +8,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Milestone 8B.4: Editor Camera Navigation & Viewport Interaction**:
+  - **Intuitive WASD + QE Fly Navigation**:
+    - Implemented 6-DOF first-person camera flight (W/S forward/back, A/D left/right, Q/E vertical down/up) along camera local orientation.
+    - Normalized compound local movement vectors to unit length, preventing diagonal movement from traveling $\sqrt{2}\times$ or $\sqrt{3}\times$ faster than cardinal directions.
+    - Added configurable flight speed with default 5.0 m/s, fast speed with Shift (4.0x / 20.0 m/s), precision speed with Ctrl (0.2x / 1.0 m/s), and dynamic scroll wheel speed adjustments.
+  - **Smooth Mouse Look & Singularity Protection**:
+    - Enabled first-person mouse look driven by right mouse drag with pitch angle clamping to $[-89^\circ, +89^\circ]$ ($\pm 1.553$ rad), preventing gimbal flipping.
+    - Added mouse delta suppression on navigation startup frame (`s_wasLooking`), eliminating abrupt orientation jumps upon right-clicking in the viewport.
+  - **Strict Input Capture & UI Interaction Safety**:
+    - Guarded all camera movement against active text input (`ImGuiIO::WantTextInput`), preventing camera flight when typing in Inspector, Console, or other editor text fields.
+    - Suppressed camera navigation while manipulating transform gizmos (`s_isDraggingGizmo`).
+    - Gated gizmo shortcuts (W/E/R) against active flight navigation and text input to prevent unintentional gizmo mode switching.
+  - **Dual Camera Navigation Modes & Toolbar Controls**:
+    - Added `EditorCameraMode::Orbit` (default) and `EditorCameraMode::Fly` modes with clean toolbar toggle `[Cam: Orbit]` / `[Cam: Fly]` and comprehensive control hint tooltips.
+    - Added toolbar camera fly speed drag slider (`[Speed: %.1f m/s]`) clamped to $[0.5, 100.0]\text{ m/s}$.
+  - **Viewport UX Diagnostics & Navigation Indicator**:
+    - Enhanced floating diagnostic HUD card displaying active camera mode (`Orbit` vs `Fly`), active navigation badge `[NAV]`, and real-time effective movement speed.
+  - **Comprehensive Multi-Preset Verification & Testing**:
+    - Added comprehensive 14-point regression test `testEditorCameraNavigationAndFlyMode` in `tests/unit/editor/editor_test.cpp`.
+    - Verified 100% test pass rate across all 6 presets: `editor` (33/33), `debug` (32/32), `release` (32/32), `profile` (32/32), `asan` (32/32), and `tsan` (32/32).
+    - Verified physical GUI editor execution over 180 continuous frames without warnings, errors, or leaks.
+  - **Architectural Documentation**:
+    - Created `docs/architecture/milestone_8b4_editor_camera_navigation.md` using repository-relative links only.
+
 - **Milestone 8B.3: Dear ImGui Viewport GPU Integration**:
   - **Dear ImGui Vulkan Viewport GPU Integration**:
     - Integrated Vulkan `render::SceneRenderer` directly into the Dear ImGui Scene Viewport via `ImGui_ImplVulkan_AddTexture` and `ImGui_ImplVulkan_RemoveTexture`.

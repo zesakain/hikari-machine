@@ -44,6 +44,7 @@ Vec3 s_dragStartHitPoint{Vec3::zero()};
 
 // Camera navigation tracking
 bool s_isFlying = false;
+static bool s_wasLooking = false;
 
 float getSnapStep(int snapMode, int transformMode) noexcept {
     if (snapMode == 0) {
@@ -154,15 +155,39 @@ void ViewportPanel::draw(EditorContext& ctx) {
         // Camera Navigation & Input Processing
         // ---------------------------------------------------------------------
         if (isCanvasHovered || isCanvasActive) {
-            // Mouse Wheel Zoom
-            if (io.MouseWheel != 0.0F && !s_isDraggingGizmo) {
-                camera_.zoom(io.MouseWheel);
+            const bool isFlyMode = (camera_.getCameraMode() == EditorCameraMode::Fly);
+            const bool isRmbDown = ImGui::IsMouseDown(ImGuiMouseButton_Right) && !io.KeyShift && !s_isDraggingGizmo;
+
+            // First-person look orientation: RMB drag
+            if (isRmbDown) {
+                if (!s_wasLooking) {
+                    // Reset/suppress mouse delta on first frame to prevent sudden orientation jumps
+                    s_wasLooking = true;
+                } else if (io.MouseDelta.x != 0.0F || io.MouseDelta.y != 0.0F) {
+                    camera_.look(io.MouseDelta.x, io.MouseDelta.y);
+                }
+            } else {
+                s_wasLooking = false;
             }
 
-            // Orbit Navigation: Alt + Left Drag OR Middle Mouse Drag
+            // Fly navigation active condition
+            const bool canFlyMove = !io.WantTextInput && !s_isDraggingGizmo &&
+                                    (isRmbDown || (isFlyMode && (isCanvasHovered || isCanvasActive)));
+            s_isFlying = canFlyMove;
+
+            // Scroll wheel: Adjust flight speed in Fly mode or while RMB looking; otherwise zoom
+            if (io.MouseWheel != 0.0F && !s_isDraggingGizmo) {
+                if (isRmbDown || isFlyMode) {
+                    camera_.adjustMoveSpeed(io.MouseWheel);
+                } else {
+                    camera_.zoom(io.MouseWheel);
+                }
+            }
+
+            // Orbit Navigation: Alt + Left Drag OR Middle Mouse Drag (when not flying)
             const bool isOrbiting =
-                (ImGui::IsMouseDown(ImGuiMouseButton_Middle) && !io.KeyShift) ||
-                (ImGui::IsMouseDown(ImGuiMouseButton_Left) && io.KeyAlt && !s_isDraggingGizmo);
+                !isRmbDown && ((ImGui::IsMouseDown(ImGuiMouseButton_Middle) && !io.KeyShift) ||
+                               (ImGui::IsMouseDown(ImGuiMouseButton_Left) && io.KeyAlt && !s_isDraggingGizmo));
             if (isOrbiting && (io.MouseDelta.x != 0.0F || io.MouseDelta.y != 0.0F)) {
                 camera_.orbit(io.MouseDelta.x * 0.005F, io.MouseDelta.y * 0.005F);
             }
@@ -175,13 +200,9 @@ void ViewportPanel::draw(EditorContext& ctx) {
                 camera_.pan(io.MouseDelta.x, io.MouseDelta.y);
             }
 
-            // First-Person Fly Mode: Right Mouse Drag without Shift
-            if (ImGui::IsMouseDown(ImGuiMouseButton_Right) && !io.KeyShift && !s_isDraggingGizmo) {
-                s_isFlying = true;
-                if (io.MouseDelta.x != 0.0F || io.MouseDelta.y != 0.0F) {
-                    camera_.look(io.MouseDelta.x, io.MouseDelta.y);
-                }
-
+            // First-Person WASD + QE Fly Movement
+            bool isActivelyMoving = false;
+            if (canFlyMove) {
                 Vec3 flyMovement{0.0F, 0.0F, 0.0F};
                 if (ImGui::IsKeyDown(ImGuiKey_W)) {
                     flyMovement.z += 1.0F; // Forward
@@ -202,14 +223,23 @@ void ViewportPanel::draw(EditorContext& ctx) {
                     flyMovement.y -= 1.0F; // Down
                 }
 
-                const float fastMult = io.KeyShift ? 2.5F : 1.0F;
-                camera_.fly(flyMovement, io.DeltaTime, fastMult);
-            } else {
-                s_isFlying = false;
+                if (flyMovement.x != 0.0F || flyMovement.y != 0.0F || flyMovement.z != 0.0F) {
+                    isActivelyMoving = true;
+                    float speedMult = 1.0F;
+                    if (io.KeyShift) {
+                        speedMult = EditorCamera::kFastSpeedMultiplier;
+                    } else if (io.KeyCtrl) {
+                        speedMult = EditorCamera::kSlowSpeedMultiplier;
+                    }
+                    camera_.fly(flyMovement, io.DeltaTime, speedMult);
+                }
             }
 
-            // Focus framing shortcut: F key
-            if (ImGui::IsKeyPressed(ImGuiKey_F) && !io.WantTextInput) {
+            // Update navigation state
+            camera_.setNavigating(isRmbDown || isActivelyMoving || isOrbiting || isPanning);
+
+            // Focus framing shortcut: F key (disabled when typing or actively looking)
+            if (ImGui::IsKeyPressed(ImGuiKey_F) && !io.WantTextInput && !isRmbDown) {
                 if (ctx.selection != nullptr && !ctx.selection->empty() && ctx.world != nullptr) {
                     auto primary = ctx.selection->getPrimarySelected();
                     if (ctx.world->isAlive(primary) &&
@@ -226,7 +256,8 @@ void ViewportPanel::draw(EditorContext& ctx) {
             }
 
             // Gizmo mode shortcuts: W (Translate), E (Rotate), R (Scale)
-            if (!s_isFlying && !io.WantTextInput) {
+            // Blocked when flying or in Fly mode or when typing
+            if (!s_isFlying && !isFlyMode && !io.WantTextInput) {
                 if (ImGui::IsKeyPressed(ImGuiKey_W)) {
                     s_transformMode = 0;
                 }
@@ -239,7 +270,18 @@ void ViewportPanel::draw(EditorContext& ctx) {
                 if (ImGui::IsKeyPressed(ImGuiKey_G)) {
                     s_showGrid = !s_showGrid;
                 }
+            } else if (isFlyMode && !s_isFlying && !io.WantTextInput) {
+                // In Fly mode when not actively moving, R and G shortcuts still work
+                if (ImGui::IsKeyPressed(ImGuiKey_R)) {
+                    s_transformMode = 2;
+                }
+                if (ImGui::IsKeyPressed(ImGuiKey_G)) {
+                    s_showGrid = !s_showGrid;
+                }
             }
+        } else {
+            s_wasLooking = false;
+            camera_.setNavigating(false);
         }
 
         // ---------------------------------------------------------------------
@@ -999,6 +1041,30 @@ void ViewportPanel::draw(EditorContext& ctx) {
         }
 
         ImGui::SameLine();
+        const bool isFlyMode = (camera_.getCameraMode() == EditorCameraMode::Fly);
+        if (ImGui::Button(isFlyMode ? "Cam: Fly" : "Cam: Orbit")) {
+            camera_.setCameraMode(isFlyMode ? EditorCameraMode::Orbit : EditorCameraMode::Fly);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip(
+                "Toggle Camera Mode (Current: %s)\n"
+                "- Orbit: RMB + WASD Fly, MMB/Alt+LMB Orbit, Shift+MMB Pan, Scroll Zoom\n"
+                "- Fly: First-person WASD + QE Fly, RMB Look, Scroll adjusts speed",
+                isFlyMode ? "Fly" : "Orbit");
+        }
+
+        ImGui::SameLine();
+        float currentSpeed = camera_.getMoveSpeed();
+        ImGui::SetNextItemWidth(75.0F);
+        if (ImGui::DragFloat("##CamSpeed", &currentSpeed, 0.2F, EditorCamera::kMinMoveSpeed,
+                             EditorCamera::kMaxMoveSpeed, "%.1f m/s")) {
+            camera_.setMoveSpeed(currentSpeed);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Base Fly Speed (Shift: 4x, Ctrl: 0.2x, Scroll wheel in Fly mode)");
+        }
+
+        ImGui::SameLine();
         ImGui::TextDisabled("|");
         ImGui::SameLine();
 
@@ -1083,7 +1149,7 @@ void ViewportPanel::draw(EditorContext& ctx) {
         // 9. Floating Studio Diagnostic HUD Card (Bottom-Left)
         // ---------------------------------------------------------------------
         if (s_showStats) {
-            float cardWidth = 360.0F;
+            float cardWidth = 460.0F;
             float cardHeight = 65.0F;
             ImVec2 cardPos(canvasPos.x + 12.0F, canvasPos.y + canvasSize.y - cardHeight - 12.0F);
 
@@ -1120,15 +1186,35 @@ void ViewportPanel::draw(EditorContext& ctx) {
             ImGui::SetCursorScreenPos(ImVec2(cardPos.x + 10.0F, cardPos.y + 26.0F));
             ImGui::TextColored(badgeColor, "%s", simBadge);
             ImGui::SameLine();
-            ImGui::TextDisabled("| Dist: %.1fm | FOV: 60 deg",
-                                static_cast<double>(camera_.getDistance()));
+            ImGui::TextDisabled("| Dist: %.1fm", static_cast<double>(camera_.getDistance()));
+            ImGui::SameLine();
+
+            const bool isFly = (camera_.getCameraMode() == EditorCameraMode::Fly);
+            const bool isNav = camera_.isNavigating();
+            float effectiveSpeed = camera_.getMoveSpeed();
+            if (io.KeyShift) {
+                effectiveSpeed *= EditorCamera::kFastSpeedMultiplier;
+            } else if (io.KeyCtrl) {
+                effectiveSpeed *= EditorCamera::kSlowSpeedMultiplier;
+            }
+
+            if (isNav) {
+                ImGui::TextColored(ImVec4(0.3F, 0.9F, 0.4F, 1.0F), "| [NAV] %s (%.1f m/s)",
+                                   isFly ? "Fly" : "Orbit-Fly", static_cast<double>(effectiveSpeed));
+            } else {
+                ImGui::TextDisabled("| Cam: %s (%.1f m/s)", isFly ? "Fly" : "Orbit",
+                                    static_cast<double>(camera_.getMoveSpeed()));
+            }
 
             ImGui::SetCursorScreenPos(ImVec2(cardPos.x + 10.0F, cardPos.y + 45.0F));
             if (hasPrimarySelected) {
-                ImGui::TextColored(ImVec4(0.9F, 0.8F, 0.2F, 1.0F), "Selected Entity: #%llu",
-                                   static_cast<unsigned long long>(primarySelectedHandle.id));
+                ImGui::TextColored(ImVec4(0.9F, 0.8F, 0.2F, 1.0F), "Selected Entity: #%llu | Cam: %s",
+                                   static_cast<unsigned long long>(primarySelectedHandle.id),
+                                   isFly ? "Fly" : "Orbit");
             } else {
-                ImGui::TextDisabled("Navigation: RMB Fly | MMB Orbit | Shift+MMB Pan");
+                ImGui::TextDisabled(
+                    isFly ? "Fly: WASD+QE Fly | RMB Look | Shift Fast | Ctrl Slow | Wheel Speed"
+                          : "Orbit: RMB Fly | MMB Orbit | Shift+MMB Pan | Wheel Zoom | F Frame");
             }
         }
     }

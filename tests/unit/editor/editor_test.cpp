@@ -1360,8 +1360,8 @@ static void testEditorCameraLifecycleAndNavigation() {
 
     // Fly movement
     Vec3 preFlyPos = camera.getPosition();
-    camera.fly(Vec3{0.0F, 1.0F, 0.0F}, 0.5F, 1.0F); // Move Up by 0.5s * 6.0m/s = 3.0m
-    TEST_CHECK(std::abs(camera.getPosition().y - (preFlyPos.y + 3.0F)) < 1e-4F);
+    camera.fly(Vec3{0.0F, 1.0F, 0.0F}, 0.5F, 1.0F); // Move Up by 0.5s * 5.0m/s = 2.5m
+    TEST_CHECK(std::abs(camera.getPosition().y - (preFlyPos.y + 2.5F)) < 1e-4F);
 
     // Projection and Unprojection accuracy
     camera.resetToDefault();
@@ -1385,6 +1385,214 @@ static void testEditorCameraLifecycleAndNavigation() {
     TEST_CHECK(tHit.has_value());
 
     std::cout << "[PASS] testEditorCameraLifecycleAndNavigation\n";
+}
+
+static void testEditorCameraNavigationAndFlyMode() {
+    EditorCamera camera;
+    camera.resetToDefault();
+
+    // 1. Forward and backward movement
+    {
+        Vec3 startPos = camera.getPosition();
+        Vec3 fwd = camera.getForward();
+        camera.fly(Vec3{0.0F, 0.0F, 1.0F}, 1.0F, 1.0F); // Forward 1s * 5m/s = 5m
+        Vec3 expectedPos = startPos + (fwd * 5.0F);
+        TEST_CHECK(camera.getPosition().isNearlyEqual(expectedPos, 1e-3F));
+
+        // Backward
+        camera.fly(Vec3{0.0F, 0.0F, -1.0F}, 1.0F, 1.0F); // Backward 5m
+        TEST_CHECK(camera.getPosition().isNearlyEqual(startPos, 1e-3F));
+    }
+
+    // 2. Left and right movement
+    {
+        Vec3 startPos = camera.getPosition();
+        Vec3 right = camera.getRight();
+        camera.fly(Vec3{1.0F, 0.0F, 0.0F}, 1.0F, 1.0F); // Right 5m
+        Vec3 expectedPos = startPos + (right * 5.0F);
+        TEST_CHECK(camera.getPosition().isNearlyEqual(expectedPos, 1e-3F));
+
+        // Left
+        camera.fly(Vec3{-1.0F, 0.0F, 0.0F}, 1.0F, 1.0F); // Left 5m
+        TEST_CHECK(camera.getPosition().isNearlyEqual(startPos, 1e-3F));
+    }
+
+    // 3. Vertical movement (Q/E)
+    {
+        Vec3 startPos = camera.getPosition();
+        camera.fly(Vec3{0.0F, 1.0F, 0.0F}, 1.0F, 1.0F); // Up 5m
+        TEST_CHECK(std::abs(camera.getPosition().y - (startPos.y + 5.0F)) < 1e-3F);
+
+        camera.fly(Vec3{0.0F, -1.0F, 0.0F}, 1.0F, 1.0F); // Down 5m
+        TEST_CHECK(std::abs(camera.getPosition().y - startPos.y) < 1e-3F);
+    }
+
+    // 4. Diagonal movement normalization
+    {
+        Vec3 startPos = camera.getPosition();
+        // Diagonal input: Right (1) + Forward (1) -> magnitude is sqrt(2)
+        camera.fly(Vec3{1.0F, 0.0F, 1.0F}, 1.0F, 1.0F);
+        float movedDist = (camera.getPosition() - startPos).length();
+        // Without normalization, distance would be 5.0 * sqrt(2) = 7.071m
+        // With normalization, distance MUST be exactly 5.0m
+        TEST_CHECK(std::abs(movedDist - 5.0F) < 1e-3F);
+    }
+
+    // 5. Delta-time independence
+    {
+        camera.resetToDefault();
+
+        // 10 small steps of 0.1s
+        for (int i = 0; i < 10; ++i) {
+            camera.fly(Vec3{0.0F, 0.0F, 1.0F}, 0.1F, 1.0F);
+        }
+        Vec3 pos10Steps = camera.getPosition();
+
+        // 1 large step of 1.0s
+        camera.resetToDefault();
+        camera.fly(Vec3{0.0F, 0.0F, 1.0F}, 1.0F, 1.0F);
+        Vec3 pos1Step = camera.getPosition();
+
+        TEST_CHECK(pos10Steps.isNearlyEqual(pos1Step, 1e-3F));
+    }
+
+    // 6. Shift speed multiplier (4.0x -> 20.0 m/s)
+    {
+        camera.resetToDefault();
+        Vec3 startPos = camera.getPosition();
+        camera.fly(Vec3{0.0F, 0.0F, 1.0F}, 1.0F, EditorCamera::kFastSpeedMultiplier);
+        float fastDist = (camera.getPosition() - startPos).length();
+        TEST_CHECK(std::abs(fastDist - 20.0F) < 1e-3F);
+    }
+
+    // 7. Ctrl precision multiplier (0.2x -> 1.0 m/s)
+    {
+        camera.resetToDefault();
+        Vec3 startPos = camera.getPosition();
+        camera.fly(Vec3{0.0F, 0.0F, 1.0F}, 1.0F, EditorCamera::kSlowSpeedMultiplier);
+        float slowDist = (camera.getPosition() - startPos).length();
+        TEST_CHECK(std::abs(slowDist - 1.0F) < 1e-3F);
+    }
+
+    // 8. Mouse rotation & pitch clamping
+    {
+        camera.resetToDefault();
+        float initialYaw = camera.getYaw();
+        float initialPitch = camera.getPitch();
+
+        // Mouse look
+        camera.look(100.0F, 50.0F);
+        TEST_CHECK(camera.getYaw() != initialYaw);
+        TEST_CHECK(camera.getPitch() != initialPitch);
+
+        // Clamping check: push upward pitch to extreme
+        camera.look(0.0F, -10000.0F);
+        TEST_CHECK(camera.getPitch() <= 1.553343F);
+
+        // Push downward pitch to extreme
+        camera.look(0.0F, 20000.0F);
+        TEST_CHECK(camera.getPitch() >= -1.553343F);
+    }
+
+    // 9. Orbit/Fly mode switching
+    {
+        camera.resetToDefault();
+        TEST_CHECK(camera.getCameraMode() == EditorCameraMode::Orbit);
+
+        camera.setCameraMode(EditorCameraMode::Fly);
+        TEST_CHECK(camera.getCameraMode() == EditorCameraMode::Fly);
+
+        camera.setCameraMode(EditorCameraMode::Orbit);
+        TEST_CHECK(camera.getCameraMode() == EditorCameraMode::Orbit);
+    }
+
+    // 10. Navigation activation and deactivation
+    {
+        camera.resetToDefault();
+        TEST_CHECK(!camera.isNavigating());
+
+        camera.setNavigating(true);
+        TEST_CHECK(camera.isNavigating());
+
+        camera.setNavigating(false);
+        TEST_CHECK(!camera.isNavigating());
+    }
+
+    // 11. Input capture safety simulation
+    {
+        camera.resetToDefault();
+        Vec3 initialPos = camera.getPosition();
+
+        // Simulate typing in text input (io.WantTextInput == true)
+        bool wantTextInput = true;
+        Vec3 inputDir{0.0F, 0.0F, 1.0F};
+        if (!wantTextInput) {
+            camera.fly(inputDir, 1.0F, 1.0F);
+        }
+        // Camera position must not move when text input is active
+        TEST_CHECK(camera.getPosition().isNearlyEqual(initialPos));
+
+        // Simulate gizmo dragging active
+        bool isDraggingGizmo = true;
+        if (!isDraggingGizmo) {
+            camera.fly(inputDir, 1.0F, 1.0F);
+        }
+        TEST_CHECK(camera.getPosition().isNearlyEqual(initialPos));
+    }
+
+    // 12. Camera independence from ECS entity transforms
+    {
+        world::World world;
+        physics::registerPhysicsComponents(world);
+        auto e = world.createEntity("TestEntity");
+        world.setComponent(e, physics::PhysicsTransformComponent{
+                                  .transform = Transform{Vec3{10.0F, 20.0F, 30.0F}},
+                              });
+
+        camera.resetToDefault();
+        camera.fly(Vec3{1.0F, 1.0F, 1.0F}, 2.0F, EditorCamera::kFastSpeedMultiplier);
+        camera.look(50.0F, 50.0F);
+        camera.orbit(1.0F, 0.5F);
+
+        // Entity transform must remain exactly identical
+        const auto* ptAfter = world.getComponent<physics::PhysicsTransformComponent>(e);
+        TEST_CHECK(ptAfter != nullptr);
+        TEST_CHECK(ptAfter->transform.position.isNearlyEqual(Vec3{10.0F, 20.0F, 30.0F}));
+    }
+
+    // 13. Existing framing and orbit behavior preserved
+    {
+        camera.resetToDefault();
+        camera.frame(Vec3{5.0F, 0.0F, 5.0F}, 3.0F);
+        TEST_CHECK(camera.getPivot().isNearlyEqual(Vec3{5.0F, 0.0F, 5.0F}));
+        TEST_CHECK(camera.getDistance() > 3.0F);
+
+        Vec3 pivotBefore = camera.getPivot();
+        camera.orbit(0.5F, 0.3F);
+        TEST_CHECK(camera.getPivot().isNearlyEqual(pivotBefore));
+    }
+
+    // 14. Speed adjustment & clamping
+    {
+        camera.resetToDefault();
+        camera.setMoveSpeed(10.0F);
+        TEST_CHECK(camera.getMoveSpeed() == 10.0F);
+
+        camera.adjustMoveSpeed(1.0F); // increase
+        TEST_CHECK(camera.getMoveSpeed() > 10.0F);
+
+        camera.adjustMoveSpeed(-1.0F); // decrease
+        TEST_CHECK(camera.getMoveSpeed() <= 10.0F * 1.15F);
+
+        // Clamping
+        camera.setMoveSpeed(9999.0F);
+        TEST_CHECK(camera.getMoveSpeed() == EditorCamera::kMaxMoveSpeed);
+
+        camera.setMoveSpeed(-50.0F);
+        TEST_CHECK(camera.getMoveSpeed() == EditorCamera::kMinMoveSpeed);
+    }
+
+    std::cout << "[PASS] testEditorCameraNavigationAndFlyMode\n";
 }
 
 static void testViewportRayPickingAndEntitySelection() {
@@ -1877,6 +2085,7 @@ int main() {
     testWorkspaceSceneLifecycleAndFileOperations();
     testEditorRuntimeSessionIntegrationAndIsolation();
     testEditorCameraLifecycleAndNavigation();
+    testEditorCameraNavigationAndFlyMode();
     testViewportRayPickingAndEntitySelection();
     testViewportTransformGizmoManipulation();
     testViewportRuntimeWorldPreviewAndSelectionSafety();

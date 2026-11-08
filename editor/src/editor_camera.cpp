@@ -24,6 +24,10 @@ void EditorCamera::resetToDefault() noexcept {
     distance_ = 10.0F;
     yaw_ = -0.785398F;   // -45 degrees
     pitch_ = -0.400000F; // ~ -23 degrees looking towards origin
+    cameraMode_ = EditorCameraMode::Orbit;
+    isNavigating_ = false;
+    moveSpeed_ = kDefaultMoveSpeed;
+    mouseSensitivity_ = kDefaultMouseSensitivity;
 
     updateVectorsFromAngles();
     updatePositionFromPivot();
@@ -75,10 +79,27 @@ void EditorCamera::look(float deltaYaw, float deltaPitch) noexcept {
     pivot_ = position_ + (forward_ * distance_);
 }
 
+void EditorCamera::setMoveSpeed(float speed) noexcept {
+    moveSpeed_ = std::clamp(speed, kMinMoveSpeed, kMaxMoveSpeed);
+}
+
+void EditorCamera::adjustMoveSpeed(float delta) noexcept {
+    if (delta > 0.0F) {
+        moveSpeed_ = std::clamp(moveSpeed_ * 1.15F, kMinMoveSpeed, kMaxMoveSpeed);
+    } else if (delta < 0.0F) {
+        moveSpeed_ = std::clamp(moveSpeed_ * 0.85F, kMinMoveSpeed, kMaxMoveSpeed);
+    }
+}
+
 void EditorCamera::fly(const Vec3& localMovement, float deltaTime, float fastMultiplier) noexcept {
+    Vec3 dir = localMovement;
+    const float lenSq = dir.lengthSq();
+    if (lenSq > 1e-6F) {
+        dir = dir / std::sqrt(lenSq);
+    }
     const float speed = moveSpeed_ * fastMultiplier * deltaTime;
-    const Vec3 move = (right_ * localMovement.x) + (Vec3::unitY() * localMovement.y) +
-                      (forward_ * localMovement.z);
+    const Vec3 move =
+        (right_ * dir.x) + (Vec3::unitY() * dir.y) + (forward_ * dir.z);
 
     position_ += move * speed;
     pivot_ += move * speed;
