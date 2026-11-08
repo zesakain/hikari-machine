@@ -3,6 +3,8 @@
 
 #include "world/world.h"
 
+#include <algorithm>
+
 namespace eng::world {
 
 World::World() {
@@ -14,12 +16,13 @@ World::World() {
 World::~World() = default;
 
 World::World(World&& other) noexcept
-    : ecs_(std::move(other.ecs_)), groupActive_(other.groupActive_),
-      groupSystems_(std::move(other.groupSystems_)) {}
+    : ecs_(std::move(other.ecs_)), activeEntities_(std::move(other.activeEntities_)),
+      groupActive_(other.groupActive_), groupSystems_(std::move(other.groupSystems_)) {}
 
 World& World::operator=(World&& other) noexcept {
     if (this != &other) {
         ecs_ = std::move(other.ecs_);
+        activeEntities_ = std::move(other.activeEntities_);
         groupActive_ = other.groupActive_;
         groupSystems_ = std::move(other.groupSystems_);
     }
@@ -28,7 +31,9 @@ World& World::operator=(World&& other) noexcept {
 
 EntityHandle World::createEntity() {
     const flecs::entity e = ecs_.entity();
-    return EntityHandle(e.id());
+    EntityHandle handle(e.id());
+    activeEntities_.push_back(handle);
+    return handle;
 }
 
 EntityHandle World::createEntity(std::string_view name) {
@@ -41,13 +46,39 @@ EntityHandle World::createEntity(std::string_view name) {
     buf[copyLen] = '\0';
 
     const flecs::entity e = ecs_.entity(buf.data());
-    return EntityHandle(e.id());
+    EntityHandle handle(e.id());
+    activeEntities_.push_back(handle);
+    return handle;
 }
 
 void World::destroyEntity(EntityHandle entity) {
     if (isAlive(entity)) {
         ecs_.entity(entity.id).destruct();
+        auto it = std::find(activeEntities_.begin(), activeEntities_.end(), entity);
+        if (it != activeEntities_.end()) {
+            activeEntities_.erase(it);
+        }
     }
+}
+
+void World::clearUserEntities() {
+    for (EntityHandle h : activeEntities_) {
+        if (isAlive(h)) {
+            ecs_.entity(h.id).destruct();
+        }
+    }
+    activeEntities_.clear();
+}
+
+std::vector<EntityHandle> World::getAllEntities() const {
+    std::vector<EntityHandle> alive;
+    alive.reserve(activeEntities_.size());
+    for (EntityHandle h : activeEntities_) {
+        if (isAlive(h)) {
+            alive.push_back(h);
+        }
+    }
+    return alive;
 }
 
 bool World::isAlive(EntityHandle entity) const {

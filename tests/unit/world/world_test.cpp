@@ -183,6 +183,34 @@ static int testEntityNaming() {
     return 0;
 }
 
+static int testClearUserEntities() {
+    World world;
+
+    EntityHandle e1 = world.createEntity("Entity1");
+    EntityHandle e2 = world.createEntity("Entity2");
+    world.setComponent(e1, Position{1.0F, 2.0F, 3.0F});
+    world.setComponent(e2, Velocity{0.5F, 0.0F, 0.0F});
+
+    TEST_CHECK(world.isAlive(e1));
+    TEST_CHECK(world.isAlive(e2));
+    TEST_CHECK(world.getAllEntities().size() == 2);
+
+    world.clearUserEntities();
+
+    TEST_CHECK(!world.isAlive(e1));
+    TEST_CHECK(!world.isAlive(e2));
+    TEST_CHECK(world.getAllEntities().empty());
+
+    // After clearing, new entities can still be created and mutated
+    EntityHandle e3 = world.createEntity("Entity3");
+    world.setComponent(e3, Position{10.0F, 20.0F, 30.0F});
+    TEST_CHECK(world.isAlive(e3));
+    TEST_CHECK(world.getComponent<Position>(e3)->x == 10.0F);
+    TEST_CHECK(world.getAllEntities().size() == 1);
+
+    return 0;
+}
+
 int main() {
     if (testEntityLifecycle() != 0) {
         return 1;
@@ -194,6 +222,9 @@ int main() {
         return 1;
     }
     if (testSystemGroupPhaseGating() != 0) {
+        return 1;
+    }
+    if (testClearUserEntities() != 0) {
         return 1;
     }
     std::cout << "All World unit tests passed successfully.\n";

@@ -55,6 +55,10 @@ public:
     /// Destroys an entity and reclaims its slot.
     void destroyEntity(EntityHandle entity);
 
+    /// Destroys all user-created entities in the World, leaving registered components,
+    /// system pipelines, and modules completely intact.
+    void clearUserEntities();
+
     /// Checks if an entity handle references an active, alive entity in the world.
     [[nodiscard]] bool isAlive(EntityHandle entity) const;
 
@@ -136,6 +140,9 @@ public:
     /// @param deltaSeconds Frame delta time in seconds.
     void progress(float deltaSeconds);
 
+    /// Retrieves all currently active user entities in the World.
+    [[nodiscard]] std::vector<EntityHandle> getAllEntities() const;
+
     /// Direct access to underlying Flecs world instance.
     [[nodiscard]] flecs::world& getRawWorld() noexcept { return ecs_; }
 
@@ -144,6 +151,7 @@ public:
 
 private:
     flecs::world ecs_{};
+    std::vector<EntityHandle> activeEntities_{};
     std::array<bool, static_cast<size_t>(SystemGroup::Count)> groupActive_{};
     std::array<std::vector<flecs::system>, static_cast<size_t>(SystemGroup::Count)> groupSystems_{};
 };
