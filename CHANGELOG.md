@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Milestone 9A.1: UI/UX Audit and Centralized Design System**:
+  - **Centralized UI Design Tokens & Theme Palettes**:
+    - Expanded `Color4f` token representation with 32-bit packed RGBA conversions, luminance calculations, alpha modification, and light/dark surface queries.
+    - Standardized `ThemeMetrics` with an 8-point spacing scale (`kSpacingXXS` through `kSpacingXXL`), control heights (`kToolbarHeight`, `kStatusBarHeight`, `kMenuBarHeight`, `kButtonHeightStandard`, `kButtonHeightCompact`), and unified corner radii.
+    - Implemented three complete, curated theme palettes:
+      - `Hikari Dark`: Graphite and charcoal surfaces (`#151619`, `#202227`) with cobalt electric blue accent (`#3B82F6`).
+      - `Hikari Midnight`: Deep obsidian surfaces (`#090B0E`, `#12151B`) with luminous cyan accent (`#38BDF8`).
+      - `Hikari Light`: Slate studio light surfaces (`#EAEBEF`, `#F4F5F8`) with high-contrast navy typography (`#111827`) and saturated cobalt accent (`#2563EB`).
+  - **Dynamic Theme Management & Instant Switching**:
+    - Implemented `applyEditorTheme(ThemeType)` allowing seamless runtime theme transitions across Dark, Midnight, and Light presets without requiring editor restarts or GPU resource invalidation.
+    - Added live theme selection submenu under `Window -> Theme` in the main menu bar.
+  - **Standardized Iconography & Semantic UI Helpers**:
+    - Created `EditorIcons` providing unified UTF-8 / ASCII semantic glyph constants for simulation transport (`kPlay`, `kPause`, `kResume`, `kStep`, `kStop`), camera modes, rendering backends, asset types, and status indicators.
+    - Implemented reusable design-system components (`editor/include/editor/ui_helpers.h`, `editor/src/ui_helpers.cpp`): `drawBadge`, `drawStatusPill`, `drawSectionHeader`, `drawPropertyLabel`, `drawMutedText`, `drawSecondaryText`, `beginCard`/`endCard`, and `drawTransportButton`.
+  - **Main Editor Shell Integration**:
+    - Upgraded `drawMainMenuBar`, `drawToolbar`, and `drawStatusBar` in `workspace_manager.cpp` to consume centralized tokens, theme colors, and semantic UI helpers.
+    - Replaced hardcoded transport buttons with color-coded, icon-paired controls (Emerald Play, Amber Pause, Yellow Resume, Sky Blue Step, Crimson Stop) with active simulation highlighting.
+    - Standardized simulation badges (`[● PLAYING]`, `[● PAUSED]`, `[● EDIT MODE]`), Two-State Conductor status cards, and scene status badges with dirty indicators.
+  - **Automated Verification & Architectural Documentation**:
+    - Added unit test suite in `tests/unit/editor/editor_test.cpp` verifying token definitions, luminance/contrast rules, dynamic theme switching, and icon constants.
+    - Verified 100% test pass rate across `editor` test suite (34/34 passed) and physical GUI execution over 180 continuous simulation frames.
+    - Created `docs/architecture/editor_design_system.md` using repository-relative links only.
+
 - **Milestone 8B.5: External 3D Asset Import Pipeline**:
   - **glTF 2.0 & GLB Import Pipeline**:
     - Vendored `cgltf` (v1.14 pinned, MIT license, single header) with zero external runtime dependencies and full C++20 `-fno-exceptions` / `-fno-rtti` compatibility.
