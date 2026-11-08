@@ -8,6 +8,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Milestone 8B.5: External 3D Asset Import Pipeline**:
+  - **glTF 2.0 & GLB Import Pipeline**:
+    - Vendored `cgltf` (v1.14 pinned, MIT license, single header) with zero external runtime dependencies and full C++20 `-fno-exceptions` / `-fno-rtti` compatibility.
+    - Implemented `render::GltfImporter` (`engine/render/include/render/gltf_importer.h`, `engine/render/src/gltf_importer.cpp`) supporting both binary `.glb` containers and `.gltf` JSON descriptors with external `.bin` files and inline base64 data URIs.
+    - Preserved full backward compatibility with Wavefront OBJ models via `ObjImporter`.
+  - **Geometry, Node Transforms & Coordinate System Handling**:
+    - Extracted vertex positions, normals, texture coordinates (UVs), vertex colors, and indices into engine `MeshData` and `Submesh` structures.
+    - Maintained native right-handed $+Y$ up coordinates with $-Z$ view orientation without requiring axis permutations.
+    - Evaluated full node hierarchy world transforms via `cgltf_node_transform_world()`, baking node positions, orientations, and scales directly into model vertex positions.
+    - Transformed normals using the inverse-transpose of the upper $3\times3$ world matrix ($M^{-T}$) to guarantee normal perpendicularity under non-uniform scale.
+    - Detected negative scaling (reflection / mirroring via $\det(M_{3\times3}) < 0$) and reversed triangle index winding order to maintain counter-clockwise front faces and correct back-face culling.
+    - Implemented automatic normal generation fallback (`MeshData::generateNormals()`) for geometry omitting normal attributes, and defaulted missing texture coordinates to $(0, 0)$.
+    - Generated synthetic sequential index buffers for non-indexed primitives and recalculated model bounding boxes (`AABB`).
+  - **glTF 2.0 PBR Metallic-Roughness Materials**:
+    - Expanded engine `Material` representation (`engine/render/include/render/material.h`) with base color factor, metallic factor, roughness factor, emissive factor, alpha mode (`Opaque`, `Mask`, `Blend`), and alpha cutoff.
+    - Added `TextureInfo` and `TextureSamplerDesc` capturing texture file paths, coordinate set indices, address modes, filter modes, and color spaces (`Linear` vs `sRGB`).
+    - Added `materialIndex` tracking to `Submesh` and material collections with query methods to `MeshData`.
+  - **AssetManager Caching & Transactional Safety**:
+    - Integrated format routing in `AssetManager::loadMesh()` by file extension (`.gltf`, `.glb`, `.obj`).
+    - Implemented deterministic asset hashing (`AssetId::fromString(filepath)`), CPU mesh caching, and GPU mesh upload deduplication.
+    - Maintained atomic failure handling: corrupt files or missing buffers leave no dangling entries or partial data in the asset registry.
+  - **Content Browser & Viewport Drag-and-Drop**:
+    - Enhanced `ContentBrowserPanel` (`editor/src/panels/content_browser_panel.cpp`) to discover `.gltf` and `.glb` assets, displaying soft cyan `[GLB]`, amber `[GLTF]`, and periwinkle `[OBJ]` format badges.
+    - Added detailed geometric inspection cards displaying vertex, triangle, submesh, and material counts.
+    - Implemented drag-and-drop workflow: dragging any model asset from the Content Browser directly into `ViewportPanel` creates an active entity at the camera pivot equipped with `PhysicsTransformComponent`, `MeshComponent`, and an auto-sized `ColliderComponent`.
+  - **Comprehensive Verification & Multi-Preset Testing**:
+    - Implemented 31 automated unit tests in `tests/unit/render/gltf_importer_test.cpp` verifying all Section 10 requirements.
+    - Verified 100% test pass rate across all 6 presets: `editor` (34/34), `debug` (33/33), `release` (33/33), `profile` (33/33), `asan` (33/33), and `tsan` (33/33).
+    - Verified live physical GUI editor execution over 180 continuous frames without warnings, errors, or memory leaks.
+  - **Architectural Documentation**:
+    - Added `docs/architecture/milestone_8b5_external_3d_asset_import.md` using repository-relative links only.
+
 - **Milestone 8B.4: Editor Camera Navigation & Viewport Interaction**:
   - **Intuitive WASD + QE Fly Navigation**:
     - Implemented 6-DOF first-person camera flight (W/S forward/back, A/D left/right, Q/E vertical down/up) along camera local orientation.
