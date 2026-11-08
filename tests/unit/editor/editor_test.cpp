@@ -949,6 +949,175 @@ static void testInspectorComponentManagementLifecycle() {
     std::cout << "[PASS] testInspectorComponentManagementLifecycle\n";
 }
 
+static void testTransformAndPhysicsPropertyEditing() {
+    world::World world;
+    physics::registerPhysicsComponents(world);
+
+    auto handle = world.createEntity("PropEntity");
+    auto& ecs = world.getRawWorld();
+    auto e = ecs.entity(handle.id);
+
+    // 1. Transform property modification
+    e.set<physics::PhysicsTransformComponent>({
+        .transform = Transform(Vec3(0.0F, 0.0F, 0.0F)),
+    });
+    auto* tc = e.get_mut<physics::PhysicsTransformComponent>();
+    tc->transform.position = Vec3(10.5F, -3.2F, 4.0F);
+    tc->transform.scale = Vec3(2.0F, 2.0F, 2.0F);
+    // 90 deg Yaw rotation (Y-axis)
+    constexpr float kDegToRad = 0.0174532925F;
+    tc->transform.rotation = Quat::fromAxisAngle(Vec3(0.0F, 1.0F, 0.0F), 90.0F * kDegToRad);
+    e.modified<physics::PhysicsTransformComponent>();
+
+    const auto* tcRead = e.get<physics::PhysicsTransformComponent>();
+    TEST_CHECK(tcRead->transform.position.x == 10.5F);
+    TEST_CHECK(tcRead->transform.position.y == -3.2F);
+    TEST_CHECK(tcRead->transform.scale.x == 2.0F);
+    // Quat of 90 deg around Y: (0, sin(45), 0, cos(45))
+    TEST_CHECK(std::abs(tcRead->transform.rotation.y - 0.7071067F) < 1e-4F);
+    TEST_CHECK(std::abs(tcRead->transform.rotation.w - 0.7071067F) < 1e-4F);
+
+    // 2. RigidBody motion type & layer modification
+    e.set<physics::RigidBodyComponent>({
+        .motionType = physics::MotionType::Static,
+        .collisionLayer = physics::CollisionLayer::kNonMoving,
+    });
+    auto* rb = e.get_mut<physics::RigidBodyComponent>();
+    rb->motionType = physics::MotionType::Dynamic;
+    rb->collisionLayer = physics::CollisionLayer::kPlayer;
+    e.modified<physics::RigidBodyComponent>();
+
+    const auto* rbRead = e.get<physics::RigidBodyComponent>();
+    TEST_CHECK(rbRead->motionType == physics::MotionType::Dynamic);
+    TEST_CHECK(rbRead->collisionLayer == physics::CollisionLayer::kPlayer);
+
+    // 3. Collider shape & dimension modification
+    e.set<physics::ColliderComponent>({
+        .desc = physics::ColliderDesc::makeBox(Vec3(1.0F, 2.0F, 3.0F)),
+    });
+    auto* cc = e.get_mut<physics::ColliderComponent>();
+    TEST_CHECK(cc->desc.type == physics::ColliderType::Box);
+    TEST_CHECK(cc->desc.halfExtents.y == 2.0F);
+
+    // Switch to Sphere
+    cc->desc = physics::ColliderDesc::makeSphere(3.5F, Vec3(0.0F, 1.0F, 0.0F));
+    e.modified<physics::ColliderComponent>();
+    const auto* ccRead = e.get<physics::ColliderComponent>();
+    TEST_CHECK(ccRead->desc.type == physics::ColliderType::Sphere);
+    TEST_CHECK(ccRead->desc.radius == 3.5F);
+    TEST_CHECK(ccRead->desc.offset.y == 1.0F);
+
+    // Switch to Capsule
+    cc = e.get_mut<physics::ColliderComponent>();
+    cc->desc = physics::ColliderDesc::makeCapsule(0.8F, 1.8F);
+    e.modified<physics::ColliderComponent>();
+    ccRead = e.get<physics::ColliderComponent>();
+    TEST_CHECK(ccRead->desc.type == physics::ColliderType::Capsule);
+    TEST_CHECK(ccRead->desc.radius == 0.8F);
+    TEST_CHECK(ccRead->desc.halfHeight == 1.8F);
+
+    std::cout << "[PASS] testTransformAndPhysicsPropertyEditing\n";
+}
+
+static void testMultiSelectionPropertyEditingAndBatchOperations() {
+    world::World world;
+    physics::registerPhysicsComponents(world);
+    script::registerScriptComponents(world);
+
+    auto h1 = world.createEntity("Entity_1");
+    auto h2 = world.createEntity("Entity_2");
+    auto hUnselected = world.createEntity("Unselected");
+
+    auto& ecs = world.getRawWorld();
+    auto e1 = ecs.entity(h1.id);
+    auto e2 = ecs.entity(h2.id);
+    auto eUnsel = ecs.entity(hUnselected.id);
+
+    // 1. Initial setups: e1 and e2 have transforms with different X, same Y and Z
+    e1.set<physics::PhysicsTransformComponent>({
+        .transform = Transform(Vec3(1.0F, 5.0F, 0.0F)),
+    });
+    e2.set<physics::PhysicsTransformComponent>({
+        .transform = Transform(Vec3(2.0F, 5.0F, 0.0F)),
+    });
+    eUnsel.set<physics::PhysicsTransformComponent>({
+        .transform = Transform(Vec3(0.0F, 0.0F, 0.0F)),
+    });
+
+    SelectionModel selection;
+    selection.select(h1, false);
+    selection.select(h2, true); // multi-select h1 and h2
+    TEST_CHECK(selection.count() == 2);
+    TEST_CHECK(selection.isSelected(h1));
+    TEST_CHECK(selection.isSelected(h2));
+    TEST_CHECK(!selection.isSelected(hUnselected));
+
+    // Verify common component presence
+    TEST_CHECK(e1.has<physics::PhysicsTransformComponent>());
+    TEST_CHECK(e2.has<physics::PhysicsTransformComponent>());
+
+    // 2. Multi-selection batch property edit: modify Y on all selected entities
+    for (auto h : selection.getSelectedEntities()) {
+        auto* tc = ecs.entity(h.id).get_mut<physics::PhysicsTransformComponent>();
+        tc->transform.position.y = 12.0F; // apply unified Y change
+        ecs.entity(h.id).modified<physics::PhysicsTransformComponent>();
+    }
+
+    // Verify individual X values preserved, Y updated on both, unselected untouched
+    TEST_CHECK(e1.get<physics::PhysicsTransformComponent>()->transform.position.x == 1.0F);
+    TEST_CHECK(e1.get<physics::PhysicsTransformComponent>()->transform.position.y == 12.0F);
+
+    TEST_CHECK(e2.get<physics::PhysicsTransformComponent>()->transform.position.x == 2.0F);
+    TEST_CHECK(e2.get<physics::PhysicsTransformComponent>()->transform.position.y == 12.0F);
+
+    TEST_CHECK(eUnsel.get<physics::PhysicsTransformComponent>()->transform.position.y == 0.0F);
+
+    // 3. Batch Add Component: add ScriptComponent to all selected entities
+    TEST_CHECK(!e1.has<script::ScriptComponent>());
+    TEST_CHECK(!e2.has<script::ScriptComponent>());
+    for (auto h : selection.getSelectedEntities()) {
+        auto ent = ecs.entity(h.id);
+        if (!ent.has<script::ScriptComponent>()) {
+            ent.set<script::ScriptComponent>({
+                .scriptName = "on_group_tick",
+                .enabled = true,
+                .updateInterval = 0.016F,
+                .timeSinceLastUpdate = 0.0F,
+            });
+        }
+    }
+
+    TEST_CHECK(e1.has<script::ScriptComponent>());
+    TEST_CHECK(e2.has<script::ScriptComponent>());
+    TEST_CHECK(!eUnsel.has<script::ScriptComponent>());
+    TEST_CHECK(std::strcmp(e1.get<script::ScriptComponent>()->scriptName, "on_group_tick") == 0);
+    TEST_CHECK(std::strcmp(e2.get<script::ScriptComponent>()->scriptName, "on_group_tick") == 0);
+
+    // 4. Batch Remove Component: remove ScriptComponent from all selected entities
+    for (auto h : selection.getSelectedEntities()) {
+        ecs.entity(h.id).remove<script::ScriptComponent>();
+    }
+
+    TEST_CHECK(!e1.has<script::ScriptComponent>());
+    TEST_CHECK(!e2.has<script::ScriptComponent>());
+    TEST_CHECK(e1.has<physics::PhysicsTransformComponent>());
+    TEST_CHECK(e2.has<physics::PhysicsTransformComponent>());
+
+    // 5. Batch Entity Deletion: delete all selected entities
+    auto toDelete = selection.getSelectedEntities();
+    for (auto h : toDelete) {
+        world.destroyEntity(h);
+    }
+    selection.clear();
+
+    TEST_CHECK(!world.isAlive(h1));
+    TEST_CHECK(!world.isAlive(h2));
+    TEST_CHECK(world.isAlive(hUnselected));
+    TEST_CHECK(selection.empty());
+
+    std::cout << "[PASS] testMultiSelectionPropertyEditingAndBatchOperations\n";
+}
+
 int main() {
     std::cout << "Running Editor subsystem unit tests...\n";
     testThemeTokens();
@@ -967,6 +1136,8 @@ int main() {
     testRepeatedPhysicsObjectCreationAndHierarchyRendering();
     testScriptComponentEnableToggleBehavior();
     testInspectorComponentManagementLifecycle();
+    testTransformAndPhysicsPropertyEditing();
+    testMultiSelectionPropertyEditingAndBatchOperations();
     std::cout << "All Editor subsystem tests PASSED!\n";
     return 0;
 }
