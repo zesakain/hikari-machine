@@ -190,6 +190,167 @@ void NullDevice::destroySampler(SamplerHandle handle) {
     }
 }
 
+Result<ShaderHandle> NullDevice::createShader(const ShaderDesc& desc) {
+    auto valRes = validateShaderDesc(desc);
+    if (!valRes.hasValue()) {
+        return valRes.error();
+    }
+
+    auto slotIndex = static_cast<uint32_t>(shaders_.size());
+    for (size_t i = 0; i < shaders_.size(); ++i) {
+        if (!shaders_[i].alive) {
+            slotIndex = static_cast<uint32_t>(i);
+            break;
+        }
+    }
+
+    if (slotIndex == shaders_.size()) {
+        ShaderSlot newSlot{};
+        newSlot.desc = desc;
+        newSlot.code.assign(desc.spirvCode.begin(), desc.spirvCode.end());
+        newSlot.desc.spirvCode = newSlot.code;
+        newSlot.generation = 1;
+        newSlot.alive = true;
+        shaders_.push_back(std::move(newSlot));
+    } else {
+        auto& slot = shaders_[slotIndex];
+        slot.desc = desc;
+        slot.code.assign(desc.spirvCode.begin(), desc.spirvCode.end());
+        slot.desc.spirvCode = slot.code;
+        slot.alive = true;
+    }
+
+    return ShaderHandle(GenerationalHandle{slotIndex, shaders_[slotIndex].generation});
+}
+
+void NullDevice::destroyShader(ShaderHandle handle) {
+    if (isShaderValid(handle)) {
+        auto& slot = shaders_[handle.index()];
+        slot.alive = false;
+        slot.code.clear();
+        ++slot.generation;
+    }
+}
+
+Result<PipelineLayoutHandle> NullDevice::createPipelineLayout(const PipelineLayoutDesc& desc) {
+    auto valRes = validatePipelineLayoutDesc(desc);
+    if (!valRes.hasValue()) {
+        return valRes.error();
+    }
+
+    // Validate descriptor set bindings
+    for (const auto& setDesc : desc.descriptorSetLayouts) {
+        for (size_t i = 0; i < setDesc.bindings.size(); ++i) {
+            if (setDesc.bindings[i].descriptorCount == 0) {
+                return Error{.code = ErrorCode::InvalidArgument,
+                             .message = "Descriptor binding count cannot be 0"};
+            }
+            for (size_t j = i + 1; j < setDesc.bindings.size(); ++j) {
+                if (setDesc.bindings[i].binding == setDesc.bindings[j].binding) {
+                    return Error{.code = ErrorCode::InvalidArgument,
+                                 .message = "Duplicate binding index within descriptor set layout"};
+                }
+            }
+        }
+    }
+
+    auto slotIndex = static_cast<uint32_t>(pipelineLayouts_.size());
+    for (size_t i = 0; i < pipelineLayouts_.size(); ++i) {
+        if (!pipelineLayouts_[i].alive) {
+            slotIndex = static_cast<uint32_t>(i);
+            break;
+        }
+    }
+
+    if (slotIndex == pipelineLayouts_.size()) {
+        PipelineLayoutSlot newSlot{};
+        newSlot.desc = desc;
+        newSlot.generation = 1;
+        newSlot.alive = true;
+        pipelineLayouts_.push_back(std::move(newSlot));
+    } else {
+        auto& slot = pipelineLayouts_[slotIndex];
+        slot.desc = desc;
+        slot.alive = true;
+    }
+
+    return PipelineLayoutHandle(
+        GenerationalHandle{slotIndex, pipelineLayouts_[slotIndex].generation});
+}
+
+void NullDevice::destroyPipelineLayout(PipelineLayoutHandle handle) {
+    if (isPipelineLayoutValid(handle)) {
+        auto& slot = pipelineLayouts_[handle.index()];
+        slot.alive = false;
+        ++slot.generation;
+    }
+}
+
+Result<PipelineHandle> NullDevice::createGraphicsPipeline(const GraphicsPipelineDesc& desc) {
+    auto valRes = validateGraphicsPipelineDesc(desc);
+    if (!valRes.hasValue()) {
+        return valRes.error();
+    }
+
+    if (!isShaderValid(desc.vertexShader)) {
+        return Error{.code = ErrorCode::HandleResolutionFailed,
+                     .message = "Invalid vertex shader handle in graphics pipeline creation"};
+    }
+    const auto* vsDesc = getShaderDesc(desc.vertexShader);
+    if (vsDesc == nullptr || !hasFlag(vsDesc->stage, ShaderStageFlags::Vertex)) {
+        return Error{.code = ErrorCode::InvalidArgument,
+                     .message = "Shader bound to vertex stage does not have Vertex stage flag"};
+    }
+
+    if (desc.fragmentShader.isValid()) {
+        if (!isShaderValid(desc.fragmentShader)) {
+            return Error{.code = ErrorCode::HandleResolutionFailed,
+                         .message = "Invalid fragment shader handle in graphics pipeline creation"};
+        }
+        const auto* fsDesc = getShaderDesc(desc.fragmentShader);
+        if (fsDesc == nullptr || !hasFlag(fsDesc->stage, ShaderStageFlags::Fragment)) {
+            return Error{.code = ErrorCode::InvalidArgument,
+                         .message =
+                             "Shader bound to fragment stage does not have Fragment stage flag"};
+        }
+    }
+
+    if (!isPipelineLayoutValid(desc.layout)) {
+        return Error{.code = ErrorCode::HandleResolutionFailed,
+                     .message = "Invalid pipeline layout handle in graphics pipeline creation"};
+    }
+
+    auto slotIndex = static_cast<uint32_t>(pipelines_.size());
+    for (size_t i = 0; i < pipelines_.size(); ++i) {
+        if (!pipelines_[i].alive) {
+            slotIndex = static_cast<uint32_t>(i);
+            break;
+        }
+    }
+
+    if (slotIndex == pipelines_.size()) {
+        PipelineSlot newSlot{};
+        newSlot.desc = desc;
+        newSlot.generation = 1;
+        newSlot.alive = true;
+        pipelines_.push_back(std::move(newSlot));
+    } else {
+        auto& slot = pipelines_[slotIndex];
+        slot.desc = desc;
+        slot.alive = true;
+    }
+
+    return PipelineHandle(GenerationalHandle{slotIndex, pipelines_[slotIndex].generation});
+}
+
+void NullDevice::destroyGraphicsPipeline(PipelineHandle handle) {
+    if (isPipelineValid(handle)) {
+        auto& slot = pipelines_[handle.index()];
+        slot.alive = false;
+        ++slot.generation;
+    }
+}
+
 Result<std::unique_ptr<RhiCommandList>> NullDevice::createCommandList() {
     return std::unique_ptr<RhiCommandList>(std::make_unique<NullCommandList>(*this));
 }
@@ -270,6 +431,52 @@ bool NullDevice::isSamplerValid(SamplerHandle handle) const noexcept {
         return slot.alive && slot.generation == handle.generation();
     }
     return false;
+}
+
+bool NullDevice::isShaderValid(ShaderHandle handle) const noexcept {
+    if (handle.index() < shaders_.size()) {
+        const auto& slot = shaders_[handle.index()];
+        return slot.alive && slot.generation == handle.generation();
+    }
+    return false;
+}
+
+bool NullDevice::isPipelineLayoutValid(PipelineLayoutHandle handle) const noexcept {
+    if (handle.index() < pipelineLayouts_.size()) {
+        const auto& slot = pipelineLayouts_[handle.index()];
+        return slot.alive && slot.generation == handle.generation();
+    }
+    return false;
+}
+
+bool NullDevice::isPipelineValid(PipelineHandle handle) const noexcept {
+    if (handle.index() < pipelines_.size()) {
+        const auto& slot = pipelines_[handle.index()];
+        return slot.alive && slot.generation == handle.generation();
+    }
+    return false;
+}
+
+const ShaderDesc* NullDevice::getShaderDesc(ShaderHandle handle) const noexcept {
+    if (isShaderValid(handle)) {
+        return &shaders_[handle.index()].desc;
+    }
+    return nullptr;
+}
+
+const PipelineLayoutDesc*
+NullDevice::getPipelineLayoutDesc(PipelineLayoutHandle handle) const noexcept {
+    if (isPipelineLayoutValid(handle)) {
+        return &pipelineLayouts_[handle.index()].desc;
+    }
+    return nullptr;
+}
+
+const GraphicsPipelineDesc* NullDevice::getPipelineDesc(PipelineHandle handle) const noexcept {
+    if (isPipelineValid(handle)) {
+        return &pipelines_[handle.index()].desc;
+    }
+    return nullptr;
 }
 
 const uint8_t* NullDevice::getBufferData(BufferHandle handle) const noexcept {

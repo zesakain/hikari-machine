@@ -110,6 +110,10 @@ public:
                      float maxDepth = 1.0F) override;
     void setScissor(int32_t x, int32_t y, uint32_t width, uint32_t height) override;
 
+    void bindPipeline(PipelineHandle pipeline) override;
+    void pushConstants(PipelineLayoutHandle layout, ShaderStageFlags stages, uint32_t offset,
+                       uint32_t size, const void* data) override;
+
     void bindVertexBuffer(uint32_t binding, BufferHandle buffer, size_t offset = 0) override;
     void bindIndexBuffer(BufferHandle buffer, size_t offset = 0, bool is32Bit = false) override;
 
@@ -125,6 +129,11 @@ public:
     [[nodiscard]] State getState() const noexcept { return state_; }
     void setState(State state) noexcept { state_ = state; }
 
+    [[nodiscard]] PipelineHandle getBoundPipeline() const noexcept { return boundPipeline_; }
+    [[nodiscard]] bool isPipelineBound() const noexcept;
+    [[nodiscard]] bool hasUnboundDraw() const noexcept { return hasUnboundDraw_; }
+    [[nodiscard]] uint32_t getPipelineBindCount() const noexcept { return pipelineBindCount_; }
+    [[nodiscard]] uint32_t getPushConstantCount() const noexcept { return pushConstantCount_; }
     [[nodiscard]] uint32_t getDrawCount() const noexcept { return drawCount_; }
     [[nodiscard]] uint32_t getDrawIndexedCount() const noexcept { return drawIndexedCount_; }
     [[nodiscard]] uint32_t getCopyCount() const noexcept { return copyCount_; }
@@ -143,6 +152,9 @@ private:
 
     Viewport currentViewport_{};
     Scissor currentScissor_{};
+    PipelineHandle boundPipeline_{};
+    PipelineLayoutHandle boundLayout_{};
+    bool hasUnboundDraw_{false};
     std::vector<VertexBufferBinding> vertexBindings_;
     IndexBufferBinding indexBinding_{};
 
@@ -151,6 +163,8 @@ private:
     std::vector<CopyBufferCmd> copyCommands_;
     std::vector<UpdateBufferCmd> updateCommands_;
 
+    uint32_t pipelineBindCount_{0};
+    uint32_t pushConstantCount_{0};
     uint32_t drawCount_{0};
     uint32_t drawIndexedCount_{0};
     uint32_t copyCount_{0};

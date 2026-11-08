@@ -47,6 +47,25 @@ public:
         bool alive{false};
     };
 
+    struct ShaderSlot {
+        ShaderDesc desc{};
+        std::vector<uint32_t> code;
+        uint32_t generation{1};
+        bool alive{false};
+    };
+
+    struct PipelineLayoutSlot {
+        PipelineLayoutDesc desc{};
+        uint32_t generation{1};
+        bool alive{false};
+    };
+
+    struct PipelineSlot {
+        GraphicsPipelineDesc desc{};
+        uint32_t generation{1};
+        bool alive{false};
+    };
+
     NullDevice() noexcept;
     ~NullDevice() noexcept override = default;
 
@@ -68,6 +87,17 @@ public:
     [[nodiscard]] Result<SamplerHandle> createSampler(const SamplerDesc& desc) override;
     void destroySampler(SamplerHandle handle) override;
 
+    [[nodiscard]] Result<ShaderHandle> createShader(const ShaderDesc& desc) override;
+    void destroyShader(ShaderHandle handle) override;
+
+    [[nodiscard]] Result<PipelineLayoutHandle>
+    createPipelineLayout(const PipelineLayoutDesc& desc) override;
+    void destroyPipelineLayout(PipelineLayoutHandle handle) override;
+
+    [[nodiscard]] Result<PipelineHandle>
+    createGraphicsPipeline(const GraphicsPipelineDesc& desc) override;
+    void destroyGraphicsPipeline(PipelineHandle handle) override;
+
     [[nodiscard]] Result<std::unique_ptr<RhiCommandList>> createCommandList() override;
     Result<void> submit(RhiCommandList* commandList) override;
     void waitIdle() override;
@@ -76,8 +106,15 @@ public:
     [[nodiscard]] bool isBufferValid(BufferHandle handle) const noexcept;
     [[nodiscard]] bool isTextureValid(TextureHandle handle) const noexcept;
     [[nodiscard]] bool isSamplerValid(SamplerHandle handle) const noexcept;
+    [[nodiscard]] bool isShaderValid(ShaderHandle handle) const noexcept;
+    [[nodiscard]] bool isPipelineLayoutValid(PipelineLayoutHandle handle) const noexcept;
+    [[nodiscard]] bool isPipelineValid(PipelineHandle handle) const noexcept;
     [[nodiscard]] const uint8_t* getBufferData(BufferHandle handle) const noexcept;
     [[nodiscard]] size_t getBufferSize(BufferHandle handle) const noexcept;
+    [[nodiscard]] const ShaderDesc* getShaderDesc(ShaderHandle handle) const noexcept;
+    [[nodiscard]] const PipelineLayoutDesc*
+    getPipelineLayoutDesc(PipelineLayoutHandle handle) const noexcept;
+    [[nodiscard]] const GraphicsPipelineDesc* getPipelineDesc(PipelineHandle handle) const noexcept;
     [[nodiscard]] uint32_t getSubmittedCount() const noexcept { return submittedCount_; }
 
 private:
@@ -88,6 +125,9 @@ private:
     std::vector<BufferSlot> buffers_;
     std::vector<TextureSlot> textures_;
     std::vector<SamplerSlot> samplers_;
+    std::vector<ShaderSlot> shaders_;
+    std::vector<PipelineLayoutSlot> pipelineLayouts_;
+    std::vector<PipelineSlot> pipelines_;
     uint32_t submittedCount_{0};
 };
 
