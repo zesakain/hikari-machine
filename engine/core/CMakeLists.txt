@@ -11,6 +11,7 @@ add_library(engine_core STATIC
     src/clock.cpp
     src/event.cpp
     src/job_system.cpp
+    src/json.cpp
     src/linear_allocator.cpp
     src/log.cpp
     src/pool_allocator.cpp
