@@ -7,7 +7,16 @@
 #include "world/entity.h"
 
 #include <array>
+#include <string>
 #include <string_view>
+
+namespace flecs {
+struct world;
+} // namespace flecs
+
+namespace eng::world {
+class World;
+} // namespace eng::world
 
 namespace eng::editor {
 
@@ -27,6 +36,15 @@ public:
     [[nodiscard]] std::string_view getCategory() const noexcept override { return "Scene"; }
 
     void draw(EditorContext& ctx) override;
+
+    /// Generates a unique, collision-free entity name in the Flecs ECS world.
+    /// Safely handles non-existent entities, existing names, and invalid/dead entities.
+    [[nodiscard]] static std::string generateUniqueEntityName(flecs::world& ecs,
+                                                              const char* baseName);
+
+    /// Generates a unique, collision-free entity name using the engine World.
+    [[nodiscard]] static std::string generateUniqueEntityName(world::World& world,
+                                                              const char* baseName);
 
     /// Initiates an inline rename for an entity.
     void startRenaming(world::EntityHandle entity, std::string_view currentName);

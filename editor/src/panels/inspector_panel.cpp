@@ -103,18 +103,18 @@ void InspectorPanel::draw(EditorContext& ctx) {
             ImGui::BeginChild("MultiSelectionList", ImVec2(0.0F, 180.0F), true);
             flecs::world& ecs = ctx.world->getRawWorld();
             for (auto h : ctx.selection->getSelectedEntities()) {
-                flecs::entity e = ecs.entity(h.id);
-                if (e.is_alive()) {
-                    const char* entityName = e.name().c_str();
-                    char fallbackName[32];
-                    if (entityName == nullptr || entityName[0] == '\0') {
-                        std::snprintf(fallbackName, sizeof(fallbackName), "Entity #%llu",
-                                      static_cast<unsigned long long>(h.id));
-                        entityName = fallbackName;
-                    }
-                    ImGui::BulletText("%s (#%llu)", entityName,
-                                      static_cast<unsigned long long>(h.id));
+                if (!h.isValid() || !ctx.world->isAlive(h)) {
+                    continue;
                 }
+                flecs::entity e = ecs.entity(h.id);
+                const char* entityName = e.name().c_str();
+                char fallbackName[32];
+                if (entityName == nullptr || entityName[0] == '\0') {
+                    std::snprintf(fallbackName, sizeof(fallbackName), "Entity #%llu",
+                                  static_cast<unsigned long long>(h.id));
+                    entityName = fallbackName;
+                }
+                ImGui::BulletText("%s (#%llu)", entityName, static_cast<unsigned long long>(h.id));
             }
             ImGui::EndChild();
 
@@ -142,10 +142,11 @@ void InspectorPanel::draw(EditorContext& ctx) {
             }
             ImGui::PopStyleColor(2);
         } else if (ctx.world != nullptr && ctx.selectedEntityId != 0) {
-            flecs::world& ecs = ctx.world->getRawWorld();
-            flecs::entity e = ecs.entity(ctx.selectedEntityId);
+            world::EntityHandle selectedHandle(ctx.selectedEntityId);
+            if (ctx.world->isAlive(selectedHandle)) {
+                flecs::world& ecs = ctx.world->getRawWorld();
+                flecs::entity e = ecs.entity(ctx.selectedEntityId);
 
-            if (e.is_alive()) {
                 // Entity Header
                 const char* entityName = e.name().c_str();
                 if (entityName == nullptr || entityName[0] == '\0') {

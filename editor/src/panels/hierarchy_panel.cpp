@@ -19,18 +19,32 @@
 
 namespace eng::editor {
 
-namespace {
-
-std::string generateUniqueEntityName(flecs::world& ecs, const char* baseName) {
+std::string HierarchyPanel::generateUniqueEntityName(flecs::world& ecs, const char* baseName) {
+    if (baseName == nullptr || baseName[0] == '\0') {
+        baseName = "Entity";
+    }
     std::string candidate = baseName;
     int suffix = 1;
-    while (ecs.lookup(candidate.c_str()).is_alive()) {
+    while (true) {
+        auto existing = ecs.lookup(candidate.c_str());
+        // In Flecs, lookup returns entity with id 0 if not found.
+        // Calling is_alive() directly on entity with id 0 triggers an assertion in ecs_is_alive().
+        // An entity name is available if id == 0 or if the entity is not valid/alive.
+        if (existing.id() == 0 || !existing.is_valid()) {
+            break;
+        }
         char buf[64];
         std::snprintf(buf, sizeof(buf), "%s_%d", baseName, suffix++);
         candidate = buf;
     }
     return candidate;
 }
+
+std::string HierarchyPanel::generateUniqueEntityName(world::World& world, const char* baseName) {
+    return generateUniqueEntityName(world.getRawWorld(), baseName);
+}
+
+namespace {
 
 world::EntityHandle duplicateEntity(world::World& world, world::EntityHandle source) {
     if (!world.isAlive(source)) {
@@ -45,7 +59,8 @@ world::EntityHandle duplicateEntity(world::World& world, world::EntityHandle sou
     if (baseName.empty()) {
         baseName = "Entity";
     }
-    std::string copyName = generateUniqueEntityName(ecs, (baseName + "_Copy").c_str());
+    std::string copyName =
+        HierarchyPanel::generateUniqueEntityName(ecs, (baseName + "_Copy").c_str());
 
     // 2. Spawn new valid entity in Shared World
     auto clone = world.createEntity(copyName);
@@ -273,7 +288,7 @@ void HierarchyPanel::draw(EditorContext& ctx) {
             flecs::world& ecs = ctx.world->getRawWorld();
             std::vector<flecs::entity> entities;
             ecs.each([&](flecs::entity e) {
-                if (!e.is_alive()) {
+                if (e.id() == 0 || !e.is_valid()) {
                     return;
                 }
                 if (e.id() < EcsFirstUserEntityId || e.has(flecs::Module) ||
@@ -292,6 +307,11 @@ void HierarchyPanel::draw(EditorContext& ctx) {
             int entityCount = 0;
 
             for (const auto& e : entities) {
+                world::EntityHandle handle(e.id());
+                if (!handle.isValid() || !ctx.world->isAlive(handle)) {
+                    continue;
+                }
+
                 const char* rawName = e.name().c_str();
                 char fallbackName[64];
                 const char* name = rawName;
@@ -321,7 +341,6 @@ void HierarchyPanel::draw(EditorContext& ctx) {
                     continue;
                 }
 
-                world::EntityHandle handle(e.id());
                 displayedHandles.push_back(handle);
                 entityCount++;
 

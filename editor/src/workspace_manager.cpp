@@ -7,6 +7,7 @@
 #include "editor/editor_theme.h"
 #include "editor/selection_model.h"
 #include "framework/conductor.h"
+#include "panels/hierarchy_panel.h"
 #include "physics/physics_components.h"
 #include "rhi/rhi_device.h"
 #include "world/world.h"
@@ -146,7 +147,9 @@ struct WorkspaceManager::Impl {
             if (ImGui::BeginMenu("GameObject")) {
                 if (ImGui::MenuItem("Create Empty Entity")) {
                     if (ctx.world != nullptr) {
-                        auto h = ctx.world->createEntity("EmptyEntity");
+                        auto name = HierarchyPanel::generateUniqueEntityName(
+                            ctx.world->getRawWorld(), "EmptyEntity");
+                        auto h = ctx.world->createEntity(name);
                         if (ctx.selection != nullptr) {
                             ctx.selection->select(h, false);
                         }
@@ -156,7 +159,9 @@ struct WorkspaceManager::Impl {
                 if (ImGui::BeginMenu("3D Object")) {
                     if (ImGui::MenuItem("Physics Cube")) {
                         if (ctx.world != nullptr) {
-                            auto h = ctx.world->createEntity("PhysicsCube");
+                            auto name = HierarchyPanel::generateUniqueEntityName(
+                                ctx.world->getRawWorld(), "PhysicsCube");
+                            auto h = ctx.world->createEntity(name);
                             ctx.world->setComponent(
                                 h, physics::PhysicsTransformComponent{
                                        .transform = Transform{Vec3{0.0F, 5.0F, 0.0F}},
@@ -175,7 +180,9 @@ struct WorkspaceManager::Impl {
                     }
                     if (ImGui::MenuItem("Physics Sphere")) {
                         if (ctx.world != nullptr) {
-                            auto h = ctx.world->createEntity("PhysicsSphere");
+                            auto name = HierarchyPanel::generateUniqueEntityName(
+                                ctx.world->getRawWorld(), "PhysicsSphere");
+                            auto h = ctx.world->createEntity(name);
                             ctx.world->setComponent(
                                 h, physics::PhysicsTransformComponent{
                                        .transform = Transform{Vec3{2.0F, 8.0F, 0.0F}},
@@ -219,12 +226,13 @@ struct WorkspaceManager::Impl {
 
             // 5. Component Menu
             if (ImGui::BeginMenu("Component")) {
-                bool hasEntity = (ctx.world != nullptr && ctx.selectedEntityId != 0);
+                bool hasEntity = (ctx.world != nullptr && ctx.selectedEntityId != 0 &&
+                                  ctx.world->isAlive(world::EntityHandle(ctx.selectedEntityId)));
                 if (ImGui::MenuItem("Physics Transform", nullptr, false, hasEntity)) {
                     if (hasEntity) {
                         flecs::world& ecs = ctx.world->getRawWorld();
                         flecs::entity e = ecs.entity(ctx.selectedEntityId);
-                        if (e.is_alive() && !e.has<physics::PhysicsTransformComponent>()) {
+                        if (!e.has<physics::PhysicsTransformComponent>()) {
                             e.set<physics::PhysicsTransformComponent>({});
                         }
                     }
@@ -233,7 +241,7 @@ struct WorkspaceManager::Impl {
                     if (hasEntity) {
                         flecs::world& ecs = ctx.world->getRawWorld();
                         flecs::entity e = ecs.entity(ctx.selectedEntityId);
-                        if (e.is_alive() && !e.has<physics::RigidBodyComponent>()) {
+                        if (!e.has<physics::RigidBodyComponent>()) {
                             e.set<physics::RigidBodyComponent>({
                                 .motionType = physics::MotionType::Dynamic,
                                 .collisionLayer = physics::CollisionLayer::kMoving,
@@ -465,22 +473,14 @@ struct WorkspaceManager::Impl {
             ImGui::SameLine();
             if (ctx.selection != nullptr && ctx.selection->count() > 1) {
                 ImGui::Text("Selected: %zu Entities", ctx.selection->count());
-            } else if (ctx.selectedEntityId != 0) {
-                if (ctx.world != nullptr) {
-                    flecs::world& ecs = ctx.world->getRawWorld();
-                    flecs::entity e = ecs.entity(ctx.selectedEntityId);
-                    if (e.is_alive()) {
-                        const char* name = e.name().c_str();
-                        if (name != nullptr && name[0] != '\0') {
-                            ImGui::Text("Selected: %s (#%llu)", name,
-                                        static_cast<unsigned long long>(ctx.selectedEntityId));
-                        } else {
-                            ImGui::Text("Selected: Entity #%llu",
-                                        static_cast<unsigned long long>(ctx.selectedEntityId));
-                        }
-                    } else {
-                        ImGui::TextDisabled("No Entity Selected");
-                    }
+            } else if (ctx.selectedEntityId != 0 && ctx.world != nullptr &&
+                       ctx.world->isAlive(world::EntityHandle(ctx.selectedEntityId))) {
+                flecs::world& ecs = ctx.world->getRawWorld();
+                flecs::entity e = ecs.entity(ctx.selectedEntityId);
+                const char* name = e.name().c_str();
+                if (name != nullptr && name[0] != '\0') {
+                    ImGui::Text("Selected: %s (#%llu)", name,
+                                static_cast<unsigned long long>(ctx.selectedEntityId));
                 } else {
                     ImGui::Text("Selected: Entity #%llu",
                                 static_cast<unsigned long long>(ctx.selectedEntityId));
