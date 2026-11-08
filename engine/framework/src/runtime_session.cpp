@@ -8,6 +8,7 @@
 #include "framework/conductor.h"
 #include "framework/scene_serializer.h"
 #include "physics/physics_components.h"
+#include "render/mesh_component.h"
 #include "script/script_components.h"
 #include "script/script_engine.h"
 #include "world/world.h"
@@ -116,7 +117,10 @@ struct RuntimeSession::Impl {
         // 5. Initialize runtime animation
         anim::registerAnimationComponents(*runtimeWorld);
 
-        // 6. Initialize runtime script engine
+        // 6. Initialize runtime render components
+        render::registerRenderComponents(*runtimeWorld);
+
+        // 7. Initialize runtime script engine
         runtimeScriptEngine = std::make_unique<script::ScriptEngine>();
         auto initScriptRes = runtimeScriptEngine->initialize();
         if (!initScriptRes.hasValue()) {

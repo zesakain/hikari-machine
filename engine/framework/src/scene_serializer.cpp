@@ -7,6 +7,7 @@
 #include "core/json.h"
 #include "core/log.h"
 #include "physics/physics_components.h"
+#include "render/mesh_component.h"
 #include "script/script_components.h"
 
 #include <cmath>
@@ -44,6 +45,14 @@ struct StagedScript {
     bool present{false};
 };
 
+struct StagedMesh {
+    std::string assetPath;
+    uint32_t submeshIndex{0};
+    bool visible{true};
+    bool castShadows{true};
+    bool present{false};
+};
+
 struct StagedEntity {
     uint64_t stableId{0};
     std::string name;
@@ -51,6 +60,7 @@ struct StagedEntity {
     StagedRigidBody rigidBody{};
     StagedCollider collider{};
     StagedScript script{};
+    StagedMesh mesh{};
 };
 
 const char* motionTypeToString(physics::MotionType type) noexcept {
@@ -235,6 +245,16 @@ Result<std::string> SceneSerializer::serializeToString(world::World& world,
             scObj.set("enabled", sc->enabled);
             scObj.set("updateInterval", sc->updateInterval);
             compsObj.set("Script", std::move(scObj));
+        }
+
+        // 5. MeshComponent
+        if (const auto* mc = world.getComponent<render::MeshComponent>(h)) {
+            JsonValue mcObj = JsonValue::makeObject();
+            mcObj.set("assetPath", mc->assetPath);
+            mcObj.set("submeshIndex", static_cast<int>(mc->submeshIndex));
+            mcObj.set("visible", mc->visible);
+            mcObj.set("castShadows", mc->castShadows);
+            compsObj.set("Mesh", std::move(mcObj));
         }
 
         entObj.set("components", std::move(compsObj));
@@ -438,6 +458,13 @@ Result<DeserializationResult> SceneSerializer::deserializeFromString(world::Worl
                     staged.script.scriptName = std::string(compData.getString("scriptName", ""));
                     staged.script.enabled = compData.getBool("enabled", true);
                     staged.script.updateInterval = compData.getFloat("updateInterval", 0.0F);
+                } else if (compName == "Mesh") {
+                    staged.mesh.present = true;
+                    staged.mesh.assetPath = std::string(compData.getString("assetPath", ""));
+                    staged.mesh.submeshIndex =
+                        static_cast<uint32_t>(compData.getInt("submeshIndex", 0));
+                    staged.mesh.visible = compData.getBool("visible", true);
+                    staged.mesh.castShadows = compData.getBool("castShadows", true);
                 } else {
                     warnings.push_back("Unknown component '" + compName + "' skipped on entity " +
                                        std::to_string(stableId));
@@ -491,6 +518,16 @@ Result<DeserializationResult> SceneSerializer::deserializeFromString(world::Worl
             sc.updateInterval = staged.script.updateInterval;
             sc.timeSinceLastUpdate = 0.0F;
             world.setComponent(h, sc);
+        }
+
+        if (staged.mesh.present) {
+            render::MeshComponent mc{};
+            mc.assetPath = staged.mesh.assetPath;
+            mc.meshAsset = render::makeAssetIdFromPath(mc.assetPath);
+            mc.submeshIndex = staged.mesh.submeshIndex;
+            mc.visible = staged.mesh.visible;
+            mc.castShadows = staged.mesh.castShadows;
+            world.setComponent(h, mc);
         }
     }
 

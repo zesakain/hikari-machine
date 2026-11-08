@@ -24,6 +24,7 @@ target_link_libraries(engine_framework
         hikari::engine_core
         hikari::engine_world
         hikari::engine_physics
+        hikari::engine_render
         hikari::engine_anim
         hikari::engine_script
 )
