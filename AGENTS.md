@@ -64,71 +64,70 @@ Read it fully before making changes. If a rule here conflicts with a user instru
 - Functions should fit on one screen. Split by responsibility, not by line count alone.
 - Units go in names or types: `seconds`, `meters`, `radians`. Never raw ambiguous floats at API boundaries.
 
-### Comment Standard (detailed, for maintenance and debugging)
+### Comment Standard
 
-Comments are a maintenance and debugging tool, not decoration. The test for every comment: *"Could someone who has never seen this code, at 2 a.m., with only a crash log and this file, understand what is going on and where to look?"* If not, the comment is insufficient.
+Comments carry what the code cannot: intent, constraints, and consequences. A comment that is wrong is worse than no comment, because a reader will trust it while debugging. Write less, and make every line verifiable.
 
-**Do not write comments that merely restate the code** (`// increment i`). Write comments that carry information the code cannot: intent, reasoning, constraints, consequences, and failure modes.
+**Never write:**
+- Comments that restate the code (`// increment i`).
+- Commented-out code. Version control remembers it.
+- Vague notes (`// fix later`, `// magic`, `// don't touch`). Explain precisely or delete.
+- Any claim you have not verified (see "Verified claims only" below).
 
-**Every public API (header) must document:**
+#### Tier 1: Required, public API (headers)
+
+Every public function and type documents only what applies to it, in this order:
+
 - **Purpose:** what it does and why it exists, in one or two sentences.
-- **Contract:** preconditions, postconditions, and invariants.
-- **Ownership and lifetime:** who owns returned pointers/handles, how long they stay valid, and what invalidates them.
-- **Thread-safety:** which threads may call it, whether it locks, and whether it is safe to call from a job.
-- **Performance:** complexity, whether it allocates, whether it is allowed in the hot path.
-- **Units and ranges:** for every numeric parameter (`seconds`, `meters`, valid range, normalized or not).
-- **Errors:** every way it can fail, what is returned, and what the caller is expected to do.
-- **Example:** a short usage snippet for non-obvious APIs.
+- **Contract:** preconditions, postconditions, invariants.
+- **Ownership and lifetime:** who owns returned pointers/handles, and what invalidates them.
+- **Thread-safety:** which threads may call it, whether it locks, whether it is safe inside a job.
+- **Cost:** whether it allocates, and whether it is allowed in the hot path.
+- **Units and ranges:** for every numeric parameter (`seconds`, `meters`, valid range).
+- **Errors:** every way it can fail, what is returned, and what the caller should do.
 
-```cpp
-/// Installs the prepared state of this mode and makes it the active one.
-///
-/// Called by Conductor::switchTo() on the main thread, once per transition.
-/// Must be cheap (target <= 0.2 ms): it only VALIDATES the cache built by
-/// prepare() and installs camera/input/poses. Do not do heavy work here;
-/// move it into prepare() where it is spread across frames.
-///
-/// Preconditions : prepare() has run at least once since beginPrepare().
-/// Postconditions: every entity referenced by the cache is alive, or the
-///                 stale entry has been dropped and counted in `stats.dropped`.
-/// Failure mode  : if the cache is incomplete, falls back to a synchronous
-///                 rebuild and logs `Conductor` warning W-0123. This causes a
-///                 frame spike; if you see W-0123 in Tracy, prepare() is
-///                 under-budgeted.
-/// Thread-safety : main thread only. Not re-entrant.
-Result<void, ModeError> commit(World& world);
-```
+Omit any item that is trivially obvious. Add a short example only for non-obvious APIs. Keep the whole block as short as the API allows.
 
-**Inside implementations, comment:**
-- **Why this approach** was chosen, and what alternatives were rejected (link the ADR or issue number).
-- **Non-obvious logic:** algorithms, math (state the formula and its source), bit tricks, and ordering requirements.
-- **Invariants** that must hold across a block, and where they are established and relied upon.
-- **Hidden coupling:** "this must run before X", "this index is shared with Y", "changing this requires updating Z".
-- **Workarounds:** the exact bug or driver/library quirk being avoided, with a link and the condition for removal (`// REMOVE WHEN: ...`).
-- **Performance-critical choices:** why this layout, loop order, or allocator was used, and the measurement that justified it.
-- **Gotchas and failure modes:** what breaks if misused, and what the symptom looks like when it does (crash, stutter, wrong visual, deadlock).
+#### Tier 2: When needed, implementations
 
-**Debuggability requirements:**
-- Describe **observable symptoms** next to risky code, so a bug report can be traced back: `// Symptom if wrong: enemies keep moving during skill mode.`
-- Name the **Tracy zone, log category, or counter** that surfaces the behavior: `// Watch: Tracy plot "prepare_us", log category Conductor.`
-- State **assumptions explicitly** and back them with an `ENG_ASSERT` with a message, so a violated assumption fails loudly rather than silently corrupting state.
-- When code handles a **bug that was hard to find**, record the root cause, how it was diagnosed, and the test that now covers it.
-- Reference **error codes** (`W-0123`, `E-0456`) that are documented in `/docs/errors.md`, so logs map back to explanations.
+Comment only where the reader would otherwise get it wrong:
 
-**Structure and tags (greppable):**
-- `// TODO(name, #issue): what and why`: always with an owner or issue, never bare.
-- `// FIXME(#issue): known bug, symptom, and trigger condition`.
-- `// HACK: why this is ugly, what the clean fix is`.
-- `// PERF:` marks measured hot-path decisions. `// SAFETY:` marks reasoning for unchecked or unsafe operations. `// INVARIANT:` marks conditions that must hold. `// DEVIATION:` marks any rule violation.
-- Per-file header comment: the module's responsibility, what it does *not* do, its main collaborators, and where its tests live.
-- Per-type comment: role, lifetime, who creates and destroys it, and the state machine if it has one.
+- **Why** this approach was chosen, and which alternative was rejected (link the ADR or issue).
+- **Non-obvious logic:** algorithms, math (state the formula and its source), ordering requirements.
+- **Hidden coupling:** "must run before X", "index shared with Y".
+- **Workarounds:** the exact bug or quirk avoided, plus `// REMOVE WHEN: <condition>`.
+- **Assumptions:** state them AND enforce them with `ENG_ASSERT("message")`, so a violation fails loudly.
+- **Measured performance choices:** `// PERF: <what was measured, result>`.
 
-**Maintenance of comments:**
-- A comment that contradicts the code is a bug. When changing code, update or delete the affected comments in the same commit.
-- Delete commented-out code. Version control remembers it.
-- Do not leave vague notes (`// fix later`, `// magic`, `// don't touch`). Explain precisely or remove.
-- Write comments in clear English, full sentences, present tense. Prefer precision over brevity, but do not pad.
+#### Tier 3: Verified claims only
 
+The following may be written only if the agent has actually observed it (ran it, saw it in a log or Tracy capture) or it already exists in the repo:
+
+- Symptoms ("if wrong, enemies keep moving during skill mode").
+- Tracy zone, plot, or counter names.
+- Error codes (`W-xxxx`, `E-xxxx`). Every code must already exist in `/docs/errors.md`. Never invent a code, and never copy codes from examples in this file.
+- Benchmark or timing numbers.
+
+If unverified, omit it. If it is useful but unverified, put it in the PR description as "unverified, please confirm", not in the code.
+
+#### Greppable tags
+
+- `// TODO(name, #issue): what and why`. Never bare.
+- `// FIXME(#issue): known bug, trigger condition`.
+- `// HACK: why it is ugly, what the clean fix is`.
+- `// PERF:`, `// SAFETY:`, `// INVARIANT:`, `// DEVIATION: <rule> because <reason>`.
+
+#### Where information belongs
+
+- Root cause and diagnosis of a hard bug: the **commit message** and a **regression test**, not the code comment.
+- Module responsibility and collaborators: the **module README**, not a per-file header. Add a short file header only when the file's role is not clear from its name.
+- Design rationale across modules: an **ADR**.
+
+#### Maintenance
+
+- A comment that contradicts the code is a bug. Update or delete affected comments in the same commit as the code change.
+- Prefer precision over length. If a comment grows past roughly a dozen lines, the content probably belongs in an ADR or README.
+- Clear English, full sentences, present tense.
 ## 5. Memory Management
 
 **Ownership**
