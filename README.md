@@ -164,15 +164,21 @@ The engine includes a functional developer visual editor (`editor/`) built with 
   - **Pristine Edit World on Stop:** Triggering Stop safely destroys the `RuntimeWorld`, Jolt rigid bodies, and runtime script states, immediately returning the editor to Edit Mode with the `EditWorld` 100% unaltered.
   - **Transport Toolbar & Shortcuts:** State-gated Play, Pause, Resume, Step, and Stop controls on the main toolbar, live mode badges (`[EDIT MODE]`, `[PLAYING]`, `[PAUSED]`), and desktop shortcuts (`F5` / `Ctrl+P` Play/Pause/Resume, `Shift+F5` Stop, `F10` Step).
   - **Active Context Synchronization:** Scene Hierarchy and Inspector dynamically bind to the active simulation world, displaying `[LIVE RUNTIME WORLD]` and `[RUNTIME SIMULATION ENTITY]` telemetry badges during simulation while safeguarding against accidental dirtying of scene files.
-- **Scene Viewport Panel:** Viewport resolution and aspect ratio calculation, dark slate canvas, coordinate grid lines, center crosshairs, and honest empty-scene baseline indicators.
+- **Interactive 3D Scene Viewport & Camera System (Milestone 6):**
+  - **Independent Editor Camera:** Decoupled 3D editor camera (`EditorCamera`) with perspective and orthographic projections, vertical FOV, near/far clipping planes, and aspect-ratio-aware matrix updates.
+  - **Studio Camera Navigation:** Orbit (Alt + LMB or MMB), Pan (Shift + MMB or Shift + RMB), Zoom (mouse wheel or Alt + RMB), and First-Person Fly mode (hold RMB + W/S/A/D/Q/E + Shift boost). Gimbal-lock-free orientation with pitch clamping ($[-89^\circ, +89^\circ]$).
+  - **Perspective 3D Ground Grid & Orientation Tripod:** Perspective-aware infinite ground grid on the $Y=0$ plane with distance attenuation, major grid lines at 5m, Red/Green/Blue XYZ ground axes, origin indicator, and an interactive 3D orientation tripod in the top-right corner.
+  - **3D Scene Geometry Rendering:** Direct perspective 3D rendering of active World entities with `PhysicsTransformComponent`. 3D shaded and wireframe box/cube representations with directional key light diffuse shading, 3D wireframe/shaded spheres with equatorial/meridian ellipses, and vivid cyan selection cages with overhead entity tags.
+  - **Viewport Ray-Picking Selection:** Canvas mouse clicks unproject into 3D world-space rays via the inverse view-projection matrix, testing depth-sorted intersections against entity bounding boxes (OBB/AABB) and spheres. Directly synchronizes with the centralized `SelectionModel`, updating Scene Hierarchy and Inspector immediately.
+  - **Interactive 3D Transform Gizmos:** Translate, Rotate, and Scale gizmo handles rendered directly on the primary selected entity. Features hover detection (golden highlight), axis-constrained mouse dragging, snapping (0.1m, 0.5m, 1.0m; 15°; 0.25), and World vs. Local coordinate modes.
+  - **Runtime World Preview Integration:** Previews the active simulation world seamlessly (`EditWorld` in Edit mode, `RuntimeWorld` during Playing/Paused simulation). Viewport selections interact safely with active world entities, and selection handles are invalidated on state transitions.
 - **Content Browser:** Virtual project asset filesystem navigation tree (`assets/`, `data/`, `game/`, `docs/`).
 - **Log Console Panel:** Streams live ring-buffer records from `Logger::defaultLogger()` with severity filtering (All, Info, Warning, Error), search, and clear controls.
 - **Profiler & Telemetry:** FPS, frame times, draw calls, uploaded vertex/index counts, pass counters, and live Flecs entity count.
 - **Diagnostic Window ("HIKARI EDITOR"):** Displays physical GPU device name, Vulkan dynamic rendering status, font atlas status, and operational health.
 
 ### Current Limitations & Incomplete Features
-- **Empty-Scene Viewport Canvas:** The viewport panel currently displays an empty-scene canvas with coordinate grid and crosshairs. Offscreen 3D scene rasterization targeting a viewport render texture is planned for when the mesh scene renderer is complete.
-- **Renderer & Mesh Components:** Mesh rendering, PBR materials, and GLTF asset imports are not yet part of the scene format; they will be integrated once the 3D scene rendering pipeline is developed.
+- **Asset Mesh Pipeline:** Mesh geometry from external asset files (glTF, OBJ) and PBR materials are planned for upcoming graphics milestones. The viewport currently renders analytical 3D primitives (cubes, spheres, bounding cages, and collision volumes).
 
 ---
 

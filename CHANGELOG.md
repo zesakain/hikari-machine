@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Editor Milestone 6: Scene Viewport & Camera System**:
+  - **Independent 3D Editor Camera**:
+    - Created `eng::editor::EditorCamera` (`editor/include/editor/editor_camera.h`) supporting perspective and orthographic projections.
+    - Decoupled completely from gameplay ECS entities and scene serialization.
+    - Comprehensive studio navigation: Orbit (Alt + LMB or MMB), Pan (Shift + MMB or Shift + RMB), Zoom (mouse wheel or Alt + RMB), and First-Person Fly mode (hold RMB + W/S/A/D/Q/E + Shift boost).
+    - Gimbal lock prevention via pitch clamping ($[-89^\circ, +89^\circ]$) and stable world up vector maintenance.
+    - Focus framing: press `F` or click toolbar `Frame (F)` to immediately frame the selected entity or world origin.
+  - **Perspective 3D Ground Grid & Orientation Tripod**:
+    - Perspective-projected infinite ground grid on the $Y=0$ plane with distance-attenuated grid lines and major 5m accents.
+    - Colored ground axes: Red ($+X$), Green ($+Y$), Blue ($+Z$).
+    - 3D orientation tripod widget in the top-right corner indicating camera orientation.
+  - **3D Scene Geometry Rendering**:
+    - Perspective rendering of active World entities with `PhysicsTransformComponent`.
+    - 3D shaded and wireframe box/cube representations with directional key light diffuse shading and backface culling.
+    - 3D wireframe and shaded sphere representations with equatorial and meridian ellipses.
+    - Selected entity highlighting with vivid cyan bounding cage and overhead entity name badge.
+  - **Viewport Ray-Picking & SelectionModel Integration**:
+    - Canvas mouse clicks are unprojected into world-space `Ray` objects via the camera's inverse view-projection matrix.
+    - CPU ray-picking against entity bounding boxes (OBB/AABB) and bounding spheres with depth testing ($t_{\min} > 0$).
+    - Seamless synchronization with centralized `SelectionModel`, instantly updating Scene Hierarchy and Entity Inspector.
+    - Multi-selection support via `Shift` or `Ctrl` modifiers, and empty canvas click deselection.
+  - **Interactive 3D Transform Gizmos**:
+    - Interactive Translate, Rotate, and Scale 3D gizmos displayed on the primary selected entity.
+    - Axis hover detection with golden highlight feedback.
+    - Axis-constrained dragging updating `PhysicsTransformComponent::transform` across all selected entities.
+    - Snapping support: 0.1m, 0.5m, 1.0m (Translate), 15° (Rotate), and 0.25 (Scale).
+    - World vs. Local coordinate space toggle.
+  - **Runtime Camera Preview & Lifecycle Integration**:
+    - Automatically previews active World (`EditWorld` in Edit mode, `RuntimeWorld` during Playing/Paused simulation).
+    - Editor Camera persists across simulation transitions, while selection handles are safely invalidated to prevent cross-world dangling references.
+  - **Core Math Extensions**:
+    - Extended `eng::Mat4` in `engine/core/include/core/math.h` with `perspective`, `orthographic`, `lookAt`, `transformPointWithW`, and analytic 4x4 `inverse()`.
+    - Added `eng::Ray` primitive with plane, sphere, and AABB intersection algorithms.
+
 ### Fixed
 - **Script Component Enable Toggle and Routine Configuration in Editor**:
   - Fixed an issue where the Script Component's **Enable** toggle could not be activated or immediately reverted to unchecked after adding the component in the Inspector.
