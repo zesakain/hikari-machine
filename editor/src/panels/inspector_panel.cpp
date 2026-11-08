@@ -730,6 +730,12 @@ void InspectorPanel::draw(EditorContext& ctx) {
                 flecs::entity e = ecs.entity(targetId);
 
                 // Entity Header
+                if (ctx.isRuntimeActive) {
+                    ImGui::TextColored(ImVec4(0.20F, 0.85F, 0.40F, 1.0F),
+                                       "[RUNTIME SIMULATION ENTITY]");
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("(Ephemeral)");
+                }
                 const char* entityName = e.name().c_str();
                 if (entityName == nullptr || entityName[0] == '\0') {
                     entityName = "Unnamed Entity";

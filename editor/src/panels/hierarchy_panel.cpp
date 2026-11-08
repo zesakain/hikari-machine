@@ -178,6 +178,15 @@ void HierarchyPanel::draw(EditorContext& ctx) {
 
     if (ImGui::Begin(getDisplayName().data(), &isOpen_)) {
         if (ctx.world != nullptr) {
+            if (ctx.isRuntimeActive) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.20F, 0.85F, 0.40F, 1.0F));
+                ImGui::Text("[LIVE RUNTIME WORLD]");
+                ImGui::PopStyleColor();
+                ImGui::SameLine();
+                ImGui::TextDisabled("- simulation entities (ephemeral)");
+                ImGui::Separator();
+            }
+
             // Search Bar & Filter Controls
             float availW = ImGui::GetContentRegionAvail().x;
             float addBtnW = 60.0F;

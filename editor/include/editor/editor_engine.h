@@ -39,6 +39,7 @@ class World;
 
 namespace eng::framework {
 class Conductor;
+class RuntimeSession;
 } // namespace eng::framework
 
 namespace eng::editor {
@@ -104,6 +105,15 @@ public:
 
     /// Binds the active Conductor for time state monitoring and transition triggering.
     void bindConductor(framework::Conductor* conductor) noexcept;
+
+    /// Binds an external runtime simulation session, or uses the internal session if null.
+    void bindRuntimeSession(framework::RuntimeSession* session) noexcept;
+
+    /// Returns the runtime simulation session.
+    [[nodiscard]] framework::RuntimeSession& getRuntimeSession() noexcept;
+
+    /// Returns the runtime simulation session (const).
+    [[nodiscard]] const framework::RuntimeSession& getRuntimeSession() const noexcept;
 
     /// Returns the workspace manager governing panels and docking layout.
     [[nodiscard]] WorkspaceManager& getWorkspaceManager() noexcept;

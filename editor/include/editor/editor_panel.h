@@ -15,6 +15,8 @@
 
 #pragma once
 
+#include "framework/simulation_state.h"
+
 #include <cstdint>
 #include <string_view>
 
@@ -24,6 +26,7 @@ class World;
 
 namespace eng::framework {
 class Conductor;
+class RuntimeSession;
 } // namespace eng::framework
 
 namespace eng::rhi {
@@ -39,11 +42,14 @@ class SelectionModel;
 struct EditorContext {
     world::World* world{nullptr};
     framework::Conductor* conductor{nullptr};
+    framework::RuntimeSession* runtimeSession{nullptr};
     rhi::RhiDevice* rhiDevice{nullptr};
     SelectionModel* selection{nullptr};
 
     uint64_t selectedEntityId{0};
-    bool isSimulating{true};
+    framework::SimulationState simulationState{framework::SimulationState::Edit};
+    bool isRuntimeActive{false};
+    bool isSimulating{false};
     bool isPaused{false};
 
     uint32_t windowWidth{1280};
@@ -61,7 +67,11 @@ struct EditorContext {
     bool isSceneDirty{false};
     bool requestMarkDirty{false};
 
-    void markDirty() noexcept { requestMarkDirty = true; }
+    void markDirty() noexcept {
+        if (!isRuntimeActive) {
+            requestMarkDirty = true;
+        }
+    }
 };
 
 /// @class EditorPanel

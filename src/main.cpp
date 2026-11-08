@@ -20,6 +20,7 @@
 
 #if defined(HIKARI_BUILD_EDITOR)
 #include "editor/editor_engine.h"
+#include "framework/runtime_session.h"
 #endif
 
 #include <chrono>
@@ -346,8 +347,17 @@ body {
 #endif
 
         // 3. Update Conductor, World, and UI clocks
+#if defined(HIKARI_BUILD_EDITOR)
+        if (editorEngine.isInitialized()) {
+            editorEngine.getRuntimeSession().update(fixedStep);
+        } else {
+            conductor.update(fixedStep);
+            world.progress(static_cast<float>(fixedStep.toSeconds()));
+        }
+#else
         conductor.update(fixedStep);
         world.progress(static_cast<float>(fixedStep.toSeconds()));
+#endif
         uiSystem.update(fixedStep);
 
         // 4. Record Frame Rendering Commands

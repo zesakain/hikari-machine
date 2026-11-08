@@ -9,6 +9,7 @@
 #include "editor/hierarchy_panel.h"
 #include "editor/selection_model.h"
 #include "editor/workspace_manager.h"
+#include "framework/runtime_session.h"
 #include "panels/conductor_panel.h"
 #include "panels/console_panel.h"
 #include "panels/content_browser_panel.h"
@@ -36,6 +37,9 @@ struct EditorEngine::Impl {
     EditorContext context{};
     WorkspaceManager workspaceManager{};
     SelectionModel selectionModel{};
+
+    framework::RuntimeSession internalRuntimeSession{};
+    framework::RuntimeSession* runtimeSession{&internalRuntimeSession};
 
     bool initialized{false};
     bool vulkanBackendInitialized{false};
@@ -186,7 +190,18 @@ void EditorEngine::beginFrame(Duration dt, uint32_t width, uint32_t height) {
     impl_->context.lastFrameTimeMs = io.DeltaTime * 1000.0F;
     impl_->context.currentFps = io.Framerate > 0.0F ? io.Framerate : 60.0F;
 
-    // Validate and synchronize entity selection with authoritative World
+    impl_->context.runtimeSession = impl_->runtimeSession;
+    if (impl_->runtimeSession != nullptr) {
+        impl_->context.simulationState = impl_->runtimeSession->getSimulationState();
+        impl_->context.isRuntimeActive = impl_->runtimeSession->isSimulating();
+        impl_->context.isSimulating = impl_->runtimeSession->isSimulating();
+        impl_->context.isPaused =
+            (impl_->runtimeSession->getSimulationState() == framework::SimulationState::Paused);
+        impl_->context.world = impl_->runtimeSession->getActiveWorld();
+        impl_->context.conductor = impl_->runtimeSession->getActiveConductor();
+    }
+
+    // Validate and synchronize entity selection with active World
     if (impl_->context.world != nullptr) {
         impl_->selectionModel.validate(*impl_->context.world);
     }
@@ -258,11 +273,39 @@ void EditorEngine::processInput(const platform::InputSnapshot& input) {
 }
 
 void EditorEngine::bindWorld(world::World* world) noexcept {
-    impl_->context.world = world;
+    if (impl_->runtimeSession != nullptr) {
+        impl_->runtimeSession->setEditWorld(world);
+        impl_->context.world = impl_->runtimeSession->getActiveWorld();
+    } else {
+        impl_->context.world = world;
+    }
 }
 
 void EditorEngine::bindConductor(framework::Conductor* conductor) noexcept {
-    impl_->context.conductor = conductor;
+    if (impl_->runtimeSession != nullptr) {
+        impl_->runtimeSession->setEditConductor(conductor);
+        impl_->context.conductor = impl_->runtimeSession->getActiveConductor();
+    } else {
+        impl_->context.conductor = conductor;
+    }
+}
+
+void EditorEngine::bindRuntimeSession(framework::RuntimeSession* session) noexcept {
+    impl_->runtimeSession = (session != nullptr) ? session : &impl_->internalRuntimeSession;
+    if (impl_->context.world != nullptr) {
+        impl_->runtimeSession->setEditWorld(impl_->context.world);
+    }
+    if (impl_->context.conductor != nullptr) {
+        impl_->runtimeSession->setEditConductor(impl_->context.conductor);
+    }
+}
+
+framework::RuntimeSession& EditorEngine::getRuntimeSession() noexcept {
+    return *impl_->runtimeSession;
+}
+
+const framework::RuntimeSession& EditorEngine::getRuntimeSession() const noexcept {
+    return *impl_->runtimeSession;
 }
 
 WorkspaceManager& EditorEngine::getWorkspaceManager() noexcept {

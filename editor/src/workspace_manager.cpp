@@ -8,8 +8,10 @@
 #include "editor/hierarchy_panel.h"
 #include "editor/selection_model.h"
 #include "framework/conductor.h"
+#include "framework/runtime_session.h"
 #include "framework/scene.h"
 #include "framework/scene_serializer.h"
+#include "framework/simulation_state.h"
 #include "physics/physics_components.h"
 #include "rhi/rhi_device.h"
 #include "script/script_components.h"
@@ -472,6 +474,37 @@ struct WorkspaceManager::Impl {
                 }
             } else if (io.KeyCtrl && io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_S, false)) {
                 showSaveAsDialogModal = true;
+            } else if (ImGui::IsKeyPressed(ImGuiKey_F5, false) ||
+                       (io.KeyCtrl && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_P, false))) {
+                if (ctx.runtimeSession != nullptr) {
+                    auto st = ctx.runtimeSession->getSimulationState();
+                    if (st == framework::SimulationState::Edit ||
+                        st == framework::SimulationState::Stopped) {
+                        if (ctx.selection != nullptr) {
+                            ctx.selection->clear();
+                        }
+                        ctx.selectedEntityId = 0;
+                        (void)ctx.runtimeSession->play();
+                    } else if (st == framework::SimulationState::Playing) {
+                        (void)ctx.runtimeSession->pause();
+                    } else if (st == framework::SimulationState::Paused) {
+                        (void)ctx.runtimeSession->resume();
+                    }
+                }
+            } else if ((io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_F5, false)) ||
+                       (io.KeyCtrl && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_X, false))) {
+                if (ctx.runtimeSession != nullptr && ctx.runtimeSession->isSimulating()) {
+                    if (ctx.selection != nullptr) {
+                        ctx.selection->clear();
+                    }
+                    ctx.selectedEntityId = 0;
+                    (void)ctx.runtimeSession->stop();
+                }
+            } else if (ImGui::IsKeyPressed(ImGuiKey_F10, false)) {
+                if (ctx.runtimeSession != nullptr && ctx.runtimeSession->getSimulationState() ==
+                                                         framework::SimulationState::Paused) {
+                    (void)ctx.runtimeSession->step(Duration::fromMilliseconds(16));
+                }
             }
         }
 
@@ -640,32 +673,135 @@ struct WorkspaceManager::Impl {
             ImGui::SameLine();
 
             // Group 2: Transport simulation controls (Centered UX)
-            bool isSimRunning = ctx.isSimulating && !ctx.isPaused;
-            if (isSimRunning) {
-                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.12F, 0.45F, 0.25F, 1.0F));
-            }
-            if (ImGui::Button(isSimRunning ? " [||] Pause " : " [>] Play ")) {
-                if (!ctx.isSimulating) {
-                    ctx.isSimulating = true;
+            auto simState =
+                ctx.runtimeSession
+                    ? ctx.runtimeSession->getSimulationState()
+                    : (ctx.isSimulating ? (ctx.isPaused ? framework::SimulationState::Paused
+                                                        : framework::SimulationState::Playing)
+                                        : framework::SimulationState::Edit);
+            bool canPlay = (simState == framework::SimulationState::Edit ||
+                            simState == framework::SimulationState::Stopped);
+            bool canPause = (simState == framework::SimulationState::Playing);
+            bool canResume = (simState == framework::SimulationState::Paused);
+            bool canStep = (simState == framework::SimulationState::Paused);
+            bool canStop = (simState == framework::SimulationState::Playing ||
+                            simState == framework::SimulationState::Paused);
+
+            // Play button
+            ImGui::BeginDisabled(!canPlay);
+            if (ImGui::Button(" [>] Play ")) {
+                if (ctx.selection != nullptr) {
+                    ctx.selection->clear();
+                }
+                ctx.selectedEntityId = 0;
+                if (ctx.runtimeSession != nullptr) {
+                    (void)ctx.runtimeSession->play();
+                    ctx.world = ctx.runtimeSession->getActiveWorld();
+                    ctx.conductor = ctx.runtimeSession->getActiveConductor();
+                    ctx.simulationState = ctx.runtimeSession->getSimulationState();
+                    ctx.isRuntimeActive = ctx.runtimeSession->isSimulating();
+                    ctx.isSimulating = ctx.runtimeSession->isSimulating();
                     ctx.isPaused = false;
                 } else {
-                    ctx.isPaused = !ctx.isPaused;
+                    ctx.isSimulating = true;
+                    ctx.isPaused = false;
                 }
             }
-            if (isSimRunning) {
-                ImGui::PopStyleColor();
-            }
+            ImGui::EndDisabled();
 
             ImGui::SameLine();
+
+            // Pause button
+            ImGui::BeginDisabled(!canPause);
+            if (canPause) {
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.12F, 0.45F, 0.25F, 1.0F));
+            }
+            if (ImGui::Button(" [||] Pause ")) {
+                if (ctx.runtimeSession != nullptr) {
+                    (void)ctx.runtimeSession->pause();
+                    ctx.simulationState = ctx.runtimeSession->getSimulationState();
+                    ctx.isPaused = true;
+                } else {
+                    ctx.isPaused = true;
+                }
+            }
+            if (canPause) {
+                ImGui::PopStyleColor();
+            }
+            ImGui::EndDisabled();
+
+            ImGui::SameLine();
+
+            // Resume button
+            ImGui::BeginDisabled(!canResume);
+            if (canResume) {
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.65F, 0.45F, 0.10F, 1.0F));
+            }
+            if (ImGui::Button(" [>] Resume ")) {
+                if (ctx.runtimeSession != nullptr) {
+                    (void)ctx.runtimeSession->resume();
+                    ctx.simulationState = ctx.runtimeSession->getSimulationState();
+                    ctx.isPaused = false;
+                } else {
+                    ctx.isPaused = false;
+                }
+            }
+            if (canResume) {
+                ImGui::PopStyleColor();
+            }
+            ImGui::EndDisabled();
+
+            ImGui::SameLine();
+
+            // Step button
+            ImGui::BeginDisabled(!canStep);
             if (ImGui::Button(" [>>] Step ")) {
-                ctx.isPaused = true;
+                if (ctx.runtimeSession != nullptr) {
+                    (void)ctx.runtimeSession->step(Duration::fromMilliseconds(16));
+                }
                 ENG_LOG_INFO("Editor", "Simulation Step executed");
             }
+            ImGui::EndDisabled();
+
             ImGui::SameLine();
+
+            // Stop button
+            ImGui::BeginDisabled(!canStop);
+            if (canStop) {
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.55F, 0.15F, 0.15F, 1.0F));
+            }
             if (ImGui::Button(" [X] Stop ")) {
-                ctx.isSimulating = false;
-                ctx.isPaused = true;
-                ENG_LOG_INFO("Editor", "Simulation Stopped");
+                if (ctx.selection != nullptr) {
+                    ctx.selection->clear();
+                }
+                ctx.selectedEntityId = 0;
+                if (ctx.runtimeSession != nullptr) {
+                    (void)ctx.runtimeSession->stop();
+                    ctx.world = ctx.runtimeSession->getActiveWorld();
+                    ctx.conductor = ctx.runtimeSession->getActiveConductor();
+                    ctx.simulationState = ctx.runtimeSession->getSimulationState();
+                    ctx.isRuntimeActive = false;
+                    ctx.isSimulating = false;
+                    ctx.isPaused = false;
+                } else {
+                    ctx.isSimulating = false;
+                    ctx.isPaused = false;
+                }
+                ENG_LOG_INFO("Editor", "Simulation Stopped; returned to Edit Mode");
+            }
+            if (canStop) {
+                ImGui::PopStyleColor();
+            }
+            ImGui::EndDisabled();
+
+            ImGui::SameLine();
+            // Simulation Mode Badge
+            if (simState == framework::SimulationState::Playing) {
+                ImGui::TextColored(ImVec4(0.20F, 0.85F, 0.40F, 1.0F), "[PLAYING]");
+            } else if (simState == framework::SimulationState::Paused) {
+                ImGui::TextColored(ImVec4(0.96F, 0.75F, 0.15F, 1.0F), "[PAUSED]");
+            } else {
+                ImGui::TextColored(ImVec4(0.45F, 0.55F, 0.70F, 1.0F), "[EDIT MODE]");
             }
 
             ImGui::SameLine();
@@ -740,10 +876,14 @@ struct WorkspaceManager::Impl {
 
         if (ImGui::Begin("##EditorStatusBar", nullptr, flags)) {
             // Left: Mode & status badge
-            if (ctx.isPaused) {
-                ImGui::TextColored(ImVec4(0.96F, 0.62F, 0.04F, 1.0F), "[● PAUSED]");
+            if (ctx.isRuntimeActive) {
+                if (ctx.isPaused) {
+                    ImGui::TextColored(ImVec4(0.96F, 0.75F, 0.15F, 1.0F), "[● RUNTIME PAUSED]");
+                } else {
+                    ImGui::TextColored(ImVec4(0.06F, 0.73F, 0.51F, 1.0F), "[● RUNTIME PLAYING]");
+                }
             } else {
-                ImGui::TextColored(ImVec4(0.06F, 0.73F, 0.51F, 1.0F), "[● SIMULATING]");
+                ImGui::TextColored(ImVec4(0.45F, 0.55F, 0.70F, 1.0F), "[● EDIT MODE]");
             }
             ImGui::SameLine();
             ImGui::TextDisabled("|");
