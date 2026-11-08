@@ -4,6 +4,8 @@
 
 add_library(engine_framework STATIC
     src/conductor.cpp
+    src/scene.cpp
+    src/scene_serializer.cpp
 )
 add_library(hikari::engine_framework ALIAS engine_framework)
 
@@ -20,4 +22,6 @@ target_link_libraries(engine_framework
         hikari::engine_flags
         hikari::engine_core
         hikari::engine_world
+        hikari::engine_physics
+        hikari::engine_script
 )

@@ -91,6 +91,11 @@ add_executable(clock_domain_test unit/framework/clock_domain_test.cpp)
 target_link_libraries(clock_domain_test PRIVATE hikari::engine_framework)
 add_test(NAME clock_domain_test COMMAND clock_domain_test)
 
+add_executable(scene_test unit/framework/scene_test.cpp)
+target_link_libraries(scene_test PRIVATE hikari::engine_framework)
+target_compile_definitions(scene_test PRIVATE HIKARI_SAMPLE_SCENE_PATH="${CMAKE_SOURCE_DIR}/assets/scenes/sample.hikari")
+add_test(NAME scene_test COMMAND scene_test)
+
 # Headless Integration / Stress Tests
 add_executable(conductor_stress_test headless/conductor_stress_test.cpp)
 target_link_libraries(conductor_stress_test PRIVATE hikari::engine_framework)
