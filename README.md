@@ -158,6 +158,12 @@ The engine includes a functional developer visual editor (`editor/`) built with 
   - **Dirty State Tracking (`*`):** Real-time dirty flag tracking on entity creation, renaming, component mutations, and deletion with visual indicators on the toolbar and status bar (`Scene: Name*`).
   - **Selection Safety:** Selection cache invalidation and clearing upon loading or creating scenes to prevent stale entity handle references.
   - **Sample Scene:** Verified reference scene available at `assets/scenes/sample.hikari`.
+- **Runtime Session & Simulation Lifecycle (Milestone 5):**
+  - **Explicit Simulation State Machine:** Governed by four distinct states (`Edit`, `Playing`, `Paused`, `Stopped`) with strict valid transition gating.
+  - **Absolute World Isolation:** Simulations execute in an isolated, in-memory `RuntimeWorld` cloned from the authoring `EditWorld` via `SceneSerializer`. Physical body movements, gravity drops, script updates, and runtime-spawned entities operate exclusively in the runtime environment and never alter or leak into the authoring scene.
+  - **Pristine Edit World on Stop:** Triggering Stop safely destroys the `RuntimeWorld`, Jolt rigid bodies, and runtime script states, immediately returning the editor to Edit Mode with the `EditWorld` 100% unaltered.
+  - **Transport Toolbar & Shortcuts:** State-gated Play, Pause, Resume, Step, and Stop controls on the main toolbar, live mode badges (`[EDIT MODE]`, `[PLAYING]`, `[PAUSED]`), and desktop shortcuts (`F5` / `Ctrl+P` Play/Pause/Resume, `Shift+F5` Stop, `F10` Step).
+  - **Active Context Synchronization:** Scene Hierarchy and Inspector dynamically bind to the active simulation world, displaying `[LIVE RUNTIME WORLD]` and `[RUNTIME SIMULATION ENTITY]` telemetry badges during simulation while safeguarding against accidental dirtying of scene files.
 - **Scene Viewport Panel:** Viewport resolution and aspect ratio calculation, dark slate canvas, coordinate grid lines, center crosshairs, and honest empty-scene baseline indicators.
 - **Content Browser:** Virtual project asset filesystem navigation tree (`assets/`, `data/`, `game/`, `docs/`).
 - **Log Console Panel:** Streams live ring-buffer records from `Logger::defaultLogger()` with severity filtering (All, Info, Warning, Error), search, and clear controls.

@@ -28,6 +28,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added regression test suite (`testInvalidEntityLookupSafety`, `testPhysicsObjectCreationAndUniqueNamingRegression`, `testRepeatedPhysicsObjectCreationAndHierarchyRendering`) in `tests/unit/editor/editor_test.cpp`.
 
 ### Added
+- **Editor Milestone 5: Play / Pause / Stop & Runtime World Lifecycle**:
+  - **Simulation State Machine & RuntimeSession**:
+    - Created `eng::framework::SimulationState` (`Edit`, `Playing`, `Paused`, `Stopped`) and `RuntimeSession` governing simulation execution.
+    - Explicit state transitions with validation: `Edit -> Playing`, `Playing -> Paused`, `Paused -> Playing`, `Playing -> Stopped`, `Paused -> Stopped`, `Stopped -> Playing`.
+  - **Absolute World Isolation**:
+    - Built an in-memory staging mechanism using `SceneSerializer` to clone the authoring `EditWorld` into an ephemeral `RuntimeWorld` without disk I/O.
+    - Zero state leakage: dynamic bodies falling under gravity, runtime script execution, entity spawns, and deletions execute strictly within the `RuntimeWorld` and never mutate the `EditWorld`.
+    - Pristine reset: on `stop()`, `RuntimeWorld`, Jolt physics bodies, and Lua state are completely destroyed, and the editor seamlessly returns to Edit Mode with the `EditWorld` identical to its pre-Play state.
+  - **Simulation Systems & Jolt Physics Lifecycle**:
+    - Automated binding and instantiation of Jolt rigid bodies for deserialized `RigidBodyComponent` and `ColliderComponent` archetypes upon Play.
+    - Continuous transform synchronization via `PhysicsPreSync`, `PhysicsStep`, and `PhysicsPostSync`.
+    - Reverse-order teardown ordering ensuring Flecs `OnRemove` observers clean up physics bodies before `PhysicsWorld` is freed.
+  - **Editor Toolbar & UI Integration**:
+    - Upgraded transport simulation controls: state-gated Play, Pause, Resume, Step, and Stop buttons with contextual accent styling.
+    - Dynamic simulation mode badges (`[EDIT MODE]`, `[PLAYING]`, `[PAUSED]`) in the toolbar and status bar.
+    - Global simulation shortcuts: `F5` / `Ctrl+P` (Play/Pause/Resume), `Shift+F5` (Stop), `F10` (discrete Step).
+    - Diagnostic badges in Scene Hierarchy (`[LIVE RUNTIME WORLD]`) and Entity Inspector (`[RUNTIME SIMULATION ENTITY]`).
+    - Scene dirty state guard: prevented ephemeral runtime changes from marking authoring scene files as dirty.
+    - Selection safety: automatically cleared and re-validated `SelectionModel` across simulation transitions.
+  - **Comprehensive Regression Tests**:
+    - `tests/unit/framework/runtime_session_test.cpp`: verified state machine transitions, world isolation, physics & script stepping, and failure handling.
+    - `tests/unit/editor/editor_test.cpp`: verified EditorEngine integration, active World switching, and post-stop Edit World preservation.
 - **Editor Milestone 4: Native Scene Serialization & Deserialization (.hikari)**:
   - **Native `.hikari` File Format & JSON Engine (`core::JsonValue`)**:
     - Implemented a standard-compliant, exception-free recursive descent JSON parser and serializer in `engine/core` with zero third-party dependencies.
