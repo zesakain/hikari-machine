@@ -596,6 +596,35 @@ static void testEditorEntityLifecycleAndConductorGating() {
     std::cout << "[PASS] testEditorEntityLifecycleAndConductorGating\n";
 }
 
+static void testInvalidEntityLookupSafety() {
+    world::World world;
+    flecs::world& ecs = world.getRawWorld();
+
+    // 1. Looking up a non-existent entity name returns a flecs::entity with id_ == 0
+    auto missing = ecs.lookup("NonExistent_PhysicsCube_Probe");
+    TEST_CHECK(missing.id() == 0);
+
+    // 2. Calling missing.is_valid() returns false safely without asserting in ecs_is_alive
+    TEST_CHECK(!missing.is_valid());
+
+    // 3. EntityHandle with id 0 is invalid and world.isAlive() returns false safely
+    world::EntityHandle zeroHandle(0);
+    TEST_CHECK(!zeroHandle.isValid());
+    TEST_CHECK(!world.isAlive(zeroHandle));
+
+    // 4. Once an entity is created, lookup finds it and is_valid() is true
+    auto created = world.createEntity("ExistingEntity");
+    TEST_CHECK(created.isValid());
+    TEST_CHECK(world.isAlive(created));
+
+    auto found = ecs.lookup("ExistingEntity");
+    TEST_CHECK(found.id() == created.id);
+    TEST_CHECK(found.is_valid());
+    TEST_CHECK(found.is_alive());
+
+    std::cout << "[PASS] testInvalidEntityLookupSafety\n";
+}
+
 int main() {
     std::cout << "Running Editor subsystem unit tests...\n";
     testThemeTokens();
@@ -609,6 +638,7 @@ int main() {
     testSelectionModelBasicOperations();
     testSelectionModelValidationAndStaleHandles();
     testEditorEntityLifecycleAndConductorGating();
+    testInvalidEntityLookupSafety();
     std::cout << "All Editor subsystem tests PASSED!\n";
     return 0;
 }
