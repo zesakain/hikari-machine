@@ -37,6 +37,8 @@ private:
     void drawBreadcrumbs();
     void drawDirectoryTree();
     void drawAssetItems(EditorContext& ctx);
+    void drawListView(EditorContext& ctx);
+    void drawGridView(EditorContext& ctx);
     void drawFooter(EditorContext& ctx);
     void drawModals();
 

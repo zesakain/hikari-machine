@@ -1,6 +1,6 @@
 /// @file content_browser_panel.cpp
-/// @brief Content browser panel implementation with dynamic directory navigation, history, and
-/// breadcrumbs.
+/// @brief Content browser panel implementation with directory navigation, asset management, and
+/// drag-and-drop.
 
 #include "panels/content_browser_panel.h"
 
@@ -45,6 +45,9 @@ void ContentBrowserPanel::draw(EditorContext& ctx) {
 
         ImGui::Separator();
 
+        const float footerHeight = 72.0F;
+        (void)footerHeight;
+
         ImGui::Columns(2, "ContentBrowserSplit", true);
         ImGui::SetColumnWidth(0, 180.0F);
 
@@ -70,7 +73,7 @@ void ContentBrowserPanel::draw(EditorContext& ctx) {
 
 void ContentBrowserPanel::drawToolbar(EditorContext& ctx) {
     (void)ctx;
-    // Navigation Buttons: Back, Forward, Up, Refresh
+    // 1. Navigation Buttons: Back, Forward, Up, Refresh
     const bool canBack = controller_.canNavigateBack();
     if (!canBack) {
         ImGui::BeginDisabled();
@@ -115,7 +118,7 @@ void ContentBrowserPanel::drawToolbar(EditorContext& ctx) {
     ImGui::TextDisabled("|");
     ImGui::SameLine();
 
-    // Creation Buttons
+    // 2. Creation Buttons
     if (ImGui::Button("+ Folder")) {
         folderNameBuffer_.fill('\0');
         std::snprintf(folderNameBuffer_.data(), folderNameBuffer_.size(), "NewFolder");
@@ -159,10 +162,78 @@ void ContentBrowserPanel::drawToolbar(EditorContext& ctx) {
     ImGui::TextDisabled("|");
     ImGui::SameLine();
 
-    // Search Filter Input
+    // 3. View Mode Toggle (Grid / List)
+    const bool isGrid = (controller_.getViewMode() == ContentViewMode::Grid);
+    if (isGrid) {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.23F, 0.51F, 0.96F, 1.0F));
+    }
+    if (ImGui::Button("Grid", ImVec2(42.0F, 0.0F))) {
+        controller_.setViewMode(ContentViewMode::Grid);
+    }
+    if (isGrid) {
+        ImGui::PopStyleColor();
+    }
+
+    ImGui::SameLine();
+    const bool isList = (controller_.getViewMode() == ContentViewMode::List);
+    if (isList) {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.23F, 0.51F, 0.96F, 1.0F));
+    }
+    if (ImGui::Button("List", ImVec2(42.0F, 0.0F))) {
+        controller_.setViewMode(ContentViewMode::List);
+    }
+    if (isList) {
+        ImGui::PopStyleColor();
+    }
+
+    ImGui::SameLine();
+    ImGui::TextDisabled("|");
+    ImGui::SameLine();
+
+    // 4. Sort Options
+    if (ImGui::Button("Sort...")) {
+        ImGui::OpenPopup("SortMenuPopup");
+    }
+    if (ImGui::BeginPopup("SortMenuPopup")) {
+        auto curField = controller_.getSortField();
+        auto curDir = controller_.getSortDirection();
+
+        if (ImGui::MenuItem("Name", nullptr, curField == ContentSortField::Name)) {
+            controller_.setSort(ContentSortField::Name, curDir);
+        }
+        if (ImGui::MenuItem("Type", nullptr, curField == ContentSortField::Type)) {
+            controller_.setSort(ContentSortField::Type, curDir);
+        }
+        if (ImGui::MenuItem("Size", nullptr, curField == ContentSortField::Size)) {
+            controller_.setSort(ContentSortField::Size, curDir);
+        }
+        if (ImGui::MenuItem("Date Modified", nullptr, curField == ContentSortField::Date)) {
+            controller_.setSort(ContentSortField::Date, curDir);
+        }
+        ImGui::Separator();
+        if (ImGui::MenuItem("Ascending", nullptr, curDir == ContentSortDirection::Ascending)) {
+            controller_.setSort(curField, ContentSortDirection::Ascending);
+        }
+        if (ImGui::MenuItem("Descending", nullptr, curDir == ContentSortDirection::Descending)) {
+            controller_.setSort(curField, ContentSortDirection::Descending);
+        }
+        ImGui::EndPopup();
+    }
+
+    ImGui::SameLine();
+    // 5. Category Filter
+    static const char* kCategories[] = {"All", "Meshes", "Textures", "Audio", "Scripts", "Scenes"};
+    int catIdx = static_cast<int>(controller_.getFilterCategory());
+    ImGui::SetNextItemWidth(90.0F);
+    if (ImGui::Combo("##CategoryFilter", &catIdx, kCategories, IM_ARRAYSIZE(kCategories))) {
+        controller_.setFilterCategory(static_cast<ContentFilterCategory>(catIdx));
+    }
+
+    ImGui::SameLine();
+    // 6. Search Filter Input
     static char searchBuf[64] = "";
-    ImGui::SetNextItemWidth(160.0F);
-    if (ImGui::InputTextWithHint("##AssetSearch", "Search assets...", searchBuf, sizeof(searchBuf))) {
+    ImGui::SetNextItemWidth(140.0F);
+    if (ImGui::InputTextWithHint("##AssetSearch", "Search...", searchBuf, sizeof(searchBuf))) {
         controller_.setSearchFilter(searchBuf);
     }
 }
@@ -272,135 +343,10 @@ void ContentBrowserPanel::drawAssetItems(EditorContext& ctx) {
         ImGui::TextDisabled("   This directory is empty.");
         ImGui::TextDisabled("   Use the toolbar or right-click to create new files or folders.");
     } else {
-        if (ImGui::BeginTable("AssetItemsTable", 4,
-                              ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
-                                  ImGuiTableFlags_SizingFixedFit)) {
-            ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 55.0F);
-            ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableSetupColumn("Ext", ImGuiTableColumnFlags_WidthFixed, 60.0F);
-            ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, 75.0F);
-            ImGui::TableHeadersRow();
-
-            for (size_t i = 0; i < items.size(); ++i) {
-                const auto& item = items[i];
-                ImGui::TableNextRow();
-
-                // Col 0: Type Badge
-                ImGui::TableSetColumnIndex(0);
-                ImGui::TextColored(rgbaToImVec4(item.badgeColorRgba), "%s", item.typeBadge);
-
-                // Col 1: Name
-                ImGui::TableSetColumnIndex(1);
-                const bool isSelected = (controller_.getSelectedItemIndex() == static_cast<int>(i));
-                char rowLabel[256];
-                std::snprintf(rowLabel, sizeof(rowLabel), "%s##row_%zu", item.name.c_str(), i);
-
-                if (ImGui::Selectable(rowLabel, isSelected, ImGuiSelectableFlags_SpanAllColumns)) {
-                    controller_.setSelectedItemIndex(static_cast<int>(i));
-                }
-
-                // Double click opens folder
-                if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-                    if (item.isDirectory) {
-                        controller_.navigateTo(item.fullPath);
-                        break;
-                    }
-                }
-
-                // Drag and drop source for 3D meshes into Viewport
-                if (item.isMesh && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
-                    ImGui::SetDragDropPayload("CONTENT_BROWSER_MESH", item.relativePath.c_str(),
-                                              item.relativePath.size() + 1);
-                    ImGui::Text("Drop %s into Viewport", item.name.c_str());
-                    ImGui::EndDragDropSource();
-                }
-
-                // Context menu on item
-                char ctxMenuId[64];
-                std::snprintf(ctxMenuId, sizeof(ctxMenuId), "ItemCtx_%zu", i);
-                if (ImGui::BeginPopupContextItem(ctxMenuId)) {
-                    controller_.setSelectedItemIndex(static_cast<int>(i));
-
-                    if (item.isMesh) {
-                        if (ImGui::MenuItem("Create Entity with Mesh")) {
-                            if (ctx.world != nullptr) {
-                                auto h = ctx.world->createEntity(item.name);
-                                ctx.world->setComponent(h, physics::PhysicsTransformComponent{});
-                                const render::AssetId id = render::makeAssetIdFromPath(item.relativePath);
-                                ctx.world->setComponent(h, render::MeshComponent{
-                                                               .meshAsset = id,
-                                                               .assetPath = item.relativePath,
-                                                               .submeshIndex = 0,
-                                                               .visible = true,
-                                                               .castShadows = true,
-                                                           });
-
-                                Vec3 boxHalfExtents{0.5F, 0.5F, 0.5F};
-                                if (ctx.assetManager != nullptr) {
-                                    const auto* md = ctx.assetManager->getMeshData(id);
-                                    if (md == nullptr) {
-                                        (void)ctx.assetManager->loadMesh(item.relativePath);
-                                        md = ctx.assetManager->getMeshData(id);
-                                    }
-                                    if (md != nullptr && md->bounds.isValid()) {
-                                        boxHalfExtents = md->bounds.getSize() * 0.5F;
-                                    }
-                                }
-                                ctx.world->setComponent(
-                                    h, physics::ColliderComponent{
-                                           .desc = physics::ColliderDesc::makeBox(boxHalfExtents),
-                                       });
-
-                                if (ctx.selection != nullptr) {
-                                    ctx.selection->select(h);
-                                }
-                                ctx.selectedEntityId = h.id;
-                                ctx.markDirty();
-                            }
-                        }
-                        ImGui::Separator();
-                    }
-
-                    if (ImGui::MenuItem("Rename...")) {
-                        renameBuffer_.fill('\0');
-                        std::snprintf(renameBuffer_.data(), renameBuffer_.size(), "%s",
-                                      item.name.c_str());
-                        targetRenamePath_ = item.fullPath;
-                        showRenameModal_ = true;
-                    }
-
-                    if (!item.isDirectory && ImGui::MenuItem("Duplicate")) {
-                        auto dupRes = controller_.duplicateFile(item.fullPath);
-                        if (!dupRes.hasValue()) {
-                            errorMessage_ = dupRes.error().message;
-                            showErrorModal_ = true;
-                        }
-                    }
-
-                    if (ImGui::MenuItem("Delete...")) {
-                        targetDeletePath_ = item.fullPath;
-                        isDeleteNonEmptyDir_ =
-                            (item.isDirectory && !controller_.isDirectoryEmpty(item.fullPath));
-                        showDeleteModal_ = true;
-                    }
-
-                    ImGui::Separator();
-                    if (ImGui::MenuItem("Copy Asset Path")) {
-                        ImGui::SetClipboardText(item.relativePath.c_str());
-                    }
-
-                    ImGui::EndPopup();
-                }
-
-                // Col 2: Ext
-                ImGui::TableSetColumnIndex(2);
-                ImGui::TextDisabled("%s", item.extension.c_str());
-
-                // Col 3: Size
-                ImGui::TableSetColumnIndex(3);
-                ImGui::TextDisabled("%s", item.sizeFormatted.c_str());
-            }
-            ImGui::EndTable();
+        if (controller_.getViewMode() == ContentViewMode::Grid) {
+            drawGridView(ctx);
+        } else {
+            drawListView(ctx);
         }
     }
 
@@ -448,6 +394,268 @@ void ContentBrowserPanel::drawAssetItems(EditorContext& ctx) {
     }
 
     ImGui::EndChild();
+}
+
+void ContentBrowserPanel::drawListView(EditorContext& ctx) {
+    const auto& items = controller_.getItems();
+
+    if (ImGui::BeginTable("AssetItemsTable", 5,
+                          ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
+                              ImGuiTableFlags_SizingFixedFit)) {
+        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 55.0F);
+        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("Ext", ImGuiTableColumnFlags_WidthFixed, 60.0F);
+        ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, 75.0F);
+        ImGui::TableSetupColumn("Modified", ImGuiTableColumnFlags_WidthFixed, 130.0F);
+        ImGui::TableHeadersRow();
+
+        for (size_t i = 0; i < items.size(); ++i) {
+            const auto& item = items[i];
+            ImGui::TableNextRow();
+
+            // Col 0: Type Badge
+            ImGui::TableSetColumnIndex(0);
+            ImGui::TextColored(rgbaToImVec4(item.badgeColorRgba), "%s", item.typeBadge);
+
+            // Col 1: Name (Selectable across columns)
+            ImGui::TableSetColumnIndex(1);
+            const bool isSelected = (controller_.getSelectedItemIndex() == static_cast<int>(i));
+            char rowLabel[256];
+            std::snprintf(rowLabel, sizeof(rowLabel), "%s##row_%zu", item.name.c_str(), i);
+
+            if (ImGui::Selectable(rowLabel, isSelected, ImGuiSelectableFlags_SpanAllColumns)) {
+                controller_.setSelectedItemIndex(static_cast<int>(i));
+            }
+
+            // Double click opens folder
+            if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                if (item.isDirectory) {
+                    controller_.navigateTo(item.fullPath);
+                    break;
+                }
+            }
+
+            // Drag and drop source for 3D meshes into Viewport
+            if (item.isMesh && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+                ImGui::SetDragDropPayload("CONTENT_BROWSER_MESH", item.relativePath.c_str(),
+                                          item.relativePath.size() + 1);
+                ImGui::Text("Drop %s into Viewport", item.name.c_str());
+                ImGui::EndDragDropSource();
+            }
+
+            // Context menu on item
+            char ctxMenuId[64];
+            std::snprintf(ctxMenuId, sizeof(ctxMenuId), "ItemCtx_%zu", i);
+            if (ImGui::BeginPopupContextItem(ctxMenuId)) {
+                controller_.setSelectedItemIndex(static_cast<int>(i));
+
+                if (item.isMesh) {
+                    if (ImGui::MenuItem("Create Entity with Mesh")) {
+                        if (ctx.world != nullptr) {
+                            auto h = ctx.world->createEntity(item.name);
+                            ctx.world->setComponent(h, physics::PhysicsTransformComponent{});
+                            const render::AssetId id = render::makeAssetIdFromPath(item.relativePath);
+                            ctx.world->setComponent(h, render::MeshComponent{
+                                                           .meshAsset = id,
+                                                           .assetPath = item.relativePath,
+                                                           .submeshIndex = 0,
+                                                           .visible = true,
+                                                           .castShadows = true,
+                                                       });
+
+                            Vec3 boxHalfExtents{0.5F, 0.5F, 0.5F};
+                            if (ctx.assetManager != nullptr) {
+                                const auto* md = ctx.assetManager->getMeshData(id);
+                                if (md == nullptr) {
+                                    (void)ctx.assetManager->loadMesh(item.relativePath);
+                                    md = ctx.assetManager->getMeshData(id);
+                                }
+                                if (md != nullptr && md->bounds.isValid()) {
+                                    boxHalfExtents = md->bounds.getSize() * 0.5F;
+                                }
+                            }
+                            ctx.world->setComponent(
+                                h, physics::ColliderComponent{
+                                       .desc = physics::ColliderDesc::makeBox(boxHalfExtents),
+                                   });
+
+                            if (ctx.selection != nullptr) {
+                                ctx.selection->select(h);
+                            }
+                            ctx.selectedEntityId = h.id;
+                            ctx.markDirty();
+                        }
+                    }
+                    ImGui::Separator();
+                }
+
+                if (ImGui::MenuItem("Rename...")) {
+                    renameBuffer_.fill('\0');
+                    std::snprintf(renameBuffer_.data(), renameBuffer_.size(), "%s",
+                                  item.name.c_str());
+                    targetRenamePath_ = item.fullPath;
+                    showRenameModal_ = true;
+                }
+
+                if (!item.isDirectory && ImGui::MenuItem("Duplicate")) {
+                    auto dupRes = controller_.duplicateFile(item.fullPath);
+                    if (!dupRes.hasValue()) {
+                        errorMessage_ = dupRes.error().message;
+                        showErrorModal_ = true;
+                    }
+                }
+
+                if (ImGui::MenuItem("Delete...")) {
+                    targetDeletePath_ = item.fullPath;
+                    isDeleteNonEmptyDir_ = (item.isDirectory && !controller_.isDirectoryEmpty(item.fullPath));
+                    showDeleteModal_ = true;
+                }
+
+                ImGui::Separator();
+                if (ImGui::MenuItem("Copy Asset Path")) {
+                    ImGui::SetClipboardText(item.relativePath.c_str());
+                }
+
+                ImGui::EndPopup();
+            }
+
+            // Col 2: Ext
+            ImGui::TableSetColumnIndex(2);
+            ImGui::TextDisabled("%s", item.extension.c_str());
+
+            // Col 3: Size
+            ImGui::TableSetColumnIndex(3);
+            ImGui::TextDisabled("%s", item.sizeFormatted.c_str());
+
+            // Col 4: Modified
+            ImGui::TableSetColumnIndex(4);
+            ImGui::TextDisabled("%s", item.lastModifiedFormatted.c_str());
+        }
+        ImGui::EndTable();
+    }
+}
+
+void ContentBrowserPanel::drawGridView(EditorContext& ctx) {
+    const auto& items = controller_.getItems();
+    const float cardWidth = 84.0F;
+    const float cardHeight = 90.0F;
+    const float availWidth = ImGui::GetContentRegionAvail().x;
+    int cols = static_cast<int>(availWidth / (cardWidth + 12.0F));
+    if (cols < 1) {
+        cols = 1;
+    }
+
+    for (size_t i = 0; i < items.size(); ++i) {
+        const auto& item = items[i];
+        if (i % static_cast<size_t>(cols) != 0) {
+            ImGui::SameLine();
+        }
+
+        ImGui::PushID(static_cast<int>(i));
+        const bool isSelected = (controller_.getSelectedItemIndex() == static_cast<int>(i));
+
+        if (isSelected) {
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.23F, 0.51F, 0.96F, 0.25F));
+        } else {
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.12F, 0.14F, 0.18F, 0.60F));
+        }
+
+        ImGui::BeginChild("Card", ImVec2(cardWidth, cardHeight), true,
+                          ImGuiWindowFlags_NoScrollbar);
+
+        // Badge icon
+        ImGui::Spacing();
+        ImGui::SetCursorPosX((cardWidth - 44.0F) * 0.5F);
+        ImGui::TextColored(rgbaToImVec4(item.badgeColorRgba), "%s", item.typeBadge);
+
+        // Name
+        ImGui::Spacing();
+        std::string displayName = item.name;
+        if (displayName.size() > 10) {
+            displayName = displayName.substr(0, 8) + "..";
+        }
+        ImGui::SetCursorPosX(std::max(4.0F, (cardWidth - ImGui::CalcTextSize(displayName.c_str()).x) * 0.5F));
+        ImGui::TextUnformatted(displayName.c_str());
+
+        ImGui::EndChild();
+        ImGui::PopStyleColor();
+
+        // Interaction
+        if (ImGui::IsItemClicked()) {
+            controller_.setSelectedItemIndex(static_cast<int>(i));
+        }
+
+        if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+            if (item.isDirectory) {
+                controller_.navigateTo(item.fullPath);
+                ImGui::PopID();
+                break;
+            }
+        }
+
+        // Drag & drop source
+        if (item.isMesh && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+            ImGui::SetDragDropPayload("CONTENT_BROWSER_MESH", item.relativePath.c_str(),
+                                      item.relativePath.size() + 1);
+            ImGui::Text("Drop %s into Viewport", item.name.c_str());
+            ImGui::EndDragDropSource();
+        }
+
+        // Context menu
+        if (ImGui::BeginPopupContextItem("GridItemCtx")) {
+            controller_.setSelectedItemIndex(static_cast<int>(i));
+
+            if (item.isMesh && ImGui::MenuItem("Create Entity with Mesh")) {
+                if (ctx.world != nullptr) {
+                    auto h = ctx.world->createEntity(item.name);
+                    ctx.world->setComponent(h, physics::PhysicsTransformComponent{});
+                    const render::AssetId id = render::makeAssetIdFromPath(item.relativePath);
+                    ctx.world->setComponent(h, render::MeshComponent{
+                                                   .meshAsset = id,
+                                                   .assetPath = item.relativePath,
+                                                   .submeshIndex = 0,
+                                                   .visible = true,
+                                                   .castShadows = true,
+                                               });
+                    if (ctx.selection != nullptr) {
+                        ctx.selection->select(h);
+                    }
+                    ctx.selectedEntityId = h.id;
+                    ctx.markDirty();
+                }
+            }
+
+            if (ImGui::MenuItem("Rename...")) {
+                renameBuffer_.fill('\0');
+                std::snprintf(renameBuffer_.data(), renameBuffer_.size(), "%s", item.name.c_str());
+                targetRenamePath_ = item.fullPath;
+                showRenameModal_ = true;
+            }
+
+            if (!item.isDirectory && ImGui::MenuItem("Duplicate")) {
+                auto dupRes = controller_.duplicateFile(item.fullPath);
+                if (!dupRes.hasValue()) {
+                    errorMessage_ = dupRes.error().message;
+                    showErrorModal_ = true;
+                }
+            }
+
+            if (ImGui::MenuItem("Delete...")) {
+                targetDeletePath_ = item.fullPath;
+                isDeleteNonEmptyDir_ = (item.isDirectory && !controller_.isDirectoryEmpty(item.fullPath));
+                showDeleteModal_ = true;
+            }
+
+            ImGui::Separator();
+            if (ImGui::MenuItem("Copy Asset Path")) {
+                ImGui::SetClipboardText(item.relativePath.c_str());
+            }
+
+            ImGui::EndPopup();
+        }
+
+        ImGui::PopID();
+    }
 }
 
 void ContentBrowserPanel::drawFooter(EditorContext& ctx) {
