@@ -3,7 +3,13 @@
 # High-level rendering module providing Render Graph scheduling.
 
 add_library(engine_render STATIC
+    src/asset_manager.cpp
+    src/gpu_mesh.cpp
+    src/mesh.cpp
+    src/mesh_component.cpp
+    src/obj_importer.cpp
     src/render_graph.cpp
+    src/scene_renderer.cpp
 )
 add_library(hikari::engine_render ALIAS engine_render)
 
@@ -20,4 +26,6 @@ target_link_libraries(engine_render
         hikari::engine_flags
         hikari::engine_core
         hikari::engine_rhi
+        hikari::engine_world
+        hikari::engine_physics
 )
