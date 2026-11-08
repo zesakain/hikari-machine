@@ -325,11 +325,12 @@ void InspectorPanel::draw(EditorContext& ctx) {
                         ImGui::NextColumn();
 
                         const char* layers[] = {"0: Static Geometry", "1: Moving Dynamics",
-                                                "2: Trigger Volumes"};
-                        int layerIdx = std::min(static_cast<int>(rb->collisionLayer), 2);
+                                                "2: Player", "3: Trigger Volumes"};
+                        int layerIdx = std::min(static_cast<int>(rb->collisionLayer), 3);
                         ImGui::SetNextItemWidth(-1.0F);
-                        if (ImGui::Combo("##CollisionLayerCombo", &layerIdx, layers, 3)) {
+                        if (ImGui::Combo("##CollisionLayerCombo", &layerIdx, layers, 4)) {
                             rb->collisionLayer = static_cast<uint16_t>(layerIdx);
+                            e.modified<physics::RigidBodyComponent>();
                         }
                         ImGui::Columns(1);
 
@@ -343,7 +344,137 @@ void InspectorPanel::draw(EditorContext& ctx) {
                     e.remove<physics::RigidBodyComponent>();
                 }
 
-                // 3. Script Component Card
+                // 3. Collider Component Card
+                bool removeCollider = false;
+                if (e.has<physics::ColliderComponent>()) {
+                    bool headerOpen =
+                        ImGui::CollapsingHeader("Collider", ImGuiTreeNodeFlags_DefaultOpen);
+                    if (ImGui::BeginPopupContextItem("ColliderHeaderCtx")) {
+                        if (ImGui::MenuItem("Reset to Default Box")) {
+                            e.set<physics::ColliderComponent>({
+                                .desc = physics::ColliderDesc::makeBox(Vec3(0.5F, 0.5F, 0.5F)),
+                            });
+                        }
+                        ImGui::Separator();
+                        if (ImGui::MenuItem("Remove Component")) {
+                            removeCollider = true;
+                        }
+                        ImGui::EndPopup();
+                    }
+
+                    if (headerOpen) {
+                        auto* cc = e.get_mut<physics::ColliderComponent>();
+                        bool changed = false;
+
+                        // Collider Type Combo
+                        ImGui::Columns(2, nullptr, false);
+                        ImGui::SetColumnWidth(0, ThemeMetrics::kPropertyLabelWidth);
+                        ImGui::TextDisabled("Shape");
+                        ImGui::NextColumn();
+
+                        int shapeIdx = (cc->desc.type == physics::ColliderType::Box)      ? 0
+                                       : (cc->desc.type == physics::ColliderType::Sphere) ? 1
+                                                                                          : 2;
+                        const char* shapes[] = {"Box", "Sphere", "Capsule"};
+                        ImGui::SetNextItemWidth(-1.0F);
+                        if (ImGui::Combo("##ColliderShapeCombo", &shapeIdx, shapes, 3)) {
+                            cc->desc.type = (shapeIdx == 0)   ? physics::ColliderType::Box
+                                            : (shapeIdx == 1) ? physics::ColliderType::Sphere
+                                                              : physics::ColliderType::Capsule;
+                            changed = true;
+                        }
+                        ImGui::Columns(1);
+
+                        // Shape-specific parameters
+                        if (cc->desc.type == physics::ColliderType::Box) {
+                            float ext[3] = {cc->desc.halfExtents.x, cc->desc.halfExtents.y,
+                                            cc->desc.halfExtents.z};
+                            if (drawVec3Property("Half Extents", ext, 0.5F, 0.05F, 0.01F,
+                                                 1000.0F)) {
+                                if (ext[0] < 0.01F) {
+                                    ext[0] = 0.01F;
+                                }
+                                if (ext[1] < 0.01F) {
+                                    ext[1] = 0.01F;
+                                }
+                                if (ext[2] < 0.01F) {
+                                    ext[2] = 0.01F;
+                                }
+                                cc->desc.halfExtents = Vec3(ext[0], ext[1], ext[2]);
+                                changed = true;
+                            }
+                        } else if (cc->desc.type == physics::ColliderType::Sphere) {
+                            ImGui::Columns(2, nullptr, false);
+                            ImGui::SetColumnWidth(0, ThemeMetrics::kPropertyLabelWidth);
+                            ImGui::TextDisabled("Radius");
+                            ImGui::NextColumn();
+                            ImGui::SetNextItemWidth(-1.0F);
+                            float radius = cc->desc.radius;
+                            if (ImGui::DragFloat("##ColliderRadius", &radius, 0.05F, 0.01F, 1000.0F,
+                                                 "%.2f m")) {
+                                if (radius < 0.01F) {
+                                    radius = 0.01F;
+                                }
+                                cc->desc.radius = radius;
+                                changed = true;
+                            }
+                            ImGui::Columns(1);
+                        } else if (cc->desc.type == physics::ColliderType::Capsule) {
+                            ImGui::Columns(2, nullptr, false);
+                            ImGui::SetColumnWidth(0, ThemeMetrics::kPropertyLabelWidth);
+                            ImGui::TextDisabled("Radius");
+                            ImGui::NextColumn();
+                            ImGui::SetNextItemWidth(-1.0F);
+                            float radius = cc->desc.radius;
+                            if (ImGui::DragFloat("##CapsuleRadius", &radius, 0.05F, 0.01F, 1000.0F,
+                                                 "%.2f m")) {
+                                if (radius < 0.01F) {
+                                    radius = 0.01F;
+                                }
+                                cc->desc.radius = radius;
+                                changed = true;
+                            }
+                            ImGui::Columns(1);
+
+                            ImGui::Columns(2, nullptr, false);
+                            ImGui::SetColumnWidth(0, ThemeMetrics::kPropertyLabelWidth);
+                            ImGui::TextDisabled("Half Height");
+                            ImGui::NextColumn();
+                            ImGui::SetNextItemWidth(-1.0F);
+                            float halfH = cc->desc.halfHeight;
+                            if (ImGui::DragFloat("##CapsuleHalfH", &halfH, 0.05F, 0.01F, 1000.0F,
+                                                 "%.2f m")) {
+                                if (halfH < 0.01F) {
+                                    halfH = 0.01F;
+                                }
+                                cc->desc.halfHeight = halfH;
+                                changed = true;
+                            }
+                            ImGui::Columns(1);
+                        }
+
+                        // Local Center Offset
+                        float offset[3] = {cc->desc.offset.x, cc->desc.offset.y, cc->desc.offset.z};
+                        if (drawVec3Property("Center Offset", offset, 0.0F, 0.05F)) {
+                            cc->desc.offset = Vec3(offset[0], offset[1], offset[2]);
+                            changed = true;
+                        }
+
+                        if (changed) {
+                            e.modified<physics::ColliderComponent>();
+                        }
+
+                        ImGui::Spacing();
+                        if (ImGui::SmallButton("Remove Collider")) {
+                            removeCollider = true;
+                        }
+                    }
+                }
+                if (removeCollider) {
+                    e.remove<physics::ColliderComponent>();
+                }
+
+                // 4. Script Component Card
                 bool removeScript = false;
                 if (e.has<script::ScriptComponent>()) {
                     bool headerOpen =
