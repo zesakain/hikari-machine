@@ -703,10 +703,11 @@ void InspectorPanel::draw(EditorContext& ctx) {
             ImGui::PopStyleColor(2);
         } else if (ctx.world != nullptr && (selected.size() == 1 || ctx.selectedEntityId != 0)) {
             uint64_t targetId = (selected.size() == 1) ? selected[0].id : ctx.selectedEntityId;
+            ctx.selectedEntityId = targetId;
             world::EntityHandle selectedHandle(targetId);
             if (ctx.world->isAlive(selectedHandle)) {
                 flecs::world& ecs = ctx.world->getRawWorld();
-                flecs::entity e = ecs.entity(ctx.selectedEntityId);
+                flecs::entity e = ecs.entity(targetId);
 
                 // Entity Header
                 const char* entityName = e.name().c_str();
@@ -722,12 +723,35 @@ void InspectorPanel::draw(EditorContext& ctx) {
                 ImGui::SameLine();
                 ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 90.0F);
                 if (ImGui::InputText("##EntityNameInput", nameBuf, sizeof(nameBuf),
-                                     ImGuiInputTextFlags_EnterReturnsTrue)) {
+                                     ImGuiInputTextFlags_EnterReturnsTrue) ||
+                    ImGui::IsItemDeactivatedAfterEdit()) {
                     ctx.world->setEntityName(world::EntityHandle(e.id()), nameBuf);
                 }
                 ImGui::SameLine();
                 ImGui::TextDisabled("#%llu", static_cast<unsigned long long>(e.id()));
                 ImGui::PopStyleVar();
+
+                // Component Chips Tag List
+                ImGui::Spacing();
+                ImGui::TextDisabled("Components:");
+                ImGui::SameLine();
+                if (e.has<physics::PhysicsTransformComponent>()) {
+                    ImGui::TextColored(ImVec4(0.40F, 0.75F, 1.0F, 1.0F), "[Transform]");
+                    ImGui::SameLine();
+                }
+                if (e.has<physics::RigidBodyComponent>()) {
+                    ImGui::TextColored(ImVec4(0.95F, 0.65F, 0.30F, 1.0F), "[RigidBody]");
+                    ImGui::SameLine();
+                }
+                if (e.has<physics::ColliderComponent>()) {
+                    ImGui::TextColored(ImVec4(0.85F, 0.45F, 0.85F, 1.0F), "[Collider]");
+                    ImGui::SameLine();
+                }
+                if (e.has<script::ScriptComponent>()) {
+                    ImGui::TextColored(ImVec4(0.45F, 0.85F, 0.45F, 1.0F), "[Script]");
+                    ImGui::SameLine();
+                }
+                ImGui::NewLine();
 
                 ImGui::Separator();
                 ImGui::Spacing();
@@ -1143,9 +1167,20 @@ void InspectorPanel::draw(EditorContext& ctx) {
             }
         } else {
             ImGui::Spacing();
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65F, 0.65F, 0.70F, 1.0F));
             ImGui::TextDisabled("No Entity Selected");
-            ImGui::TextWrapped("Select an entity from the Scene Hierarchy to inspect and edit its "
-                               "components, transform parameters, and physics properties.");
+            ImGui::PopStyleColor();
+            ImGui::Spacing();
+            ImGui::TextWrapped(
+                "Select an entity from the Scene Hierarchy to inspect its components, "
+                "spatial transforms, collision geometry, and Lua script routines.");
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+            ImGui::TextDisabled("Inspector Shortcuts & Interaction:");
+            ImGui::BulletText("Ctrl+Click: Add/remove entity in multi-selection");
+            ImGui::BulletText("Shift+Click: Contiguous range selection");
+            ImGui::BulletText("Right-click header: Reset component or remove");
         }
     }
     ImGui::End();
