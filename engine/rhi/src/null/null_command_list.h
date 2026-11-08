@@ -132,6 +132,18 @@ public:
     [[nodiscard]] PipelineHandle getBoundPipeline() const noexcept { return boundPipeline_; }
     [[nodiscard]] bool isPipelineBound() const noexcept;
     [[nodiscard]] bool hasUnboundDraw() const noexcept { return hasUnboundDraw_; }
+    [[nodiscard]] bool isInsideRenderPass() const noexcept { return isInsideRenderPass_; }
+    [[nodiscard]] TextureHandle getActiveColorTarget() const noexcept { return activeColorTarget_; }
+    [[nodiscard]] TextureHandle getActiveDepthTarget() const noexcept { return activeDepthTarget_; }
+    [[nodiscard]] TextureFormat getActiveColorFormat() const noexcept { return activeColorFormat_; }
+    [[nodiscard]] TextureFormat getActiveDepthFormat() const noexcept { return activeDepthFormat_; }
+    [[nodiscard]] uint32_t getActiveWidth() const noexcept { return activeWidth_; }
+    [[nodiscard]] uint32_t getActiveHeight() const noexcept { return activeHeight_; }
+    [[nodiscard]] bool hasInvalidAttachment() const noexcept { return hasInvalidAttachment_; }
+    [[nodiscard]] bool hasDimensionMismatch() const noexcept { return hasDimensionMismatch_; }
+    [[nodiscard]] bool hasFormatMismatch() const noexcept { return hasFormatMismatch_; }
+    [[nodiscard]] bool hasNestedRenderPass() const noexcept { return hasNestedRenderPass_; }
+    [[nodiscard]] bool hasOrphanEndPass() const noexcept { return hasOrphanEndPass_; }
     [[nodiscard]] uint32_t getPipelineBindCount() const noexcept { return pipelineBindCount_; }
     [[nodiscard]] uint32_t getPushConstantCount() const noexcept { return pushConstantCount_; }
     [[nodiscard]] uint32_t getDrawCount() const noexcept { return drawCount_; }
@@ -155,6 +167,20 @@ private:
     PipelineHandle boundPipeline_{};
     PipelineLayoutHandle boundLayout_{};
     bool hasUnboundDraw_{false};
+    bool isInsideRenderPass_{false};
+    TextureHandle activeColorTarget_{};
+    TextureHandle activeDepthTarget_{};
+    TextureFormat activeColorFormat_{TextureFormat::Undefined};
+    TextureFormat activeDepthFormat_{TextureFormat::Undefined};
+    uint32_t activeWidth_{0};
+    uint32_t activeHeight_{0};
+
+    bool hasInvalidAttachment_{false};
+    bool hasDimensionMismatch_{false};
+    bool hasFormatMismatch_{false};
+    bool hasNestedRenderPass_{false};
+    bool hasOrphanEndPass_{false};
+
     std::vector<VertexBufferBinding> vertexBindings_;
     IndexBufferBinding indexBinding_{};
 

@@ -104,6 +104,10 @@ Result<void> NullDevice::writeBuffer(BufferHandle handle, size_t offset, const v
 }
 
 Result<TextureHandle> NullDevice::createTexture(const TextureDesc& desc) {
+    if (desc.format == TextureFormat::Undefined) {
+        return Error{.code = ErrorCode::InvalidArgument,
+                     .message = "Texture format cannot be Undefined"};
+    }
     if (desc.width == 0 || desc.height == 0 || desc.depth == 0 || desc.mipLevels == 0 ||
         desc.arrayLayers == 0) {
         return Error{.code = ErrorCode::InvalidArgument,
@@ -475,6 +479,13 @@ NullDevice::getPipelineLayoutDesc(PipelineLayoutHandle handle) const noexcept {
 const GraphicsPipelineDesc* NullDevice::getPipelineDesc(PipelineHandle handle) const noexcept {
     if (isPipelineValid(handle)) {
         return &pipelines_[handle.index()].desc;
+    }
+    return nullptr;
+}
+
+const TextureDesc* NullDevice::getTextureDesc(TextureHandle handle) const noexcept {
+    if (isTextureValid(handle)) {
+        return &textures_[handle.index()].desc;
     }
     return nullptr;
 }

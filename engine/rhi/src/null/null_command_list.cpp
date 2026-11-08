@@ -19,6 +19,18 @@ void NullCommandList::begin() {
     boundPipeline_ = {};
     boundLayout_ = {};
     hasUnboundDraw_ = false;
+    isInsideRenderPass_ = false;
+    activeColorTarget_ = {};
+    activeDepthTarget_ = {};
+    activeColorFormat_ = TextureFormat::Undefined;
+    activeDepthFormat_ = TextureFormat::Undefined;
+    activeWidth_ = 0;
+    activeHeight_ = 0;
+    hasInvalidAttachment_ = false;
+    hasDimensionMismatch_ = false;
+    hasFormatMismatch_ = false;
+    hasNestedRenderPass_ = false;
+    hasOrphanEndPass_ = false;
     vertexBindings_.clear();
     drawCommands_.clear();
     drawIndexedCommands_.clear();
@@ -38,14 +50,79 @@ void NullCommandList::end() {
     state_ = State::Ended;
 }
 
-void NullCommandList::beginRenderPass(const RenderPassBeginInfo& /*info*/) {
+void NullCommandList::beginRenderPass(const RenderPassBeginInfo& info) {
     ENG_ASSERT(state_ == State::Recording,
                "beginRenderPass called on command list not in Recording state");
+    if (isInsideRenderPass_) {
+        hasNestedRenderPass_ = true;
+        return;
+    }
+
+    if (info.colorTarget.isValid()) {
+        if (!device_.isTextureValid(info.colorTarget)) {
+            hasInvalidAttachment_ = true;
+            return;
+        }
+        const auto* colorDesc = device_.getTextureDesc(info.colorTarget);
+        if (colorDesc == nullptr ||
+            !hasFlag(colorDesc->usage, TextureUsageFlags::ColorAttachment) ||
+            !isColorFormat(colorDesc->format)) {
+            hasInvalidAttachment_ = true;
+            return;
+        }
+
+        activeColorTarget_ = info.colorTarget;
+        activeColorFormat_ = colorDesc->format;
+        activeWidth_ = info.renderWidth > 0 ? info.renderWidth : colorDesc->width;
+        activeHeight_ = info.renderHeight > 0 ? info.renderHeight : colorDesc->height;
+
+        if (info.depthTarget.isValid()) {
+            if (!device_.isTextureValid(info.depthTarget)) {
+                hasInvalidAttachment_ = true;
+                return;
+            }
+            const auto* depthDesc = device_.getTextureDesc(info.depthTarget);
+            if (depthDesc == nullptr ||
+                !hasFlag(depthDesc->usage, TextureUsageFlags::DepthStencilAttachment) ||
+                !isDepthFormat(depthDesc->format)) {
+                hasInvalidAttachment_ = true;
+                return;
+            }
+            if (depthDesc->width != colorDesc->width || depthDesc->height != colorDesc->height) {
+                hasDimensionMismatch_ = true;
+                return;
+            }
+            activeDepthTarget_ = info.depthTarget;
+            activeDepthFormat_ = depthDesc->format;
+        } else {
+            activeDepthTarget_ = {};
+            activeDepthFormat_ = TextureFormat::Undefined;
+        }
+    } else {
+        // Swapchain presentation target baseline
+        activeColorTarget_ = {};
+        activeDepthTarget_ = {};
+        activeColorFormat_ = TextureFormat::BGRA8_UNORM;
+        activeDepthFormat_ = TextureFormat::Undefined;
+        activeWidth_ = info.renderWidth > 0 ? info.renderWidth : 1280;
+        activeHeight_ = info.renderHeight > 0 ? info.renderHeight : 720;
+    }
+
+    isInsideRenderPass_ = true;
+    setViewport(0.0F, 0.0F, static_cast<float>(activeWidth_), static_cast<float>(activeHeight_));
+    setScissor(0, 0, activeWidth_, activeHeight_);
 }
 
 void NullCommandList::endRenderPass() {
     ENG_ASSERT(state_ == State::Recording,
                "endRenderPass called on command list not in Recording state");
+    if (!isInsideRenderPass_) {
+        hasOrphanEndPass_ = true;
+        return;
+    }
+    isInsideRenderPass_ = false;
+    activeColorTarget_ = {};
+    activeDepthTarget_ = {};
 }
 
 void NullCommandList::clearRect(int32_t /*x*/, int32_t /*y*/, uint32_t /*width*/,
@@ -110,6 +187,18 @@ void NullCommandList::draw(uint32_t vertexCount, uint32_t instanceCount, uint32_
     ENG_ASSERT(state_ == State::Recording, "draw called outside begin()/end()");
     if (!isPipelineBound()) {
         hasUnboundDraw_ = true;
+    } else if (isInsideRenderPass_) {
+        const auto* pDesc = device_.getPipelineDesc(boundPipeline_);
+        if (pDesc != nullptr) {
+            if (!pDesc->colorAttachmentFormats.empty() &&
+                pDesc->colorAttachmentFormats[0] != activeColorFormat_) {
+                hasFormatMismatch_ = true;
+            }
+            if (pDesc->depthAttachmentFormat != TextureFormat::Undefined &&
+                pDesc->depthAttachmentFormat != activeDepthFormat_) {
+                hasFormatMismatch_ = true;
+            }
+        }
     }
     drawCommands_.push_back(DrawCmd{.vertexCount = vertexCount,
                                     .instanceCount = instanceCount,
@@ -123,6 +212,18 @@ void NullCommandList::drawIndexed(uint32_t indexCount, uint32_t instanceCount, u
     ENG_ASSERT(state_ == State::Recording, "drawIndexed called outside begin()/end()");
     if (!isPipelineBound()) {
         hasUnboundDraw_ = true;
+    } else if (isInsideRenderPass_) {
+        const auto* pDesc = device_.getPipelineDesc(boundPipeline_);
+        if (pDesc != nullptr) {
+            if (!pDesc->colorAttachmentFormats.empty() &&
+                pDesc->colorAttachmentFormats[0] != activeColorFormat_) {
+                hasFormatMismatch_ = true;
+            }
+            if (pDesc->depthAttachmentFormat != TextureFormat::Undefined &&
+                pDesc->depthAttachmentFormat != activeDepthFormat_) {
+                hasFormatMismatch_ = true;
+            }
+        }
     }
     drawIndexedCommands_.push_back(DrawIndexedCmd{.indexCount = indexCount,
                                                   .instanceCount = instanceCount,
