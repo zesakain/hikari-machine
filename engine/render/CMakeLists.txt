@@ -19,6 +19,8 @@ target_include_directories(engine_render
         $<INSTALL_INTERFACE:include>
     PRIVATE
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
+    SYSTEM PRIVATE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/cgltf>
 )
 
 target_link_libraries(engine_render
