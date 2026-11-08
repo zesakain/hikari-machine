@@ -29,10 +29,29 @@ namespace eng::rhi {
 /// @struct RenderPassBeginInfo
 /// @brief Initialization parameters for beginning a dynamic render pass.
 struct RenderPassBeginInfo {
-    TextureHandle colorTarget{}; ///< Target texture, or invalid handle for default backbuffer.
-    float clearColor[4]{0.08F, 0.12F, 0.20F,
-                        1.0F}; ///< Clear color (RGBA float), default deep Hikari Blue.
-    bool clearTarget{true};    ///< Whether to clear target on pass entry.
+    /// Target color texture, or invalid handle for default presentation swapchain backbuffer.
+    TextureHandle colorTarget{};
+
+    /// Optional target depth texture, or invalid handle if no depth attachment is bound.
+    TextureHandle depthTarget{};
+
+    /// Clear color (RGBA float), default deep Hikari Blue.
+    float clearColor[4]{0.08F, 0.12F, 0.20F, 1.0F};
+
+    /// Clear depth value (default 1.0F for standard depth buffer).
+    float clearDepth{1.0F};
+
+    /// Whether to clear color target on pass entry.
+    bool clearTarget{true};
+
+    /// Whether to clear depth target on pass entry.
+    bool clearDepthTarget{true};
+
+    /// Optional custom render area width (0 = use target dimensions).
+    uint32_t renderWidth{0};
+
+    /// Optional custom render area height (0 = use target dimensions).
+    uint32_t renderHeight{0};
 };
 
 /// @struct NativeCommandListHandles

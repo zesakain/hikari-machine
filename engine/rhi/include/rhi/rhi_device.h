@@ -87,6 +87,12 @@ public:
     /// Releases a GPU texture resource and invalidates its generational handle.
     virtual void destroyTexture(TextureHandle handle) = 0;
 
+    /// Retrieves the descriptor of a live texture handle, or nullptr if invalid.
+    [[nodiscard]] virtual const TextureDesc* getTextureDesc(TextureHandle handle) const noexcept {
+        (void)handle;
+        return nullptr;
+    }
+
     /// Creates a texture sampler state.
     ///
     /// @param desc Filtering and coordinate wrapping configuration.

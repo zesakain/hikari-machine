@@ -279,6 +279,17 @@ enum class TextureFormat : uint16_t {
     D32_FLOAT_S8_UINT = 32
 };
 
+/// Checks if a texture format is a depth or depth-stencil format.
+[[nodiscard]] constexpr bool isDepthFormat(TextureFormat format) noexcept {
+    return format == TextureFormat::D32_FLOAT || format == TextureFormat::D24_UNORM_S8_UINT ||
+           format == TextureFormat::D32_FLOAT_S8_UINT;
+}
+
+/// Checks if a texture format is a valid color format (non-undefined and non-depth).
+[[nodiscard]] constexpr bool isColorFormat(TextureFormat format) noexcept {
+    return format != TextureFormat::Undefined && !isDepthFormat(format);
+}
+
 /// @enum TextureUsageFlags
 /// @brief Bitmask specifying allowed GPU texture operations.
 // NOLINTNEXTLINE(performance-enum-size): Texture usage bitmask flags up to 32 bits.
