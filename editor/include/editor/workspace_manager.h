@@ -64,6 +64,30 @@ public:
     /// Falls back to default layout synthesis if the file is missing or corrupted.
     bool loadLayout(const char* customPath = nullptr);
 
+    /// Creates a new empty scene in the world. Returns true on success.
+    bool newScene(world::World& world, SelectionModel* selection = nullptr);
+
+    /// Saves the current scene to disk. Uses customPath if provided, or currentScenePath.
+    bool saveScene(world::World& world, const char* customPath = nullptr);
+
+    /// Loads a scene from disk into the world. Returns true on success.
+    bool openScene(world::World& world, const char* filepath, SelectionModel* selection = nullptr);
+
+    /// Returns the active scene filesystem path.
+    [[nodiscard]] std::string_view getCurrentScenePath() const noexcept;
+
+    /// Sets the active scene filesystem path.
+    void setCurrentScenePath(std::string_view path);
+
+    /// Returns whether the scene currently has unsaved modifications.
+    [[nodiscard]] bool isSceneDirty() const noexcept;
+
+    /// Marks the scene as containing unsaved modifications.
+    void markSceneDirty() noexcept;
+
+    /// Clears the scene modified dirty state.
+    void clearSceneDirty() noexcept;
+
     /// Renders the root application dockspace, menu bar, toolbar, panels, and status bar.
     void drawWorkspace(EditorContext& ctx);
 

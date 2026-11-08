@@ -304,6 +304,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                             }
                             ecs.entity(h.id).modified<physics::PhysicsTransformComponent>();
                         }
+                        ctx.markDirty();
                     }
 
                     float rotVals[3] = {firstRotEuler[0], firstRotEuler[1], firstRotEuler[2]};
@@ -329,6 +330,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                             tc->transform.rotation = eulerDegreesToQuat(curEuler);
                             ecs.entity(h.id).modified<physics::PhysicsTransformComponent>();
                         }
+                        ctx.markDirty();
                     }
 
                     float sclVals[3] = {firstScl.x, firstScl.y, firstScl.z};
@@ -351,6 +353,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                             }
                             ecs.entity(h.id).modified<physics::PhysicsTransformComponent>();
                         }
+                        ctx.markDirty();
                     }
 
                     ImGui::Spacing();
@@ -362,6 +365,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                     for (auto h : selected) {
                         ecs.entity(h.id).remove<physics::PhysicsTransformComponent>();
                     }
+                    ctx.markDirty();
                 }
             }
 
@@ -378,6 +382,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                                 .collisionLayer = physics::CollisionLayer::kMoving,
                             });
                         }
+                        ctx.markDirty();
                     }
                     ImGui::Separator();
                     if (ImGui::MenuItem("Remove Component from All")) {
@@ -423,6 +428,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                                 rb->motionType = newMotion;
                                 ecs.entity(h.id).modified<physics::RigidBodyComponent>();
                             }
+                            ctx.markDirty();
                         }
                     }
                     ImGui::Columns(1);
@@ -445,6 +451,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                                 rb->collisionLayer = static_cast<uint16_t>(layerIdx);
                                 ecs.entity(h.id).modified<physics::RigidBodyComponent>();
                             }
+                            ctx.markDirty();
                         }
                     }
                     ImGui::Columns(1);
@@ -458,6 +465,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                     for (auto h : selected) {
                         ecs.entity(h.id).remove<physics::RigidBodyComponent>();
                     }
+                    ctx.markDirty();
                 }
             }
 
@@ -473,6 +481,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                                 .desc = physics::ColliderDesc::makeBox(Vec3(0.5F, 0.5F, 0.5F)),
                             });
                         }
+                        ctx.markDirty();
                     }
                     ImGui::Separator();
                     if (ImGui::MenuItem("Remove Component from All")) {
@@ -514,6 +523,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                                 cc->desc.type = newType;
                                 ecs.entity(h.id).modified<physics::ColliderComponent>();
                             }
+                            ctx.markDirty();
                         }
                     }
                     ImGui::Columns(1);
@@ -527,6 +537,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                     for (auto h : selected) {
                         ecs.entity(h.id).remove<physics::ColliderComponent>();
                     }
+                    ctx.markDirty();
                 }
             }
 
@@ -542,6 +553,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                             sc->scriptName[0] = '\0';
                             ecs.entity(h.id).modified<script::ScriptComponent>();
                         }
+                        ctx.markDirty();
                     }
                     ImGui::Separator();
                     if (ImGui::MenuItem("Remove Component from All")) {
@@ -585,6 +597,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                             sc->scriptName[sizeof(sc->scriptName) - 1] = '\0';
                             ecs.entity(h.id).modified<script::ScriptComponent>();
                         }
+                        ctx.markDirty();
                     }
                     ImGui::Columns(1);
 
@@ -600,6 +613,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                             sc->enabled = enabled;
                             ecs.entity(h.id).modified<script::ScriptComponent>();
                         }
+                        ctx.markDirty();
                     }
                     ImGui::SameLine();
                     if (!sameEnabled) {
@@ -620,6 +634,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                     for (auto h : selected) {
                         ecs.entity(h.id).remove<script::ScriptComponent>();
                     }
+                    ctx.markDirty();
                 }
             }
 
@@ -640,6 +655,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                             e.set<physics::PhysicsTransformComponent>({});
                         }
                     }
+                    ctx.markDirty();
                 }
                 if (ImGui::MenuItem("Rigid Body", nullptr, false, !allHaveRigidBody)) {
                     for (auto h : selected) {
@@ -651,6 +667,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                             });
                         }
                     }
+                    ctx.markDirty();
                 }
                 if (ImGui::MenuItem("Collider", nullptr, false, !allHaveCollider)) {
                     for (auto h : selected) {
@@ -661,6 +678,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                             });
                         }
                     }
+                    ctx.markDirty();
                 }
 
                 ImGui::Separator();
@@ -677,6 +695,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                             });
                         }
                     }
+                    ctx.markDirty();
                 }
                 ImGui::EndPopup();
             }
@@ -699,6 +718,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                 }
                 ctx.selection->clear();
                 ctx.selectedEntityId = 0;
+                ctx.markDirty();
             }
             ImGui::PopStyleColor(2);
         } else if (ctx.world != nullptr && (selected.size() == 1 || ctx.selectedEntityId != 0)) {
@@ -726,6 +746,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                                      ImGuiInputTextFlags_EnterReturnsTrue) ||
                     ImGui::IsItemDeactivatedAfterEdit()) {
                     ctx.world->setEntityName(world::EntityHandle(e.id()), nameBuf);
+                    ctx.markDirty();
                 }
                 ImGui::SameLine();
                 ImGui::TextDisabled("#%llu", static_cast<unsigned long long>(e.id()));
@@ -811,6 +832,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
 
                         if (changed) {
                             e.modified<physics::PhysicsTransformComponent>();
+                            ctx.markDirty();
                         }
 
                         ImGui::Spacing();
@@ -821,6 +843,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                 }
                 if (removeTransform) {
                     e.remove<physics::PhysicsTransformComponent>();
+                    ctx.markDirty();
                 }
 
                 // 2. Rigid Body Component Card
@@ -859,6 +882,8 @@ void InspectorPanel::draw(EditorContext& ctx) {
                             rb->motionType = (motionIdx == 0)   ? physics::MotionType::Static
                                              : (motionIdx == 1) ? physics::MotionType::Kinematic
                                                                 : physics::MotionType::Dynamic;
+                            e.modified<physics::RigidBodyComponent>();
+                            ctx.markDirty();
                         }
                         ImGui::Columns(1);
 
@@ -874,6 +899,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                         if (ImGui::Combo("##CollisionLayerCombo", &layerIdx, layers, 4)) {
                             rb->collisionLayer = static_cast<uint16_t>(layerIdx);
                             e.modified<physics::RigidBodyComponent>();
+                            ctx.markDirty();
                         }
                         ImGui::Columns(1);
 
@@ -885,6 +911,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                 }
                 if (removeRigidBody) {
                     e.remove<physics::RigidBodyComponent>();
+                    ctx.markDirty();
                 }
 
                 // 3. Collider Component Card
@@ -1005,6 +1032,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
 
                         if (changed) {
                             e.modified<physics::ColliderComponent>();
+                            ctx.markDirty();
                         }
 
                         ImGui::Spacing();
@@ -1015,6 +1043,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                 }
                 if (removeCollider) {
                     e.remove<physics::ColliderComponent>();
+                    ctx.markDirty();
                 }
 
                 // 4. Script Component Card
@@ -1027,6 +1056,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                             auto* sc = e.get_mut<script::ScriptComponent>();
                             sc->scriptName[0] = '\0';
                             e.modified<script::ScriptComponent>();
+                            ctx.markDirty();
                         }
                         ImGui::Separator();
                         if (ImGui::MenuItem("Remove Component")) {
@@ -1053,6 +1083,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                             std::strncpy(sc->scriptName, scriptBuf, sizeof(sc->scriptName) - 1);
                             sc->scriptName[sizeof(sc->scriptName) - 1] = '\0';
                             e.modified<script::ScriptComponent>();
+                            ctx.markDirty();
                         }
                         ImGui::Columns(1);
 
@@ -1065,6 +1096,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                         if (ImGui::Checkbox("Enabled##ScriptActive", &enabled)) {
                             sc->enabled = enabled;
                             e.modified<script::ScriptComponent>();
+                            ctx.markDirty();
                         }
                         ImGui::SameLine();
                         if (!sc->enabled) {
@@ -1090,6 +1122,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                             }
                             sc->updateInterval = interval;
                             e.modified<script::ScriptComponent>();
+                            ctx.markDirty();
                         }
                         ImGui::Columns(1);
 
@@ -1101,6 +1134,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                 }
                 if (removeScript) {
                     e.remove<script::ScriptComponent>();
+                    ctx.markDirty();
                 }
 
                 ImGui::Spacing();
@@ -1120,17 +1154,20 @@ void InspectorPanel::draw(EditorContext& ctx) {
                     ImGui::TextDisabled("Physics");
                     if (ImGui::MenuItem("Transform", nullptr, false, !hasTransform)) {
                         e.set<physics::PhysicsTransformComponent>({});
+                        ctx.markDirty();
                     }
                     if (ImGui::MenuItem("Rigid Body", nullptr, false, !hasRigidBody)) {
                         e.set<physics::RigidBodyComponent>({
                             .motionType = physics::MotionType::Dynamic,
                             .collisionLayer = physics::CollisionLayer::kMoving,
                         });
+                        ctx.markDirty();
                     }
                     if (ImGui::MenuItem("Collider", nullptr, false, !hasCollider)) {
                         e.set<physics::ColliderComponent>({
                             .desc = physics::ColliderDesc::makeBox(Vec3(0.5F, 0.5F, 0.5F)),
                         });
+                        ctx.markDirty();
                     }
 
                     ImGui::Separator();
@@ -1142,6 +1179,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                             .updateInterval = 0.0f,
                             .timeSinceLastUpdate = 0.0f,
                         });
+                        ctx.markDirty();
                     }
                     ImGui::EndPopup();
                 }
@@ -1156,6 +1194,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                         ctx.selection->deselect(h);
                     }
                     ctx.selectedEntityId = 0;
+                    ctx.markDirty();
                 }
                 ImGui::PopStyleColor(2);
             } else {

@@ -8,12 +8,15 @@
 #include "editor/hierarchy_panel.h"
 #include "editor/selection_model.h"
 #include "framework/conductor.h"
+#include "framework/scene.h"
+#include "framework/scene_serializer.h"
 #include "physics/physics_components.h"
 #include "rhi/rhi_device.h"
 #include "script/script_components.h"
 #include "world/world.h"
 
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -27,6 +30,100 @@ struct WorkspaceManager::Impl {
     bool layoutResetPending{false};
     int activeLayoutPreset{0}; // 0 = Default, 1 = Wide Viewport, 2 = Inspector Focus
     bool showAboutModal{false};
+
+    // Native Scene Persistence State
+    std::string currentScenePath{""};
+    std::string currentSceneName{"Untitled"};
+    bool isSceneDirty{false};
+
+    bool showNewConfirmModal{false};
+    bool showOpenConfirmModal{false};
+    bool showOpenDialogModal{false};
+    bool showSaveAsDialogModal{false};
+    bool showSceneErrorModal{false};
+    std::string lastSceneError{""};
+
+    char openPathBuffer[512]{"assets/scenes/sample.hikari"};
+    char savePathBuffer[512]{"assets/scenes/my_scene.hikari"};
+
+    bool newScene(world::World& world, SelectionModel* selection) {
+        world.clearUserEntities();
+        if (selection != nullptr) {
+            selection->clear();
+        }
+        currentScenePath.clear();
+        currentSceneName = "Untitled";
+        isSceneDirty = false;
+        ENG_LOG_INFO("Editor", "New Scene created successfully");
+        return true;
+    }
+
+    bool saveScene(world::World& world, const char* customPath = nullptr) {
+        std::string targetPath = (customPath != nullptr && customPath[0] != '\0')
+                                     ? std::string(customPath)
+                                     : currentScenePath;
+        if (targetPath.empty()) {
+            showSaveAsDialogModal = true;
+            return false;
+        }
+
+        framework::SceneMetadata meta;
+        meta.name = currentSceneName;
+        meta.generator = "Hikari Editor 0.1.0";
+
+        auto res = framework::SceneSerializer::serializeToFile(world, targetPath, meta);
+        if (!res.hasValue()) {
+            lastSceneError = "Failed to save scene: ";
+            lastSceneError += res.error().message;
+            showSceneErrorModal = true;
+            ENG_LOG_ERROR("Editor", "Scene save failed");
+            return false;
+        }
+
+        currentScenePath = targetPath;
+        std::filesystem::path p(currentScenePath);
+        currentSceneName = p.stem().string();
+        isSceneDirty = false;
+        ENG_LOG_INFO("Editor", "Scene successfully saved to disk");
+        return true;
+    }
+
+    bool openScene(world::World& world, const char* filepath, SelectionModel* selection) {
+        if (filepath == nullptr || filepath[0] == '\0') {
+            lastSceneError = "Invalid empty scene file path.";
+            showSceneErrorModal = true;
+            return false;
+        }
+
+        if (!std::filesystem::exists(filepath)) {
+            lastSceneError = "Scene file does not exist on disk: ";
+            lastSceneError += filepath;
+            showSceneErrorModal = true;
+            ENG_LOG_ERROR("Editor", "Scene file does not exist on disk");
+            return false;
+        }
+
+        auto res = framework::SceneSerializer::deserializeFromFile(world, filepath, true);
+        if (!res.hasValue()) {
+            lastSceneError = "Failed to open scene: ";
+            lastSceneError += res.error().message;
+            showSceneErrorModal = true;
+            ENG_LOG_ERROR("Editor", "Scene deserialization failed");
+            return false;
+        }
+
+        if (selection != nullptr) {
+            selection->clear();
+        }
+
+        currentScenePath = filepath;
+        std::filesystem::path p(currentScenePath);
+        currentSceneName = p.stem().string();
+        isSceneDirty = false;
+
+        ENG_LOG_INFO("Editor", "Scene successfully opened and loaded into World");
+        return true;
+    }
 
     void buildDefaultLayout(ImGuiID dockspaceId, int preset = 0) {
         ImGui::DockBuilderRemoveNode(dockspaceId);
@@ -83,14 +180,27 @@ struct WorkspaceManager::Impl {
             // 1. File Menu
             if (ImGui::BeginMenu("File")) {
                 if (ImGui::MenuItem("New Scene", "Ctrl+N")) {
-                    if (ctx.world != nullptr) {
+                    if (isSceneDirty) {
+                        showNewConfirmModal = true;
+                    } else if (ctx.world != nullptr) {
+                        newScene(*ctx.world, ctx.selection);
                         ctx.selectedEntityId = 0;
-                        ENG_LOG_INFO("Editor", "New Scene created");
                     }
                 }
-                if (ImGui::MenuItem("Open Scene...", "Ctrl+O", false, false)) {
+                if (ImGui::MenuItem("Open Scene...", "Ctrl+O")) {
+                    if (isSceneDirty) {
+                        showOpenConfirmModal = true;
+                    } else {
+                        showOpenDialogModal = true;
+                    }
                 }
-                if (ImGui::MenuItem("Save Scene", "Ctrl+S", false, false)) {
+                if (ImGui::MenuItem("Save Scene", "Ctrl+S")) {
+                    if (ctx.world != nullptr) {
+                        saveScene(*ctx.world);
+                    }
+                }
+                if (ImGui::MenuItem("Save Scene As...", "Ctrl+Shift+S")) {
+                    showSaveAsDialogModal = true;
                 }
                 ImGui::Separator();
                 if (ImGui::MenuItem("Save Workspace Layout")) {
@@ -340,11 +450,37 @@ struct WorkspaceManager::Impl {
         ImGui::PopStyleColor();
         ImGui::PopStyleVar();
 
+        // Global Scene Shortcuts
+        ImGuiIO& io = ImGui::GetIO();
+        if (!io.WantTextInput) {
+            if (io.KeyCtrl && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_N, false)) {
+                if (isSceneDirty) {
+                    showNewConfirmModal = true;
+                } else if (ctx.world != nullptr) {
+                    newScene(*ctx.world, ctx.selection);
+                    ctx.selectedEntityId = 0;
+                }
+            } else if (io.KeyCtrl && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_O, false)) {
+                if (isSceneDirty) {
+                    showOpenConfirmModal = true;
+                } else {
+                    showOpenDialogModal = true;
+                }
+            } else if (io.KeyCtrl && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_S, false)) {
+                if (ctx.world != nullptr) {
+                    saveScene(*ctx.world);
+                }
+            } else if (io.KeyCtrl && io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_S, false)) {
+                showSaveAsDialogModal = true;
+            }
+        }
+
+        // --- Modals ---
+
         if (showAboutModal) {
             ImGui::OpenPopup("About Hikari Editor");
             showAboutModal = false;
         }
-
         if (ImGui::BeginPopupModal("About Hikari Editor", nullptr,
                                    ImGuiWindowFlags_AlwaysAutoResize)) {
             ImGui::TextColored(ImVec4(0.38F, 0.74F, 0.98F, 1.0F), "Hikari Engine — Studio Editor");
@@ -355,6 +491,116 @@ struct WorkspaceManager::Impl {
             ImGui::Text("UI Subsystems: Dear ImGui (Editor) & RmlUi (Runtime)");
             ImGui::Separator();
             if (ImGui::Button("Close", ImVec2(120.0F, 0.0F))) {
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
+
+        if (showNewConfirmModal) {
+            ImGui::OpenPopup("Unsaved Changes##NewScene");
+            showNewConfirmModal = false;
+        }
+        if (ImGui::BeginPopupModal("Unsaved Changes##NewScene", nullptr,
+                                   ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::TextColored(ImVec4(0.96F, 0.62F, 0.04F, 1.0F), "[!] Unsaved Modifications");
+            ImGui::Text("The active scene has unsaved changes.\nDo you want to discard them and "
+                        "create a new scene?");
+            ImGui::Separator();
+            if (ImGui::Button("Discard & Create New", ImVec2(170.0F, 0.0F))) {
+                if (ctx.world != nullptr) {
+                    newScene(*ctx.world, ctx.selection);
+                    ctx.selectedEntityId = 0;
+                }
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(90.0F, 0.0F))) {
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
+
+        if (showOpenConfirmModal) {
+            ImGui::OpenPopup("Unsaved Changes##OpenScene");
+            showOpenConfirmModal = false;
+        }
+        if (ImGui::BeginPopupModal("Unsaved Changes##OpenScene", nullptr,
+                                   ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::TextColored(ImVec4(0.96F, 0.62F, 0.04F, 1.0F), "[!] Unsaved Modifications");
+            ImGui::Text("The active scene has unsaved changes.\nDo you want to discard them and "
+                        "open a different scene?");
+            ImGui::Separator();
+            if (ImGui::Button("Discard & Open...", ImVec2(160.0F, 0.0F))) {
+                showOpenDialogModal = true;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(90.0F, 0.0F))) {
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
+
+        if (showOpenDialogModal) {
+            ImGui::OpenPopup("Open Scene");
+            showOpenDialogModal = false;
+        }
+        if (ImGui::BeginPopupModal("Open Scene", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::Text("Enter .hikari scene file path:");
+            ImGui::InputText("##OpenPath", openPathBuffer, sizeof(openPathBuffer));
+            ImGui::SameLine();
+            if (ImGui::Button("Sample Scene")) {
+                std::snprintf(openPathBuffer, sizeof(openPathBuffer),
+                              "assets/scenes/sample.hikari");
+            }
+            ImGui::Separator();
+            if (ImGui::Button("Open", ImVec2(120.0F, 0.0F))) {
+                if (ctx.world != nullptr) {
+                    if (openScene(*ctx.world, openPathBuffer, ctx.selection)) {
+                        ctx.selectedEntityId = 0;
+                        ImGui::CloseCurrentPopup();
+                    }
+                }
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120.0F, 0.0F))) {
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
+
+        if (showSaveAsDialogModal) {
+            ImGui::OpenPopup("Save Scene As");
+            showSaveAsDialogModal = false;
+        }
+        if (ImGui::BeginPopupModal("Save Scene As", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::Text("Enter destination .hikari file path:");
+            ImGui::InputText("##SaveAsPath", savePathBuffer, sizeof(savePathBuffer));
+            ImGui::Separator();
+            if (ImGui::Button("Save", ImVec2(120.0F, 0.0F))) {
+                if (ctx.world != nullptr) {
+                    if (saveScene(*ctx.world, savePathBuffer)) {
+                        ImGui::CloseCurrentPopup();
+                    }
+                }
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120.0F, 0.0F))) {
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
+
+        if (showSceneErrorModal) {
+            ImGui::OpenPopup("Scene Operation Error");
+            showSceneErrorModal = false;
+        }
+        if (ImGui::BeginPopupModal("Scene Operation Error", nullptr,
+                                   ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::TextColored(ImVec4(1.0F, 0.3F, 0.3F, 1.0F), "[!] Error:");
+            ImGui::TextWrapped("%s", lastSceneError.c_str());
+            ImGui::Separator();
+            if (ImGui::Button("OK", ImVec2(120.0F, 0.0F))) {
                 ImGui::CloseCurrentPopup();
             }
             ImGui::EndPopup();
@@ -465,6 +711,13 @@ struct WorkspaceManager::Impl {
             } else {
                 ImGui::TextDisabled("[Conductor: Standalone]");
             }
+
+            ImGui::SameLine();
+            ImGui::TextDisabled("|");
+            ImGui::SameLine();
+            ImGui::TextColored(isSceneDirty ? ImVec4(0.96F, 0.62F, 0.04F, 1.0F)
+                                            : ImVec4(0.38F, 0.74F, 0.98F, 1.0F),
+                               "Scene: %s%s", currentSceneName.c_str(), isSceneDirty ? "*" : "");
         }
         ImGui::End();
         ImGui::PopStyleColor();
@@ -491,6 +744,15 @@ struct WorkspaceManager::Impl {
                 ImGui::TextColored(ImVec4(0.96F, 0.62F, 0.04F, 1.0F), "[● PAUSED]");
             } else {
                 ImGui::TextColored(ImVec4(0.06F, 0.73F, 0.51F, 1.0F), "[● SIMULATING]");
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("|");
+            ImGui::SameLine();
+            if (!currentScenePath.empty()) {
+                ImGui::TextDisabled("Scene: %s%s", currentScenePath.c_str(),
+                                    isSceneDirty ? "*" : "");
+            } else {
+                ImGui::TextDisabled("Scene: [Untitled]%s", isSceneDirty ? "*" : "");
             }
             ImGui::SameLine();
             ImGui::TextDisabled("|");
@@ -635,7 +897,48 @@ bool WorkspaceManager::loadLayout(const char* customPath) {
                                                            : impl_->layoutFilePath.c_str());
 }
 
+bool WorkspaceManager::newScene(world::World& world, SelectionModel* selection) {
+    return impl_->newScene(world, selection);
+}
+
+bool WorkspaceManager::saveScene(world::World& world, const char* customPath) {
+    return impl_->saveScene(world, customPath);
+}
+
+bool WorkspaceManager::openScene(world::World& world, const char* filepath,
+                                 SelectionModel* selection) {
+    return impl_->openScene(world, filepath, selection);
+}
+
+std::string_view WorkspaceManager::getCurrentScenePath() const noexcept {
+    return impl_->currentScenePath;
+}
+
+void WorkspaceManager::setCurrentScenePath(std::string_view path) {
+    impl_->currentScenePath = std::string(path);
+    std::filesystem::path p(impl_->currentScenePath);
+    impl_->currentSceneName = p.stem().string();
+}
+
+bool WorkspaceManager::isSceneDirty() const noexcept {
+    return impl_->isSceneDirty;
+}
+
+void WorkspaceManager::markSceneDirty() noexcept {
+    impl_->isSceneDirty = true;
+}
+
+void WorkspaceManager::clearSceneDirty() noexcept {
+    impl_->isSceneDirty = false;
+}
+
 void WorkspaceManager::drawWorkspace(EditorContext& ctx) {
+    if (ctx.requestMarkDirty) {
+        impl_->isSceneDirty = true;
+        ctx.requestMarkDirty = false;
+    }
+    ctx.isSceneDirty = impl_->isSceneDirty;
+
     impl_->drawMainMenuBar(ctx);
     impl_->drawToolbar(ctx);
     impl_->drawStatusBar(ctx);

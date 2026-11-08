@@ -158,6 +158,7 @@ void HierarchyPanel::commitRename(EditorContext& ctx) {
             if (end > start) {
                 std::string_view newName(&renameBuffer_[start], end - start);
                 ctx.world->setEntityName(renamingEntity_, newName);
+                ctx.markDirty();
             }
         }
     }
@@ -230,6 +231,7 @@ void HierarchyPanel::draw(EditorContext& ctx) {
                         ctx.selection->select(h, false);
                     }
                     ctx.selectedEntityId = h.id;
+                    ctx.markDirty();
                 }
                 if (ImGui::MenuItem("Create Entity with Transform")) {
                     auto name = generateUniqueEntityName(ecs, "Entity");
@@ -241,6 +243,7 @@ void HierarchyPanel::draw(EditorContext& ctx) {
                         ctx.selection->select(h, false);
                     }
                     ctx.selectedEntityId = h.id;
+                    ctx.markDirty();
                 }
                 ImGui::Separator();
                 if (ImGui::MenuItem("3D Physics Cube")) {
@@ -259,6 +262,7 @@ void HierarchyPanel::draw(EditorContext& ctx) {
                         ctx.selection->select(h, false);
                     }
                     ctx.selectedEntityId = h.id;
+                    ctx.markDirty();
                 }
                 if (ImGui::MenuItem("3D Physics Sphere")) {
                     auto name = generateUniqueEntityName(ecs, "PhysicsSphere");
@@ -276,6 +280,7 @@ void HierarchyPanel::draw(EditorContext& ctx) {
                         ctx.selection->select(h, false);
                     }
                     ctx.selectedEntityId = h.id;
+                    ctx.markDirty();
                 }
                 ImGui::EndPopup();
             }
@@ -446,6 +451,7 @@ void HierarchyPanel::draw(EditorContext& ctx) {
                                     ctx.selection->select(clone, false);
                                 }
                                 ctx.selectedEntityId = clone.id;
+                                ctx.markDirty();
                             }
                         }
                         ImGui::Separator();
@@ -459,6 +465,7 @@ void HierarchyPanel::draw(EditorContext& ctx) {
                             if (ImGui::MenuItem(delLabel, "Delete")) {
                                 deleteSelectedEntities(*ctx.world, ctx.selection,
                                                        ctx.selectedEntityId);
+                                ctx.markDirty();
                             }
                         } else {
                             if (ImGui::MenuItem("Delete Entity", "Delete")) {
@@ -469,6 +476,7 @@ void HierarchyPanel::draw(EditorContext& ctx) {
                                 if (ctx.selectedEntityId == handle.id) {
                                     ctx.selectedEntityId = 0;
                                 }
+                                ctx.markDirty();
                             }
                         }
                         ImGui::EndPopup();

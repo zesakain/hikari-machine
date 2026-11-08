@@ -57,6 +57,11 @@ struct EditorContext {
     uint32_t lastVertices{0};
     uint32_t lastIndices{0};
     uint64_t executedPasses{0};
+
+    bool isSceneDirty{false};
+    bool requestMarkDirty{false};
+
+    void markDirty() noexcept { requestMarkDirty = true; }
 };
 
 /// @class EditorPanel
