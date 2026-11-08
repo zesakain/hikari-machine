@@ -11,15 +11,38 @@
 namespace eng::editor {
 
 namespace {
-ThemeColors s_activeColors = ThemeColors::defaultDark();
+
+ThemeType s_activeThemeType = ThemeType::Dark;
+ThemeColors s_activeColors = ThemeColors::hikariDark();
 
 inline ImVec4 toImVec4(const Color4f& c) noexcept {
     return ImVec4(c.r, c.g, c.b, c.a);
 }
+
 } // namespace
+
+void applyEditorTheme(ThemeType type) {
+    s_activeThemeType = type;
+    switch (type) {
+    case ThemeType::Midnight:
+        applyEditorTheme(ThemeColors::hikariMidnight());
+        break;
+    case ThemeType::Light:
+        applyEditorTheme(ThemeColors::hikariLight());
+        break;
+    case ThemeType::Dark:
+    default:
+        applyEditorTheme(ThemeColors::hikariDark());
+        break;
+    }
+}
 
 void applyEditorTheme(const ThemeColors& colors) {
     s_activeColors = colors;
+
+    if (ImGui::GetCurrentContext() == nullptr) {
+        return;
+    }
 
     ImGuiStyle& style = ImGui::GetStyle();
     ImVec4* imColors = style.Colors;
@@ -103,18 +126,18 @@ void applyEditorTheme(const ThemeColors& colors) {
 
     // Spacing and sizing tokens (professional studio desktop aesthetic)
     style.WindowRounding = ThemeMetrics::kWindowRounding;
-    style.ChildRounding = 2.0F;
+    style.ChildRounding = ThemeMetrics::kChildRounding;
     style.FrameRounding = ThemeMetrics::kFrameRounding;
     style.PopupRounding = ThemeMetrics::kPopupRounding;
-    style.ScrollbarRounding = 4.0F;
-    style.GrabRounding = 2.0F;
+    style.ScrollbarRounding = ThemeMetrics::kScrollbarRounding;
+    style.GrabRounding = ThemeMetrics::kGrabRounding;
     style.TabRounding = ThemeMetrics::kTabRounding;
 
-    style.WindowBorderSize = 1.0F;
-    style.ChildBorderSize = 1.0F;
-    style.PopupBorderSize = 1.0F;
-    style.FrameBorderSize = 1.0F;
-    style.TabBorderSize = 0.0F;
+    style.WindowBorderSize = ThemeMetrics::kWindowBorderSize;
+    style.ChildBorderSize = ThemeMetrics::kChildBorderSize;
+    style.PopupBorderSize = ThemeMetrics::kPopupBorderSize;
+    style.FrameBorderSize = ThemeMetrics::kFrameBorderSize;
+    style.TabBorderSize = ThemeMetrics::kTabBorderSize;
 
     style.WindowPadding = ImVec2(10.0F, 10.0F);
     style.FramePadding = ImVec2(8.0F, 5.0F);
@@ -124,6 +147,27 @@ void applyEditorTheme(const ThemeColors& colors) {
     style.IndentSpacing = 16.0F;
     style.ScrollbarSize = 12.0F;
     style.GrabMinSize = 10.0F;
+}
+
+ThemeType getActiveThemeType() noexcept {
+    return s_activeThemeType;
+}
+
+const ThemeColors& getActiveThemeColors() noexcept {
+    return s_activeColors;
+}
+
+const char* getThemeName(ThemeType type) noexcept {
+    switch (type) {
+    case ThemeType::Dark:
+        return "Hikari Dark";
+    case ThemeType::Midnight:
+        return "Hikari Midnight";
+    case ThemeType::Light:
+        return "Hikari Light";
+    default:
+        return "Unknown";
+    }
 }
 
 bool loadEditorFonts(float fontScale) {
@@ -153,11 +197,8 @@ bool loadEditorFonts(float fontScale) {
     }
 
     io.Fonts->AddFontDefault();
+    ENG_LOG_WARN("Editor", "No system TTF fonts found; using default Dear ImGui bitmap font");
     return false;
-}
-
-const ThemeColors& getActiveThemeColors() noexcept {
-    return s_activeColors;
 }
 
 } // namespace eng::editor
