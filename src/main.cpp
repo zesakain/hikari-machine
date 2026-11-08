@@ -10,6 +10,7 @@
 #include "physics/physics_components.h"
 #include "physics/physics_world.h"
 #include "platform/platform.h"
+#include "render/asset_manager.h"
 #include "render/mesh_component.h"
 #include "render/render_graph.h"
 #include "rhi/command_list.h"
@@ -207,32 +208,35 @@ int main(int argc, char* argv[]) {
     }
     auto mainCmd = std::move(cmdRes.value());
 
-    // 5. Shared Simulation World & Subsystems
-    world::World world;
+    uint32_t frameCount = 0;
 
-    physics::PhysicsWorld physicsWorld;
-    physics::registerPhysicsComponents(world);
-    physics::registerPhysicsSystems(world, physicsWorld);
+    {
+        // 5. Shared Simulation World & Subsystems
+        physics::PhysicsWorld physicsWorld;
+        script::ScriptEngine scriptEngine;
+        world::World world;
 
-    anim::registerAnimationComponents(world);
-    render::registerRenderComponents(world);
+        physics::registerPhysicsComponents(world);
+        physics::registerPhysicsSystems(world, physicsWorld);
 
-    script::ScriptEngine scriptEngine;
-    (void)scriptEngine.initialize();
-    scriptEngine.bindWorld(&world);
-    // Standard entity update hook for editor / game scripts
-    (void)scriptEngine.executeString(R"(
+        anim::registerAnimationComponents(world);
+        render::registerRenderComponents(world);
+
+        (void)scriptEngine.initialize();
+        scriptEngine.bindWorld(&world);
+        // Standard entity update hook for editor / game scripts
+        (void)scriptEngine.executeString(R"(
 function on_update(entity, dt)
     -- Default Lua entity tick handler
 end
 )");
-    script::registerScriptComponents(world);
-    script::registerScriptSystems(world, scriptEngine);
+        script::registerScriptComponents(world);
+        script::registerScriptSystems(world, scriptEngine);
 
-    ui::UiSystem uiSystem;
-    (void)uiSystem.initialize({.width = 1280, .height = 720}, *rhiDevice);
+        ui::UiSystem uiSystem;
+        (void)uiSystem.initialize({.width = 1280, .height = 720}, *rhiDevice);
 
-    const std::string_view kMainHudRml = R"(
+        const std::string_view kMainHudRml = R"(
 <rml>
 <head>
 <title>Hikari Diagnostics HUD</title>
@@ -268,190 +272,194 @@ body {
 </body>
 </rml>
 )";
-    auto hudRes = uiSystem.loadDocumentFromMemory(kMainHudRml, "main_hud");
-    if (hudRes.hasValue()) {
-        uiSystem.showDocument(hudRes.value());
-    }
-
-    // 6. Two-State Conductor
-    auto modeA = std::make_unique<StateAMode>();
-    auto modeB = std::make_unique<StateBMode>();
-    framework::Conductor conductor(world, std::move(modeA), std::move(modeB));
-    auto initRes = conductor.initialize();
-    if (!initRes.hasValue()) {
-        ENG_LOG_CRITICAL("Conductor", "Failed to initialize Two-State Conductor");
-        return 1;
-    }
-
-#if defined(HIKARI_BUILD_EDITOR)
-    editor::EditorEngine editorEngine;
-    if (editorEngine.initialize(*rhiDevice)) {
-        editorEngine.bindWorld(&world);
-        editorEngine.bindConductor(&conductor);
-        ENG_LOG_INFO("Editor",
-                     "EditorEngine successfully initialized and bound to World & Conductor");
-    }
-#endif
-
-    ENG_LOG_INFO("Core", "=== Initialization Complete. Entering Main Loop ===");
-
-    // 7. Authoritative Simulation Frame Loop
-    uint32_t frameCount = 0;
-    bool running = true;
-    const Duration fixedStep = Duration::fromMilliseconds(16);
-    uint32_t lastWindowWidth = window ? window->getWidth() : 1280;
-    uint32_t lastWindowHeight = window ? window->getHeight() : 720;
-
-    while (running) {
-        platform->pollEvents();
-        const auto& input = platform->getCurrentInput();
-        const auto& prevInput = platform->getPreviousInput();
-
-        if (window && window->shouldClose()) {
-            running = false;
-            break;
+        auto hudRes = uiSystem.loadDocumentFromMemory(kMainHudRml, "main_hud");
+        if (hudRes.hasValue()) {
+            uiSystem.showDocument(hudRes.value());
         }
 
-        uint32_t currentWidth = window ? window->getWidth() : 1280;
-        uint32_t currentHeight = window ? window->getHeight() : 720;
+        // 6. Two-State Conductor
+        auto modeA = std::make_unique<StateAMode>();
+        auto modeB = std::make_unique<StateBMode>();
+        framework::Conductor conductor(world, std::move(modeA), std::move(modeB));
+        auto initRes = conductor.initialize();
+        if (!initRes.hasValue()) {
+            ENG_LOG_CRITICAL("Conductor", "Failed to initialize Two-State Conductor");
+            return 1;
+        }
 
-        if (window && !window->isMinimized()) {
-            if (currentWidth != lastWindowWidth || currentHeight != lastWindowHeight) {
-                (void)rhiDevice->resize(currentWidth, currentHeight);
-                uiSystem.resize(currentWidth, currentHeight);
-                lastWindowWidth = currentWidth;
-                lastWindowHeight = currentHeight;
+#if defined(HIKARI_BUILD_EDITOR)
+        editor::EditorEngine editorEngine;
+        if (editorEngine.initialize(*rhiDevice)) {
+            editorEngine.bindWorld(&world);
+            editorEngine.bindConductor(&conductor);
+            ENG_LOG_INFO("Editor",
+                         "EditorEngine successfully initialized and bound to World & Conductor");
+        }
+#endif
+
+        ENG_LOG_INFO("Core", "=== Initialization Complete. Entering Main Loop ===");
+
+        // 7. Authoritative Simulation Frame Loop
+        bool running = true;
+        const Duration fixedStep = Duration::fromMilliseconds(16);
+        uint32_t lastWindowWidth = window ? window->getWidth() : 1280;
+        uint32_t lastWindowHeight = window ? window->getHeight() : 720;
+
+        while (running) {
+            platform->pollEvents();
+            const auto& input = platform->getCurrentInput();
+            const auto& prevInput = platform->getPreviousInput();
+
+            if (window && window->shouldClose()) {
+                running = false;
+                break;
             }
-        }
 
-        // Test mode switch every 30 frames in headless
-        if (headless && frameCount > 0 && (frameCount % 30) == 0) {
-            if (conductor.getState() == framework::ConductorState::Active) {
-                (void)conductor.requestTransition();
-            } else if (conductor.getState() == framework::ConductorState::Prepared) {
-                (void)conductor.executeTransition();
+            uint32_t currentWidth = window ? window->getWidth() : 1280;
+            uint32_t currentHeight = window ? window->getHeight() : 720;
+
+            if (window && !window->isMinimized()) {
+                if (currentWidth != lastWindowWidth || currentHeight != lastWindowHeight) {
+                    (void)rhiDevice->resize(currentWidth, currentHeight);
+                    uiSystem.resize(currentWidth, currentHeight);
+                    lastWindowWidth = currentWidth;
+                    lastWindowHeight = currentHeight;
+                }
             }
-        }
 
-        // 1. Swapchain image acquisition (must precede recording passes that target it)
-        if (window) {
-            (void)rhiDevice->acquireNextImage();
-        }
+            // Test mode switch every 30 frames in headless
+            if (headless && frameCount > 0 && (frameCount % 30) == 0) {
+                if (conductor.getState() == framework::ConductorState::Active) {
+                    (void)conductor.requestTransition();
+                } else if (conductor.getState() == framework::ConductorState::Prepared) {
+                    (void)conductor.executeTransition();
+                }
+            }
 
-        // 2. Process Input for UI and Editor
-        uiSystem.processInput(input, prevInput);
-#if defined(HIKARI_BUILD_EDITOR)
-        if (editorEngine.isInitialized()) {
-            editorEngine.processInput(input);
-            editorEngine.beginFrame(fixedStep, currentWidth, currentHeight);
-            editorEngine.drawPanels();
-        }
-#endif
+            // 1. Swapchain image acquisition (must precede recording passes that target it)
+            if (window) {
+                (void)rhiDevice->acquireNextImage();
+            }
 
-        // 3. Update Conductor, World, and UI clocks
-#if defined(HIKARI_BUILD_EDITOR)
-        if (editorEngine.isInitialized()) {
-            editorEngine.getRuntimeSession().update(fixedStep);
-        } else {
-            conductor.update(fixedStep);
-            world.progress(static_cast<float>(fixedStep.toSeconds()));
-        }
-#else
-        conductor.update(fixedStep);
-        world.progress(static_cast<float>(fixedStep.toSeconds()));
-#endif
-        uiSystem.update(fixedStep);
-
-        // 4. Record Frame Rendering Commands
-        mainCmd->begin();
-
-#if defined(HIKARI_BUILD_EDITOR)
-        if (editorEngine.isInitialized()) {
-            editorEngine.renderScene(*mainCmd);
-        }
-#endif
-
-        rhi::RenderPassBeginInfo passInfo{
-            .clearColor = {0.08F, 0.12F, 0.20F, 1.0F}, // Deep Hikari Blue background baseline
-            .clearTarget = true,
-        };
-        mainCmd->beginRenderPass(passInfo);
-
-        // Visible diagnostic mode indicator rectangle at top right
-        // Blue in State A, Amber in State B, Magenta during transition
-        float modeColor[4] = {0.2F, 0.5F, 0.9F, 1.0F};
-        if (conductor.getState() == framework::ConductorState::Transitioning) {
-            modeColor[0] = 0.8F;
-            modeColor[1] = 0.2F;
-            modeColor[2] = 0.8F;
-        } else if (conductor.getActiveSlot() == framework::ActiveSlot::SlotB) {
-            modeColor[0] = 0.9F;
-            modeColor[1] = 0.6F;
-            modeColor[2] = 0.1F;
-        }
-        mainCmd->clearRect(1000, 20, 240, 48, modeColor[0], modeColor[1], modeColor[2], 1.0F);
-
-        // Render runtime UI
-        uiSystem.render(*mainCmd);
-
-#if defined(HIKARI_BUILD_EDITOR)
-        if (editorEngine.isInitialized()) {
-            editorEngine.endFrame(*mainCmd);
-        }
-#endif
-
-        mainCmd->endRenderPass();
-        mainCmd->end();
-
-        // 5. Submit recorded commands to GPU queue
-        (void)rhiDevice->submit(mainCmd.get());
-
-        // 6. Present rendered swapchain image to display
-        if (window) {
-            (void)rhiDevice->present();
-        }
-
-        frameCount++;
-
-        // Periodic telemetry logging (on frame 1 and every 300 frames)
-        if (frameCount == 1 || (frameCount % 300) == 0) {
-            const auto& uiStats = uiSystem.renderStats();
-            uint32_t editorDraws = 0;
-            uint32_t editorVerts = 0;
-            uint32_t editorIdxs = 0;
-            uint64_t editorPasses = 0;
+            // 2. Process Input for UI and Editor
+            uiSystem.processInput(input, prevInput);
 #if defined(HIKARI_BUILD_EDITOR)
             if (editorEngine.isInitialized()) {
-                editorDraws = editorEngine.lastDrawCallCount();
-                editorVerts = editorEngine.lastVertexCount();
-                editorIdxs = editorEngine.lastIndexCount();
-                editorPasses = editorEngine.executedEditorPasses();
+                editorEngine.processInput(input);
+                editorEngine.beginFrame(fixedStep, currentWidth, currentHeight);
+                editorEngine.drawPanels();
             }
 #endif
-            ENG_LOG_FORMAT(LogLevel::Info, "Render",
-                           "Frame %u Telemetry: UI Draws: %u (Tris: %u), Editor Draws: %u (Verts: "
-                           "%u, Idxs: %u, Passes: %llu)",
-                           frameCount, uiStats.drawCalls, uiStats.triangleCount, editorDraws,
-                           editorVerts, editorIdxs, static_cast<unsigned long long>(editorPasses));
-        }
 
-        if (targetFrames > 0 && frameCount >= targetFrames) {
-            running = false;
-        }
-    }
-
-    ENG_LOG_FORMAT(LogLevel::Info, "Core",
-                   "=== Simulation loop ended after %u frames. Tearing down... ===", frameCount);
-
-    // 8. Graceful Reverse Shutdown
-    conductor.shutdown();
+            // 3. Update Conductor, World, and UI clocks
 #if defined(HIKARI_BUILD_EDITOR)
-    editorEngine.shutdown();
+            if (editorEngine.isInitialized()) {
+                editorEngine.getRuntimeSession().update(fixedStep);
+            } else {
+                conductor.update(fixedStep);
+                world.progress(static_cast<float>(fixedStep.toSeconds()));
+            }
+#else
+            conductor.update(fixedStep);
+            world.progress(static_cast<float>(fixedStep.toSeconds()));
 #endif
-    uiSystem.shutdown();
-    scriptEngine.unbindWorld();
-    scriptEngine.shutdown();
+            uiSystem.update(fixedStep);
 
+            // 4. Record Frame Rendering Commands
+            mainCmd->begin();
+
+#if defined(HIKARI_BUILD_EDITOR)
+            if (editorEngine.isInitialized()) {
+                editorEngine.renderScene(*mainCmd);
+            }
+#endif
+
+            rhi::RenderPassBeginInfo passInfo{
+                .clearColor = {0.08F, 0.12F, 0.20F, 1.0F}, // Deep Hikari Blue background baseline
+                .clearTarget = true,
+            };
+            mainCmd->beginRenderPass(passInfo);
+
+            // Visible diagnostic mode indicator rectangle at top right
+            // Blue in State A, Amber in State B, Magenta during transition
+            float modeColor[4] = {0.2F, 0.5F, 0.9F, 1.0F};
+            if (conductor.getState() == framework::ConductorState::Transitioning) {
+                modeColor[0] = 0.8F;
+                modeColor[1] = 0.2F;
+                modeColor[2] = 0.8F;
+            } else if (conductor.getActiveSlot() == framework::ActiveSlot::SlotB) {
+                modeColor[0] = 0.9F;
+                modeColor[1] = 0.6F;
+                modeColor[2] = 0.1F;
+            }
+            mainCmd->clearRect(1000, 20, 240, 48, modeColor[0], modeColor[1], modeColor[2], 1.0F);
+
+            // Render runtime UI
+            uiSystem.render(*mainCmd);
+
+#if defined(HIKARI_BUILD_EDITOR)
+            if (editorEngine.isInitialized()) {
+                editorEngine.endFrame(*mainCmd);
+            }
+#endif
+
+            mainCmd->endRenderPass();
+            mainCmd->end();
+
+            // 5. Submit recorded commands to GPU queue
+            (void)rhiDevice->submit(mainCmd.get());
+
+            // 6. Present rendered swapchain image to display
+            if (window) {
+                (void)rhiDevice->present();
+            }
+
+            frameCount++;
+
+            // Periodic telemetry logging (on frame 1 and every 300 frames)
+            if (frameCount == 1 || (frameCount % 300) == 0) {
+                const auto& uiStats = uiSystem.renderStats();
+                uint32_t editorDraws = 0;
+                uint32_t editorVerts = 0;
+                uint32_t editorIdxs = 0;
+                uint64_t editorPasses = 0;
+#if defined(HIKARI_BUILD_EDITOR)
+                if (editorEngine.isInitialized()) {
+                    editorDraws = editorEngine.lastDrawCallCount();
+                    editorVerts = editorEngine.lastVertexCount();
+                    editorIdxs = editorEngine.lastIndexCount();
+                    editorPasses = editorEngine.executedEditorPasses();
+                }
+#endif
+                ENG_LOG_FORMAT(
+                    LogLevel::Info, "Render",
+                    "Frame %u Telemetry: UI Draws: %u (Tris: %u), Editor Draws: %u (Verts: "
+                    "%u, Idxs: %u, Passes: %llu)",
+                    frameCount, uiStats.drawCalls, uiStats.triangleCount, editorDraws, editorVerts,
+                    editorIdxs, static_cast<unsigned long long>(editorPasses));
+            }
+
+            if (targetFrames > 0 && frameCount >= targetFrames) {
+                running = false;
+            }
+        }
+
+        ENG_LOG_FORMAT(
+            LogLevel::Info, "Core",
+            "=== Simulation loop ended after %u frames. Tearing down... ===", frameCount);
+
+        // 8. Graceful Reverse Shutdown
+#if defined(HIKARI_BUILD_EDITOR)
+        editorEngine.shutdown();
+#endif
+        conductor.shutdown();
+        uiSystem.shutdown();
+        scriptEngine.unbindWorld();
+        scriptEngine.shutdown();
+    } // Subsystems (editorEngine, conductor, uiSystem, world, scriptEngine, physicsWorld) destroyed
+      // here
+
+    // 9. Graceful Device & Platform Teardown
     // Command lists must be destroyed before the device that allocated them
     mainCmd.reset();
 
