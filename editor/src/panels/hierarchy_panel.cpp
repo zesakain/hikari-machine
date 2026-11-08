@@ -32,6 +32,56 @@ std::string generateUniqueEntityName(flecs::world& ecs, const char* baseName) {
     return candidate;
 }
 
+world::EntityHandle duplicateEntity(world::World& world, world::EntityHandle source) {
+    if (!world.isAlive(source)) {
+        return world::EntityHandle{};
+    }
+
+    flecs::world& ecs = world.getRawWorld();
+    flecs::entity srcEntity = ecs.entity(source.id);
+
+    // 1. Generate unique copy name
+    std::string baseName = std::string(world.getEntityName(source));
+    if (baseName.empty()) {
+        baseName = "Entity";
+    }
+    std::string copyName = generateUniqueEntityName(ecs, (baseName + "_Copy").c_str());
+
+    // 2. Spawn new valid entity in Shared World
+    auto clone = world.createEntity(copyName);
+
+    // 3. Clone supported components explicitly
+    if (srcEntity.has<physics::PhysicsTransformComponent>()) {
+        const auto* tc = srcEntity.get<physics::PhysicsTransformComponent>();
+        if (tc != nullptr) {
+            physics::PhysicsTransformComponent cloneTc = *tc;
+            cloneTc.transform.position.x += 0.5F; // Visually offset duplicate
+            world.setComponent(clone, cloneTc);
+        }
+    }
+
+    if (srcEntity.has<physics::RigidBodyComponent>()) {
+        const auto* rbc = srcEntity.get<physics::RigidBodyComponent>();
+        if (rbc != nullptr) {
+            physics::RigidBodyComponent cloneRbc{
+                .bodyHandle = {}, // Fresh unassigned body handle
+                .motionType = rbc->motionType,
+                .collisionLayer = rbc->collisionLayer,
+            };
+            world.setComponent(clone, cloneRbc);
+        }
+    }
+
+    if (srcEntity.has<script::ScriptComponent>()) {
+        const auto* sc = srcEntity.get<script::ScriptComponent>();
+        if (sc != nullptr) {
+            world.setComponent(clone, *sc);
+        }
+    }
+
+    return clone;
+}
+
 } // namespace
 
 void HierarchyPanel::startRenaming(world::EntityHandle entity, std::string_view currentName) {
@@ -284,15 +334,13 @@ void HierarchyPanel::draw(EditorContext& ctx) {
                         if (ImGui::MenuItem("Rename", "F2")) {
                             startRenaming(handle, name);
                         }
-                        if (ImGui::MenuItem("Duplicate Entity")) {
-                            auto copy = ctx.world->createEntity(std::string(name) + "_Copy");
-                            if (e.has<physics::PhysicsTransformComponent>()) {
-                                ctx.world->setComponent(
-                                    copy, *e.get<physics::PhysicsTransformComponent>());
-                            }
-                            if (e.has<physics::RigidBodyComponent>()) {
-                                ctx.world->setComponent(copy,
-                                                        *e.get<physics::RigidBodyComponent>());
+                        if (ImGui::MenuItem("Duplicate Entity", "Ctrl+D")) {
+                            auto clone = duplicateEntity(*ctx.world, handle);
+                            if (clone.isValid()) {
+                                if (ctx.selection != nullptr) {
+                                    ctx.selection->select(clone, false);
+                                }
+                                ctx.selectedEntityId = clone.id;
                             }
                         }
                         ImGui::Separator();
@@ -369,6 +417,26 @@ void HierarchyPanel::draw(EditorContext& ctx) {
                 }
                 if (target.isValid() && ctx.world->isAlive(target)) {
                     startRenaming(target, ctx.world->getEntityName(target));
+                }
+            }
+
+            // Keyboard shortcut Ctrl+D to duplicate selected entity
+            if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows) && ImGui::GetIO().KeyCtrl &&
+                ImGui::IsKeyPressed(ImGuiKey_D) && !renamingEntity_.isValid()) {
+                world::EntityHandle target{};
+                if (ctx.selection != nullptr) {
+                    target = ctx.selection->getPrimarySelected();
+                } else if (ctx.selectedEntityId != 0) {
+                    target = world::EntityHandle(ctx.selectedEntityId);
+                }
+                if (target.isValid() && ctx.world->isAlive(target)) {
+                    auto clone = duplicateEntity(*ctx.world, target);
+                    if (clone.isValid()) {
+                        if (ctx.selection != nullptr) {
+                            ctx.selection->select(clone, false);
+                        }
+                        ctx.selectedEntityId = clone.id;
+                    }
                 }
             }
         } else {
