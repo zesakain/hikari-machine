@@ -192,6 +192,14 @@ void ContentBrowserPanel::draw(EditorContext& ctx) {
                     s_selectedAssetIndex = static_cast<int>(i);
                 }
 
+                // Drag and drop source for 3D meshes into Viewport
+                if (item.isMesh && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+                    ImGui::SetDragDropPayload("CONTENT_BROWSER_MESH", item.relativePath.c_str(),
+                                              item.relativePath.size() + 1);
+                    ImGui::Text("Drop %s into Viewport", item.name.c_str());
+                    ImGui::EndDragDropSource();
+                }
+
                 // Context menu for asset actions
                 if (ImGui::BeginPopupContextItem()) {
                     if (item.isMesh) {

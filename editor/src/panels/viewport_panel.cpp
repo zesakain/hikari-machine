@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <imgui.h>
 #include <numbers>
 #include <vector>
@@ -150,6 +151,53 @@ void ViewportPanel::draw(EditorContext& ctx) {
         const bool isCanvasHovered = ImGui::IsItemHovered();
         const bool isCanvasActive = ImGui::IsItemActive();
         const ImGuiIO& io = ImGui::GetIO();
+
+        // Drag and drop target for mesh assets dropped directly into the Viewport
+        if (ImGui::BeginDragDropTarget()) {
+            if (const ImGuiPayload* payload =
+                    ImGui::AcceptDragDropPayload("CONTENT_BROWSER_MESH")) {
+                const char* meshPath = static_cast<const char*>(payload->Data);
+                if (meshPath != nullptr && ctx.world != nullptr) {
+                    std::filesystem::path p(meshPath);
+                    auto h = ctx.world->createEntity(p.stem().string());
+                    ctx.world->setComponent(
+                        h, physics::PhysicsTransformComponent{
+                               .transform = Transform{camera_.getPivot()},
+                           });
+                    const render::AssetId id = render::makeAssetIdFromPath(meshPath);
+                    ctx.world->setComponent(h, render::MeshComponent{
+                                                   .meshAsset = id,
+                                                   .assetPath = meshPath,
+                                                   .submeshIndex = 0,
+                                                   .visible = true,
+                                                   .castShadows = true,
+                                               });
+
+                    Vec3 boxHalfExtents{0.5F, 0.5F, 0.5F};
+                    if (ctx.assetManager != nullptr) {
+                        const auto* md = ctx.assetManager->getMeshData(id);
+                        if (md == nullptr) {
+                            (void)ctx.assetManager->loadMesh(meshPath);
+                            md = ctx.assetManager->getMeshData(id);
+                        }
+                        if (md != nullptr && md->bounds.isValid()) {
+                            boxHalfExtents = md->bounds.getSize() * 0.5F;
+                        }
+                    }
+                    ctx.world->setComponent(
+                        h, physics::ColliderComponent{
+                               .desc = physics::ColliderDesc::makeBox(boxHalfExtents),
+                           });
+
+                    if (ctx.selection != nullptr) {
+                        ctx.selection->select(h);
+                    }
+                    ctx.selectedEntityId = h.id;
+                    ctx.markDirty();
+                }
+            }
+            ImGui::EndDragDropTarget();
+        }
 
         // ---------------------------------------------------------------------
         // Camera Navigation & Input Processing
