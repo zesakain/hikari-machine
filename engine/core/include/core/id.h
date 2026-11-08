@@ -247,3 +247,9 @@ private:
 };
 
 } // namespace eng
+
+template <typename Tag, std::unsigned_integral Rep> struct std::hash<eng::StrongId<Tag, Rep>> {
+    constexpr size_t operator()(const eng::StrongId<Tag, Rep>& id) const noexcept {
+        return std::hash<Rep>{}(id.value());
+    }
+};

@@ -24,6 +24,54 @@
 
 namespace eng {
 
+/// @struct Vec2
+/// @brief 2D single-precision floating-point vector.
+struct Vec2 {
+    float x{0.0F};
+    float y{0.0F};
+
+    constexpr Vec2() noexcept = default;
+    constexpr Vec2(float inX, float inY) noexcept : x(inX), y(inY) {}
+    constexpr explicit Vec2(float scalar) noexcept : x(scalar), y(scalar) {}
+
+    [[nodiscard]] static constexpr Vec2 zero() noexcept { return Vec2{0.0F, 0.0F}; }
+    [[nodiscard]] static constexpr Vec2 one() noexcept { return Vec2{1.0F, 1.0F}; }
+
+    [[nodiscard]] constexpr Vec2 operator+(const Vec2& rhs) const noexcept {
+        return Vec2{x + rhs.x, y + rhs.y};
+    }
+    [[nodiscard]] constexpr Vec2 operator-(const Vec2& rhs) const noexcept {
+        return Vec2{x - rhs.x, y - rhs.y};
+    }
+    [[nodiscard]] constexpr Vec2 operator*(float scalar) const noexcept {
+        return Vec2{x * scalar, y * scalar};
+    }
+    [[nodiscard]] constexpr Vec2 operator/(float scalar) const noexcept {
+        const float inv = 1.0F / scalar;
+        return Vec2{x * inv, y * inv};
+    }
+    constexpr Vec2& operator+=(const Vec2& rhs) noexcept {
+        x += rhs.x;
+        y += rhs.y;
+        return *this;
+    }
+    constexpr Vec2& operator-=(const Vec2& rhs) noexcept {
+        x -= rhs.x;
+        y -= rhs.y;
+        return *this;
+    }
+    constexpr Vec2& operator*=(float scalar) noexcept {
+        x *= scalar;
+        y *= scalar;
+        return *this;
+    }
+    [[nodiscard]] constexpr float lengthSq() const noexcept { return (x * x) + (y * y); }
+    [[nodiscard]] float length() const noexcept { return std::sqrt(lengthSq()); }
+    [[nodiscard]] bool isNearlyEqual(const Vec2& rhs, float epsilon = 1e-5F) const noexcept {
+        return std::abs(x - rhs.x) <= epsilon && std::abs(y - rhs.y) <= epsilon;
+    }
+};
+
 /// @struct Vec3
 /// @brief 3D single-precision floating-point vector.
 struct Vec3 {
@@ -62,6 +110,10 @@ struct Vec3 {
     [[nodiscard]] constexpr Vec3 operator/(float scalar) const noexcept {
         const float inv = 1.0F / scalar;
         return Vec3{x * inv, y * inv, z * inv};
+    }
+
+    [[nodiscard]] constexpr Vec3 operator/(const Vec3& rhs) const noexcept {
+        return Vec3{x / rhs.x, y / rhs.y, z / rhs.z};
     }
 
     constexpr Vec3& operator+=(const Vec3& rhs) noexcept {
@@ -128,6 +180,41 @@ struct Vec3 {
 [[nodiscard]] constexpr Vec3 operator*(float scalar, const Vec3& v) noexcept {
     return v * scalar;
 }
+
+/// @struct Vec4
+/// @brief 4D single-precision floating-point vector.
+struct Vec4 {
+    float x{0.0F};
+    float y{0.0F};
+    float z{0.0F};
+    float w{0.0F};
+
+    constexpr Vec4() noexcept = default;
+    constexpr Vec4(float inX, float inY, float inZ, float inW) noexcept
+        : x(inX), y(inY), z(inZ), w(inW) {}
+    constexpr explicit Vec4(float scalar) noexcept : x(scalar), y(scalar), z(scalar), w(scalar) {}
+
+    [[nodiscard]] static constexpr Vec4 zero() noexcept { return Vec4{0.0F, 0.0F, 0.0F, 0.0F}; }
+    [[nodiscard]] static constexpr Vec4 one() noexcept { return Vec4{1.0F, 1.0F, 1.0F, 1.0F}; }
+
+    [[nodiscard]] constexpr Vec4 operator+(const Vec4& rhs) const noexcept {
+        return Vec4{x + rhs.x, y + rhs.y, z + rhs.z, w + rhs.w};
+    }
+    [[nodiscard]] constexpr Vec4 operator-(const Vec4& rhs) const noexcept {
+        return Vec4{x - rhs.x, y - rhs.y, z - rhs.z, w - rhs.w};
+    }
+    [[nodiscard]] constexpr Vec4 operator*(float scalar) const noexcept {
+        return Vec4{x * scalar, y * scalar, z * scalar, w * scalar};
+    }
+    [[nodiscard]] constexpr Vec4 operator/(float scalar) const noexcept {
+        const float inv = 1.0F / scalar;
+        return Vec4{x * inv, y * inv, z * inv, w * inv};
+    }
+    [[nodiscard]] bool isNearlyEqual(const Vec4& rhs, float epsilon = 1e-5F) const noexcept {
+        return std::abs(x - rhs.x) <= epsilon && std::abs(y - rhs.y) <= epsilon &&
+               std::abs(z - rhs.z) <= epsilon && std::abs(w - rhs.w) <= epsilon;
+    }
+};
 
 /// @struct Quat
 /// @brief Unit quaternion for 3D spatial rotations (x, y, z, w).
@@ -588,7 +675,74 @@ struct Ray {
         }
         return tMin;
     }
+
+    /// Tests intersection with an AABB struct.
+    [[nodiscard]] std::optional<float> intersectAABB(const struct AABB& aabb) const noexcept;
 };
+
+/// @struct AABB
+/// @brief 3D Axis-Aligned Bounding Box.
+struct AABB {
+    Vec3 minBound{1e30F, 1e30F, 1e30F};
+    Vec3 maxBound{-1e30F, -1e30F, -1e30F};
+
+    constexpr AABB() noexcept = default;
+    constexpr AABB(const Vec3& minB, const Vec3& maxB) noexcept : minBound(minB), maxBound(maxB) {}
+
+    [[nodiscard]] constexpr bool isValid() const noexcept {
+        return minBound.x <= maxBound.x && minBound.y <= maxBound.y && minBound.z <= maxBound.z;
+    }
+
+    [[nodiscard]] constexpr Vec3 getCenter() const noexcept { return (minBound + maxBound) * 0.5F; }
+
+    [[nodiscard]] constexpr Vec3 getExtents() const noexcept {
+        return (maxBound - minBound) * 0.5F;
+    }
+
+    [[nodiscard]] constexpr Vec3 getSize() const noexcept { return maxBound - minBound; }
+
+    void expand(const Vec3& point) noexcept {
+        minBound.x = std::min(minBound.x, point.x);
+        minBound.y = std::min(minBound.y, point.y);
+        minBound.z = std::min(minBound.z, point.z);
+
+        maxBound.x = std::max(maxBound.x, point.x);
+        maxBound.y = std::max(maxBound.y, point.y);
+        maxBound.z = std::max(maxBound.z, point.z);
+    }
+
+    void expand(const AABB& other) noexcept {
+        if (!other.isValid()) {
+            return;
+        }
+        expand(other.minBound);
+        expand(other.maxBound);
+    }
+
+    [[nodiscard]] AABB transform(const Mat4& m) const noexcept {
+        if (!isValid()) {
+            return *this;
+        }
+        AABB res;
+        const Vec3 corners[8] = {
+            Vec3{minBound.x, minBound.y, minBound.z}, Vec3{maxBound.x, minBound.y, minBound.z},
+            Vec3{maxBound.x, maxBound.y, minBound.z}, Vec3{minBound.x, maxBound.y, minBound.z},
+            Vec3{minBound.x, minBound.y, maxBound.z}, Vec3{maxBound.x, minBound.y, maxBound.z},
+            Vec3{maxBound.x, maxBound.y, maxBound.z}, Vec3{minBound.x, maxBound.y, maxBound.z},
+        };
+        for (const auto& c : corners) {
+            res.expand(m.transformPoint(c));
+        }
+        return res;
+    }
+};
+
+inline std::optional<float> Ray::intersectAABB(const AABB& aabb) const noexcept {
+    if (!aabb.isValid()) {
+        return std::nullopt;
+    }
+    return intersectAABB(aabb.minBound, aabb.maxBound);
+}
 
 /// @struct Transform
 /// @brief Spatial transformation combining position, orientation, and non-uniform scale.

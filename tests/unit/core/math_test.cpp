@@ -18,6 +18,34 @@ using namespace eng;
         }                                                                                          \
     } while (false)
 
+static int testVec2Vec4AndAABB() {
+    Vec2 v2a{1.0F, 2.0F};
+    Vec2 v2b{3.0F, 4.0F};
+    Vec2 v2Sum = v2a + v2b;
+    TEST_CHECK(v2Sum.x == 4.0F && v2Sum.y == 6.0F);
+    TEST_CHECK(v2a.lengthSq() == 5.0F);
+
+    Vec4 v4a{1.0F, 2.0F, 3.0F, 4.0F};
+    Vec4 v4b{0.5F, 1.0F, 1.5F, 2.0F};
+    Vec4 v4Sub = v4a - v4b;
+    TEST_CHECK(v4Sub.isNearlyEqual(Vec4{0.5F, 1.0F, 1.5F, 2.0F}));
+
+    AABB aabb(Vec3{-1.0F, -2.0F, -3.0F}, Vec3{1.0F, 2.0F, 3.0F});
+    TEST_CHECK(aabb.isValid());
+    TEST_CHECK(aabb.getCenter().isNearlyEqual(Vec3::zero()));
+    TEST_CHECK(aabb.getSize().isNearlyEqual(Vec3{2.0F, 4.0F, 6.0F}));
+
+    aabb.expand(Vec3{5.0F, 0.0F, 0.0F});
+    TEST_CHECK(aabb.maxBound.x == 5.0F);
+
+    Ray ray(Vec3{0.0F, 0.0F, 10.0F}, Vec3{0.0F, 0.0F, -1.0F});
+    auto tHit = ray.intersectAABB(aabb);
+    TEST_CHECK(tHit.has_value());
+    TEST_CHECK(std::abs(*tHit - 7.0F) < 1e-4F); // Hits z = 3 at dist 7
+
+    return 0;
+}
+
 static int testVec3() {
     Vec3 a{1.0F, 2.0F, 3.0F};
     Vec3 b{4.0F, 5.0F, 6.0F};
@@ -191,6 +219,9 @@ static int testPerspectiveLookAtInverseAndRay() {
 int main() {
     std::cout << "Running Math Tests...\n";
 
+    if (testVec2Vec4AndAABB() != 0) {
+        return 1;
+    }
     if (testVec3() != 0) {
         return 1;
     }
