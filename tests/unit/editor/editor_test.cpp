@@ -1,6 +1,7 @@
 /// @file editor_test.cpp
 /// @brief Comprehensive test suite for the Dear ImGui editor tooling subsystem.
 
+#include "editor/editor_camera.h"
 #include "editor/editor_engine.h"
 #include "editor/editor_theme.h"
 #include "editor/hierarchy_panel.h"
@@ -1302,6 +1303,87 @@ static void testEditorRuntimeSessionIntegrationAndIsolation() {
     std::cout << "[PASS] testEditorRuntimeSessionIntegrationAndIsolation\n";
 }
 
+static void testEditorCameraLifecycleAndNavigation() {
+    EditorCamera camera;
+    TEST_CHECK(camera.getDistance() > 0.0F);
+    TEST_CHECK(camera.getNearPlane() == 0.1F);
+    TEST_CHECK(camera.getFarPlane() == 1000.0F);
+
+    // Initial framing
+    camera.frame(Vec3{0.0F, 0.0F, 0.0F}, 2.0F);
+    TEST_CHECK(camera.getPivot().isNearlyEqual(Vec3::zero()));
+    TEST_CHECK(camera.getDistance() >= 5.0F);
+
+    // Update matrices
+    camera.updateMatrices(1920.0F, 1080.0F);
+    const auto& view = camera.getViewMatrix();
+    const auto& proj = camera.getProjectionMatrix();
+    const auto& vp = camera.getViewProjectionMatrix();
+    TEST_CHECK(view.at(3, 3) == 1.0F);
+    TEST_CHECK(proj.at(3, 2) == -1.0F); // Perspective w projection
+    TEST_CHECK(vp.at(3, 2) != 0.0F || vp.at(3, 0) != 0.0F);
+
+    // Orbit
+    float initialYaw = camera.getYaw();
+    camera.orbit(0.5F, 0.2F);
+    TEST_CHECK(camera.getYaw() == initialYaw + 0.5F);
+    TEST_CHECK(camera.getPivot().isNearlyEqual(Vec3::zero())); // Pivot must stay fixed during orbit
+
+    // Pitch clamping prevents singularity
+    camera.orbit(0.0F, 10.0F); // Push far up
+    TEST_CHECK(camera.getPitch() <= 1.553343F);
+    camera.orbit(0.0F, -20.0F); // Push far down
+    TEST_CHECK(camera.getPitch() >= -1.553343F);
+
+    // Pan
+    camera.resetToDefault();
+    Vec3 prePanPos = camera.getPosition();
+    Vec3 prePanPivot = camera.getPivot();
+    camera.pan(50.0F, 30.0F);
+    Vec3 deltaPos = camera.getPosition() - prePanPos;
+    Vec3 deltaPivot = camera.getPivot() - prePanPivot;
+    TEST_CHECK(deltaPos.isNearlyEqual(deltaPivot, 1e-4F)); // Position and pivot move identically
+
+    // Zoom
+    float preZoomDist = camera.getDistance();
+    camera.zoom(2.0F);
+    TEST_CHECK(camera.getDistance() < preZoomDist);
+    camera.zoom(-4.0F);
+    TEST_CHECK(camera.getDistance() > preZoomDist);
+
+    // Zoom clamping prevents passing through pivot
+    camera.zoom(100.0F);
+    TEST_CHECK(camera.getDistance() >= 0.2F);
+
+    // Fly movement
+    Vec3 preFlyPos = camera.getPosition();
+    camera.fly(Vec3{0.0F, 1.0F, 0.0F}, 0.5F, 1.0F); // Move Up by 0.5s * 6.0m/s = 3.0m
+    TEST_CHECK(std::abs(camera.getPosition().y - (preFlyPos.y + 3.0F)) < 1e-4F);
+
+    // Projection and Unprojection accuracy
+    camera.resetToDefault();
+    camera.updateMatrices(1000.0F, 1000.0F);
+    Vec3 canvasOrigin{100.0F, 100.0F, 0.0F};
+    Vec3 canvasSize{1000.0F, 1000.0F, 0.0F};
+
+    // Project pivot (0,0,0) -> should land at canvas center (600, 600)
+    Vec3 projectedScreen;
+    float depth = 0.0F;
+    bool visible =
+        camera.project(camera.getPivot(), canvasOrigin, canvasSize, projectedScreen, depth);
+    TEST_CHECK(visible);
+    TEST_CHECK(depth > 0.0F);
+    TEST_CHECK(std::abs(projectedScreen.x - 600.0F) < 1.0F);
+    TEST_CHECK(std::abs(projectedScreen.y - 600.0F) < 1.0F);
+
+    // Unproject canvas center -> ray must pass through pivot
+    Ray centerRay = camera.unproject(Vec3{600.0F, 600.0F, 0.0F}, canvasOrigin, canvasSize);
+    auto tHit = centerRay.intersectSphere(camera.getPivot(), 0.5F);
+    TEST_CHECK(tHit.has_value());
+
+    std::cout << "[PASS] testEditorCameraLifecycleAndNavigation\n";
+}
+
 int main() {
     std::cout << "Running Editor subsystem unit tests...\n";
     testThemeTokens();
@@ -1324,6 +1406,7 @@ int main() {
     testMultiSelectionPropertyEditingAndBatchOperations();
     testWorkspaceSceneLifecycleAndFileOperations();
     testEditorRuntimeSessionIntegrationAndIsolation();
+    testEditorCameraLifecycleAndNavigation();
     std::cout << "All Editor subsystem tests PASSED!\n";
     return 0;
 }
