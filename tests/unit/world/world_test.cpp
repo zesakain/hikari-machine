@@ -154,11 +154,43 @@ static int testSystemGroupPhaseGating() {
     return 0;
 }
 
+static int testEntityNaming() {
+    World world;
+
+    // 1. Unnamed entity
+    EntityHandle unnamed = world.createEntity();
+    TEST_CHECK(unnamed.isValid());
+    TEST_CHECK(world.getEntityName(unnamed).empty());
+
+    // 2. Named entity at creation
+    EntityHandle named = world.createEntity("PlayerCharacter");
+    TEST_CHECK(named.isValid());
+    TEST_CHECK(world.getEntityName(named) == "PlayerCharacter");
+
+    // 3. Rename existing entity
+    world.setEntityName(named, "HeroKnight");
+    TEST_CHECK(world.getEntityName(named) == "HeroKnight");
+
+    // 4. Rename unnamed entity
+    world.setEntityName(unnamed, "StaticObstacle");
+    TEST_CHECK(world.getEntityName(unnamed) == "StaticObstacle");
+
+    // 5. Invalid handle handling
+    EntityHandle invalidHandle{};
+    world.setEntityName(invalidHandle, "Invalid");
+    TEST_CHECK(world.getEntityName(invalidHandle).empty());
+
+    return 0;
+}
+
 int main() {
     if (testEntityLifecycle() != 0) {
         return 1;
     }
     if (testComponentStorageAndAccess() != 0) {
+        return 1;
+    }
+    if (testEntityNaming() != 0) {
         return 1;
     }
     if (testSystemGroupPhaseGating() != 0) {

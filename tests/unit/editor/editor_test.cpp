@@ -3,6 +3,7 @@
 
 #include "editor/editor_engine.h"
 #include "editor/editor_theme.h"
+#include "editor/selection_model.h"
 #include "editor/workspace_manager.h"
 #include "framework/conductor.h"
 #include "framework/mode.h"
@@ -370,6 +371,231 @@ static void testGenericConductorStateIdentity() {
     std::cout << "[PASS] testGenericConductorStateIdentity\n";
 }
 
+static void testSelectionModelBasicOperations() {
+    SelectionModel model;
+    TEST_CHECK(model.empty());
+    TEST_CHECK(model.count() == 0);
+    TEST_CHECK(!model.getPrimarySelected().isValid());
+
+    world::EntityHandle e1{101};
+    world::EntityHandle e2{102};
+    world::EntityHandle e3{103};
+    world::EntityHandle e4{104};
+    world::EntityHandle e5{105};
+
+    // 1. Single selection
+    model.select(e1, false);
+    TEST_CHECK(!model.empty());
+    TEST_CHECK(model.count() == 1);
+    TEST_CHECK(model.isSelected(e1));
+    TEST_CHECK(!model.isSelected(e2));
+    TEST_CHECK(model.getPrimarySelected() == e1);
+
+    // 2. Single selection replacement
+    model.select(e2, false);
+    TEST_CHECK(model.count() == 1);
+    TEST_CHECK(!model.isSelected(e1));
+    TEST_CHECK(model.isSelected(e2));
+    TEST_CHECK(model.getPrimarySelected() == e2);
+
+    // 3. Multi-selection addition (Ctrl-click / additive)
+    model.select(e3, true);
+    TEST_CHECK(model.count() == 2);
+    TEST_CHECK(model.isSelected(e2));
+    TEST_CHECK(model.isSelected(e3));
+    TEST_CHECK(model.getPrimarySelected() == e3);
+
+    // 4. Toggle selection
+    model.toggle(e2); // remove e2
+    TEST_CHECK(model.count() == 1);
+    TEST_CHECK(!model.isSelected(e2));
+    TEST_CHECK(model.isSelected(e3));
+    TEST_CHECK(model.getPrimarySelected() == e3);
+
+    model.toggle(e1); // add e1
+    TEST_CHECK(model.count() == 2);
+    TEST_CHECK(model.isSelected(e1));
+    TEST_CHECK(model.isSelected(e3));
+    TEST_CHECK(model.getPrimarySelected() == e1);
+
+    // 5. Select range (Shift-click)
+    std::vector<world::EntityHandle> ordered = {e1, e2, e3, e4, e5};
+    // Primary is e1; select range to e4 -> should contain e1, e2, e3, e4
+    model.selectRange(ordered, e4);
+    TEST_CHECK(model.count() == 4);
+    TEST_CHECK(model.isSelected(e1));
+    TEST_CHECK(model.isSelected(e2));
+    TEST_CHECK(model.isSelected(e3));
+    TEST_CHECK(model.isSelected(e4));
+    TEST_CHECK(!model.isSelected(e5));
+    TEST_CHECK(model.getPrimarySelected() == e4);
+
+    // Reverse range selection: from e4 to e2 -> e2, e3, e4
+    model.selectRange(ordered, e2);
+    TEST_CHECK(model.count() == 3);
+    TEST_CHECK(model.isSelected(e2));
+    TEST_CHECK(model.isSelected(e3));
+    TEST_CHECK(model.isSelected(e4));
+    TEST_CHECK(!model.isSelected(e1));
+    TEST_CHECK(model.getPrimarySelected() == e2);
+
+    // 6. Select all
+    model.selectAll(ordered);
+    TEST_CHECK(model.count() == 5);
+    for (const auto& h : ordered) {
+        TEST_CHECK(model.isSelected(h));
+    }
+
+    // 7. Deselect single
+    model.deselect(e3);
+    TEST_CHECK(model.count() == 4);
+    TEST_CHECK(!model.isSelected(e3));
+
+    // 8. Clear
+    model.clear();
+    TEST_CHECK(model.empty());
+    TEST_CHECK(model.count() == 0);
+    TEST_CHECK(!model.getPrimarySelected().isValid());
+
+    std::cout << "[PASS] testSelectionModelBasicOperations\n";
+}
+
+static void testSelectionModelValidationAndStaleHandles() {
+    world::World world;
+    auto e1 = world.createEntity("Alpha");
+    auto e2 = world.createEntity("Beta");
+    auto e3 = world.createEntity("Gamma");
+    auto e4 = world.createEntity("Delta");
+
+    SelectionModel model;
+    std::vector<world::EntityHandle> entities = {e1, e2, e3, e4};
+    model.selectAll(entities);
+    TEST_CHECK(model.count() == 4);
+    TEST_CHECK(model.getPrimarySelected() == e4);
+
+    // Destroy e2 in the World
+    world.destroyEntity(e2);
+    TEST_CHECK(!world.isAlive(e2));
+
+    // Before validation, model still has cached handle
+    TEST_CHECK(model.count() == 4);
+
+    // Validate against world
+    model.validate(world);
+    TEST_CHECK(model.count() == 3);
+    TEST_CHECK(model.isSelected(e1));
+    TEST_CHECK(!model.isSelected(e2));
+    TEST_CHECK(model.isSelected(e3));
+    TEST_CHECK(model.isSelected(e4));
+    TEST_CHECK(model.getPrimarySelected() == e4);
+
+    // Destroy the primary selected entity (e4)
+    world.destroyEntity(e4);
+    TEST_CHECK(!world.isAlive(e4));
+
+    model.validate(world);
+    TEST_CHECK(model.count() == 2);
+    TEST_CHECK(!model.isSelected(e4));
+    // Primary must fall back to a remaining alive handle (e3)
+    TEST_CHECK(model.getPrimarySelected() == e3);
+
+    // Destroy all remaining entities
+    world.destroyEntity(e1);
+    world.destroyEntity(e3);
+    model.validate(world);
+    TEST_CHECK(model.empty());
+    TEST_CHECK(model.count() == 0);
+    TEST_CHECK(!model.getPrimarySelected().isValid());
+
+    std::cout << "[PASS] testSelectionModelValidationAndStaleHandles\n";
+}
+
+static void testEditorEntityLifecycleAndConductorGating() {
+    auto devRes = rhi::createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto nullDevice = std::move(devRes.value());
+
+    auto cmdRes = nullDevice->createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto nullCmd = std::move(cmdRes.value());
+
+    world::World world;
+    auto modeA = std::make_unique<DummyEditorMode>("StateA");
+    auto modeB = std::make_unique<DummyEditorMode>("StateB");
+    framework::Conductor conductor(world, std::move(modeA), std::move(modeB));
+    TEST_CHECK(conductor.initialize(framework::ActiveSlot::SlotA).hasValue());
+
+    EditorEngine editor;
+    TEST_CHECK(editor.initialize(*nullDevice));
+    editor.bindWorld(&world);
+    editor.bindConductor(&conductor);
+
+    // 1. Create entities in Shared World
+    auto hero = world.createEntity("HeroPlayer");
+    auto enemy = world.createEntity("EnemyTarget");
+    TEST_CHECK(world.isAlive(hero));
+    TEST_CHECK(world.isAlive(enemy));
+
+    // 2. Select via SelectionModel
+    editor.getSelectionModel().select(hero, false);
+    TEST_CHECK(editor.getSelectionModel().isSelected(hero));
+    TEST_CHECK(editor.getSelectionModel().getPrimarySelected() == hero);
+
+    // 3. Render frame in State A
+    nullCmd->begin();
+    editor.beginFrame(Duration::fromMilliseconds(16));
+    editor.drawPanels();
+    editor.endFrame(*nullCmd);
+    nullCmd->end();
+
+    TEST_CHECK(editor.getSelectionModel().isSelected(hero));
+
+    // 4. Mode transition State A -> State B
+    TEST_CHECK(conductor.requestTransition().hasValue());
+    conductor.update(Duration::fromMilliseconds(16));
+    TEST_CHECK(conductor.executeTransition().hasValue());
+    TEST_CHECK(conductor.getActiveSlot() == framework::ActiveSlot::SlotB);
+
+    // 5. Verification: Shared World maintains entity persistence across mode transitions
+    TEST_CHECK(world.isAlive(hero));
+    TEST_CHECK(world.isAlive(enemy));
+
+    // Render frame in State B
+    nullCmd->begin();
+    editor.beginFrame(Duration::fromMilliseconds(16));
+    editor.drawPanels();
+    editor.endFrame(*nullCmd);
+    nullCmd->end();
+
+    TEST_CHECK(editor.getSelectionModel().isSelected(hero));
+
+    // 6. Multi-select in State B
+    editor.getSelectionModel().select(enemy, true);
+    TEST_CHECK(editor.getSelectionModel().count() == 2);
+    TEST_CHECK(editor.getSelectionModel().isSelected(hero));
+    TEST_CHECK(editor.getSelectionModel().isSelected(enemy));
+
+    // 7. Destroy entity during simulation
+    world.destroyEntity(hero);
+    TEST_CHECK(!world.isAlive(hero));
+
+    // On next frame, beginFrame() must automatically purge stale entity
+    nullCmd->begin();
+    editor.beginFrame(Duration::fromMilliseconds(16));
+    editor.drawPanels();
+    editor.endFrame(*nullCmd);
+    nullCmd->end();
+
+    TEST_CHECK(editor.getSelectionModel().count() == 1);
+    TEST_CHECK(!editor.getSelectionModel().isSelected(hero));
+    TEST_CHECK(editor.getSelectionModel().isSelected(enemy));
+    TEST_CHECK(editor.getSelectionModel().getPrimarySelected() == enemy);
+
+    editor.shutdown();
+    conductor.shutdown();
+    std::cout << "[PASS] testEditorEntityLifecycleAndConductorGating\n";
+}
+
 int main() {
     std::cout << "Running Editor subsystem unit tests...\n";
     testThemeTokens();
@@ -380,6 +606,9 @@ int main() {
     testEditorInputProcessing();
     testResponsiveViewports();
     testGenericConductorStateIdentity();
+    testSelectionModelBasicOperations();
+    testSelectionModelValidationAndStaleHandles();
+    testEditorEntityLifecycleAndConductorGating();
     std::cout << "All Editor subsystem tests PASSED!\n";
     return 0;
 }
