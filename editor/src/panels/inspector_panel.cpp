@@ -7,6 +7,8 @@
 #include "editor/editor_theme.h"
 #include "editor/selection_model.h"
 #include "physics/physics_components.h"
+#include "render/asset_manager.h"
+#include "render/mesh_component.h"
 #include "script/script_components.h"
 #include "world/world.h"
 
@@ -1143,6 +1145,129 @@ void InspectorPanel::draw(EditorContext& ctx) {
                     ctx.markDirty();
                 }
 
+                // 5. Mesh Component Card
+                bool removeMesh = false;
+                if (e.has<render::MeshComponent>()) {
+                    bool headerOpen =
+                        ImGui::CollapsingHeader("Mesh Component", ImGuiTreeNodeFlags_DefaultOpen);
+                    if (ImGui::BeginPopupContextItem("MeshHeaderCtx")) {
+                        if (ImGui::MenuItem("Remove Component")) {
+                            removeMesh = true;
+                        }
+                        ImGui::EndPopup();
+                    }
+
+                    if (headerOpen) {
+                        auto* mc = e.get_mut<render::MeshComponent>();
+
+                        // Asset Path Input
+                        char pathBuf[128];
+                        std::strncpy(pathBuf, mc->assetPath.c_str(), sizeof(pathBuf) - 1);
+                        pathBuf[sizeof(pathBuf) - 1] = '\0';
+
+                        ImGui::Columns(2, nullptr, false);
+                        ImGui::SetColumnWidth(0, ThemeMetrics::kPropertyLabelWidth);
+                        ImGui::TextDisabled("Mesh Asset");
+                        ImGui::NextColumn();
+                        ImGui::SetNextItemWidth(-1.0F);
+                        if (ImGui::InputTextWithHint("##MeshAssetPath",
+                                                     "e.g. assets/models/cube.obj", pathBuf,
+                                                     sizeof(pathBuf))) {
+                            mc->assetPath = pathBuf;
+                            mc->meshAsset = render::makeAssetIdFromPath(mc->assetPath);
+                            e.modified<render::MeshComponent>();
+                            ctx.markDirty();
+                        }
+                        ImGui::Columns(1);
+
+                        // Mesh Load Status and Stats
+                        const render::MeshData* meshData = nullptr;
+                        if (ctx.assetManager != nullptr) {
+                            meshData = ctx.assetManager->getMeshData(mc->meshAsset);
+                            if (meshData == nullptr && !mc->assetPath.empty()) {
+                                meshData = ctx.assetManager->getMeshData(mc->assetPath);
+                            }
+                        }
+
+                        ImGui::Columns(2, nullptr, false);
+                        ImGui::SetColumnWidth(0, ThemeMetrics::kPropertyLabelWidth);
+                        ImGui::TextDisabled("Status");
+                        ImGui::NextColumn();
+                        if (mc->assetPath.empty()) {
+                            ImGui::TextColored(ImVec4(0.85F, 0.75F, 0.25F, 1.0F), "[Unassigned]");
+                        } else if (meshData != nullptr) {
+                            ImGui::TextColored(
+                                ImVec4(0.30F, 0.85F, 0.35F, 1.0F), "[Loaded] %u verts, %u tris",
+                                meshData->getVertexCount(), meshData->getTriangleCount());
+                        } else {
+                            ImGui::TextColored(ImVec4(0.85F, 0.40F, 0.20F, 1.0F),
+                                               "[Pending/Unloaded]");
+                            ImGui::SameLine();
+                            if (ctx.assetManager != nullptr && ImGui::SmallButton("Load Now")) {
+                                auto loadRes = ctx.assetManager->loadMesh(mc->assetPath);
+                                if (loadRes.hasValue()) {
+                                    mc->meshAsset = loadRes.value();
+                                    e.modified<render::MeshComponent>();
+                                    ctx.markDirty();
+                                }
+                            }
+                        }
+                        ImGui::Columns(1);
+
+                        // Submesh Index
+                        ImGui::Columns(2, nullptr, false);
+                        ImGui::SetColumnWidth(0, ThemeMetrics::kPropertyLabelWidth);
+                        ImGui::TextDisabled("Submesh");
+                        ImGui::NextColumn();
+                        ImGui::SetNextItemWidth(-1.0F);
+                        int subIdx = static_cast<int>(mc->submeshIndex);
+                        int maxSub = (meshData != nullptr && !meshData->submeshes.empty())
+                                         ? static_cast<int>(meshData->submeshes.size() - 1)
+                                         : 0;
+                        if (ImGui::DragInt("##SubmeshIndex", &subIdx, 0.05F, 0, maxSub)) {
+                            if (subIdx < 0) {
+                                subIdx = 0;
+                            }
+                            if (subIdx > maxSub) {
+                                subIdx = maxSub;
+                            }
+                            mc->submeshIndex = static_cast<uint32_t>(subIdx);
+                            e.modified<render::MeshComponent>();
+                            ctx.markDirty();
+                        }
+                        ImGui::Columns(1);
+
+                        // Visibility & Cast Shadows Checkboxes
+                        ImGui::Columns(2, nullptr, false);
+                        ImGui::SetColumnWidth(0, ThemeMetrics::kPropertyLabelWidth);
+                        ImGui::TextDisabled("Rendering");
+                        ImGui::NextColumn();
+                        bool vis = mc->visible;
+                        if (ImGui::Checkbox("Visible##MeshVis", &vis)) {
+                            mc->visible = vis;
+                            e.modified<render::MeshComponent>();
+                            ctx.markDirty();
+                        }
+                        ImGui::SameLine();
+                        bool shadows = mc->castShadows;
+                        if (ImGui::Checkbox("Shadows##MeshShadows", &shadows)) {
+                            mc->castShadows = shadows;
+                            e.modified<render::MeshComponent>();
+                            ctx.markDirty();
+                        }
+                        ImGui::Columns(1);
+
+                        ImGui::Spacing();
+                        if (ImGui::SmallButton("Remove Mesh Component")) {
+                            removeMesh = true;
+                        }
+                    }
+                }
+                if (removeMesh) {
+                    e.remove<render::MeshComponent>();
+                    ctx.markDirty();
+                }
+
                 ImGui::Spacing();
                 ImGui::Separator();
                 ImGui::Spacing();
@@ -1156,6 +1281,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                     bool hasRigidBody = e.has<physics::RigidBodyComponent>();
                     bool hasCollider = e.has<physics::ColliderComponent>();
                     bool hasScript = e.has<script::ScriptComponent>();
+                    bool hasMesh = e.has<render::MeshComponent>();
 
                     ImGui::TextDisabled("Physics");
                     if (ImGui::MenuItem("Transform", nullptr, false, !hasTransform)) {
@@ -1172,6 +1298,20 @@ void InspectorPanel::draw(EditorContext& ctx) {
                     if (ImGui::MenuItem("Collider", nullptr, false, !hasCollider)) {
                         e.set<physics::ColliderComponent>({
                             .desc = physics::ColliderDesc::makeBox(Vec3(0.5F, 0.5F, 0.5F)),
+                        });
+                        ctx.markDirty();
+                    }
+
+                    ImGui::Separator();
+                    ImGui::TextDisabled("Rendering");
+                    if (ImGui::MenuItem("Mesh Component", nullptr, false, !hasMesh)) {
+                        e.set<render::MeshComponent>({
+                            .meshAsset = render::makeAssetIdFromPath("assets/models/cube.obj"),
+                            .assetPath = "assets/models/cube.obj",
+                            .submeshIndex = 0,
+                            .materialAsset = {},
+                            .visible = true,
+                            .castShadows = true,
                         });
                         ctx.markDirty();
                     }

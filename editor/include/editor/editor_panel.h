@@ -33,6 +33,10 @@ namespace eng::rhi {
 class RhiDevice;
 } // namespace eng::rhi
 
+namespace eng::render {
+class AssetManager;
+} // namespace eng::render
+
 namespace eng::editor {
 
 class SelectionModel;
@@ -45,6 +49,7 @@ struct EditorContext {
     framework::Conductor* conductor{nullptr};
     framework::RuntimeSession* runtimeSession{nullptr};
     rhi::RhiDevice* rhiDevice{nullptr};
+    render::AssetManager* assetManager{nullptr};
     SelectionModel* selection{nullptr};
     EditorCamera* editorCamera{nullptr};
 

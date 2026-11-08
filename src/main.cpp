@@ -10,6 +10,7 @@
 #include "physics/physics_components.h"
 #include "physics/physics_world.h"
 #include "platform/platform.h"
+#include "render/mesh_component.h"
 #include "render/render_graph.h"
 #include "rhi/command_list.h"
 #include "rhi/rhi_device.h"
@@ -214,6 +215,7 @@ int main(int argc, char* argv[]) {
     physics::registerPhysicsSystems(world, physicsWorld);
 
     anim::registerAnimationComponents(world);
+    render::registerRenderComponents(world);
 
     script::ScriptEngine scriptEngine;
     (void)scriptEngine.initialize();

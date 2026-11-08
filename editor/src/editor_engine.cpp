@@ -17,6 +17,7 @@
 #include "panels/metrics_panel.h"
 #include "panels/viewport_panel.h"
 #include "platform/input_snapshot.h"
+#include "render/asset_manager.h"
 #include "rhi/command_list.h"
 #include "rhi/rhi_device.h"
 
@@ -37,6 +38,7 @@ struct EditorEngine::Impl {
     EditorContext context{};
     WorkspaceManager workspaceManager{};
     SelectionModel selectionModel{};
+    render::AssetManager assetManager{};
 
     framework::RuntimeSession internalRuntimeSession{};
     framework::RuntimeSession* runtimeSession{&internalRuntimeSession};
@@ -63,6 +65,7 @@ bool EditorEngine::initialize(rhi::RhiDevice& rhiDevice, const EditorConfig& con
     impl_->rhiDevice = &rhiDevice;
     impl_->config = config;
     impl_->context.rhiDevice = &rhiDevice;
+    impl_->context.assetManager = &impl_->assetManager;
     impl_->context.selection = &impl_->selectionModel;
 
     IMGUI_CHECKVERSION();
@@ -328,6 +331,14 @@ SelectionModel& EditorEngine::getSelectionModel() noexcept {
 
 const SelectionModel& EditorEngine::getSelectionModel() const noexcept {
     return impl_->selectionModel;
+}
+
+render::AssetManager& EditorEngine::getAssetManager() noexcept {
+    return impl_->assetManager;
+}
+
+const render::AssetManager& EditorEngine::getAssetManager() const noexcept {
+    return impl_->assetManager;
 }
 
 bool EditorEngine::saveWorkspaceLayout(const char* filepath) {

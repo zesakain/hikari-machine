@@ -42,6 +42,10 @@ class Conductor;
 class RuntimeSession;
 } // namespace eng::framework
 
+namespace eng::render {
+class AssetManager;
+} // namespace eng::render
+
 namespace eng::editor {
 
 class SelectionModel;
@@ -126,6 +130,12 @@ public:
 
     /// Returns the centralized selection model governing entity selection across panels (const).
     [[nodiscard]] const SelectionModel& getSelectionModel() const noexcept;
+
+    /// Returns the central asset manager repository.
+    [[nodiscard]] render::AssetManager& getAssetManager() noexcept;
+
+    /// Returns the central asset manager repository (const).
+    [[nodiscard]] const render::AssetManager& getAssetManager() const noexcept;
 
     /// Saves the current workspace docking layout to disk.
     bool saveWorkspaceLayout(const char* filepath = nullptr);

@@ -9,6 +9,8 @@
 #include "editor/selection_model.h"
 #include "framework/conductor.h"
 #include "physics/physics_components.h"
+#include "render/asset_manager.h"
+#include "render/mesh_component.h"
 
 #include <algorithm>
 #include <cmath>
@@ -325,6 +327,111 @@ void ViewportPanel::draw(EditorContext& ctx) {
                 Vec3 halfExtents{0.5F, 0.5F, 0.5F};
                 bool isSphere = false;
                 float sphereRadius = 0.5F;
+                bool hasCustomMesh = false;
+                float tagYOffset = 0.9F;
+
+                if (e.has<render::MeshComponent>() && ctx.assetManager != nullptr) {
+                    const auto* mc = e.get<render::MeshComponent>();
+                    if (mc != nullptr && mc->visible) {
+                        const render::MeshData* meshData =
+                            ctx.assetManager->getMeshData(mc->meshAsset);
+                        if (meshData == nullptr && !mc->assetPath.empty()) {
+                            (void)ctx.assetManager->loadMesh(mc->assetPath);
+                            meshData = ctx.assetManager->getMeshData(mc->assetPath);
+                        }
+
+                        if (meshData != nullptr && !meshData->vertices.empty() &&
+                            !meshData->indices.empty()) {
+                            hasCustomMesh = true;
+                            tagYOffset = (meshData->bounds.maxBound.y * tr.scale.y) + 0.4F;
+
+                            // Cache projected screen vertices for this mesh instance
+                            std::vector<Vec3> screenVertices(meshData->vertices.size());
+                            std::vector<float> vertexDepths(meshData->vertices.size());
+                            std::vector<bool> vertexVisible(meshData->vertices.size(), false);
+
+                            for (size_t vi = 0; vi < meshData->vertices.size(); ++vi) {
+                                const Vec3 worldPos =
+                                    tr.position +
+                                    tr.rotation.rotate(meshData->vertices[vi].position * tr.scale);
+                                vertexVisible[vi] =
+                                    camera_.project(worldPos, canvasOrigin3D, canvasSize3D,
+                                                    screenVertices[vi], vertexDepths[vi]);
+                            }
+
+                            const size_t triCount = meshData->indices.size() / 3;
+                            for (size_t ti = 0; ti < triCount; ++ti) {
+                                const uint32_t i0 = meshData->indices[ti * 3 + 0];
+                                const uint32_t i1 = meshData->indices[ti * 3 + 1];
+                                const uint32_t i2 = meshData->indices[ti * 3 + 2];
+
+                                if (i0 < meshData->vertices.size() &&
+                                    i1 < meshData->vertices.size() &&
+                                    i2 < meshData->vertices.size()) {
+                                    if (vertexVisible[i0] || vertexVisible[i1] ||
+                                        vertexVisible[i2]) {
+                                        const Vec3 w0 =
+                                            tr.position +
+                                            tr.rotation.rotate(meshData->vertices[i0].position *
+                                                               tr.scale);
+                                        const Vec3 w1 =
+                                            tr.position +
+                                            tr.rotation.rotate(meshData->vertices[i1].position *
+                                                               tr.scale);
+                                        const Vec3 w2 =
+                                            tr.position +
+                                            tr.rotation.rotate(meshData->vertices[i2].position *
+                                                               tr.scale);
+
+                                        const Vec3 triNormal =
+                                            Vec3::cross(w1 - w0, w2 - w0).normalized();
+                                        const Vec3 triCenter = (w0 + w1 + w2) * (1.0F / 3.0F);
+                                        const Vec3 toCamera =
+                                            (camera_.getPosition() - triCenter).normalized();
+
+                                        if (Vec3::dot(triNormal, toCamera) > 0.0F) {
+                                            const ImVec2 p0(screenVertices[i0].x,
+                                                            screenVertices[i0].y);
+                                            const ImVec2 p1(screenVertices[i1].x,
+                                                            screenVertices[i1].y);
+                                            const ImVec2 p2(screenVertices[i2].x,
+                                                            screenVertices[i2].y);
+
+                                            if (s_viewMode != 1) { // Lit mode
+                                                float diffuse =
+                                                    std::max(0.0F, Vec3::dot(triNormal, lightDir));
+                                                float lightFactor = 0.35F + (0.65F * diffuse);
+
+                                                ImU32 triColor{};
+                                                if (isSelected) {
+                                                    triColor = IM_COL32(
+                                                        static_cast<int>(40.0F * lightFactor),
+                                                        static_cast<int>(140.0F * lightFactor),
+                                                        static_cast<int>(210.0F * lightFactor),
+                                                        235);
+                                                } else {
+                                                    triColor = IM_COL32(
+                                                        static_cast<int>(80.0F * lightFactor),
+                                                        static_cast<int>(95.0F * lightFactor),
+                                                        static_cast<int>(125.0F * lightFactor),
+                                                        220);
+                                                }
+                                                drawList->AddTriangleFilled(p0, p1, p2, triColor);
+                                            }
+
+                                            // Wireframe edges
+                                            const ImU32 edgeColor =
+                                                isSelected ? IM_COL32(56, 189, 248, 255)
+                                                           : IM_COL32(140, 160, 190, 160);
+                                            drawList->AddTriangle(p0, p1, p2, edgeColor,
+                                                                  isSelected ? 1.4F : 0.8F);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
 
                 if (e.has<physics::ColliderComponent>()) {
                     const auto* cc = e.get<physics::ColliderComponent>();
@@ -341,56 +448,149 @@ void ViewportPanel::draw(EditorContext& ctx) {
                     halfExtents = halfExtents * tr.scale;
                 }
 
-                if (isSphere) {
-                    // Render 3D Wireframe / Shaded Sphere
-                    Vec3 sphereCenterScreen{};
-                    float sphereDepth = 0.0F;
-                    if (camera_.project(tr.position, canvasOrigin3D, canvasSize3D,
-                                        sphereCenterScreen, sphereDepth)) {
-                        // Project radius onto screen
-                        Vec3 edgePoint = tr.position + (camera_.getRight() * sphereRadius);
-                        Vec3 edgeScreen{};
-                        float edgeDepth = 0.0F;
-                        float screenRadius = 15.0F;
-                        if (camera_.project(edgePoint, canvasOrigin3D, canvasSize3D, edgeScreen,
-                                            edgeDepth)) {
-                            screenRadius =
-                                std::max(3.0F, std::abs(edgeScreen.x - sphereCenterScreen.x));
+                if (!hasCustomMesh) {
+                    tagYOffset = halfExtents.y + 0.4F;
+                    if (isSphere) {
+                        // Render 3D Wireframe / Shaded Sphere
+                        Vec3 sphereCenterScreen{};
+                        float sphereDepth = 0.0F;
+                        if (camera_.project(tr.position, canvasOrigin3D, canvasSize3D,
+                                            sphereCenterScreen, sphereDepth)) {
+                            // Project radius onto screen
+                            Vec3 edgePoint = tr.position + (camera_.getRight() * sphereRadius);
+                            Vec3 edgeScreen{};
+                            float edgeDepth = 0.0F;
+                            float screenRadius = 15.0F;
+                            if (camera_.project(edgePoint, canvasOrigin3D, canvasSize3D, edgeScreen,
+                                                edgeDepth)) {
+                                screenRadius =
+                                    std::max(3.0F, std::abs(edgeScreen.x - sphereCenterScreen.x));
+                            }
+
+                            ImU32 sphereCol = isSelected ? IM_COL32(56, 189, 248, 160)
+                                                         : IM_COL32(96, 165, 250, 120);
+                            ImU32 outlineCol = isSelected ? IM_COL32(56, 189, 248, 255)
+                                                          : IM_COL32(147, 197, 253, 200);
+
+                            if (s_viewMode != 1) { // Lit / Normals
+                                drawList->AddCircleFilled(
+                                    ImVec2(sphereCenterScreen.x, sphereCenterScreen.y),
+                                    screenRadius, sphereCol, 24);
+                            }
+                            drawList->AddCircle(ImVec2(sphereCenterScreen.x, sphereCenterScreen.y),
+                                                screenRadius, outlineCol, 24,
+                                                isSelected ? 2.0F : 1.2F);
+
+                            // Equatorial and meridian wireframe ellipses
+                            constexpr int kRingSegments = 24;
+                            ImVec2 ringPoints[kRingSegments];
+                            for (int seg = 0; seg < kRingSegments; ++seg) {
+                                float theta =
+                                    (static_cast<float>(seg) / static_cast<float>(kRingSegments)) *
+                                    (2.0F * std::numbers::pi_v<float>);
+                                Vec3 pt =
+                                    tr.position +
+                                    (Vec3{std::cos(theta), 0.0F, std::sin(theta)} * sphereRadius);
+                                Vec3 s{};
+                                float d = 0.0F;
+                                (void)camera_.project(pt, canvasOrigin3D, canvasSize3D, s, d);
+                                ringPoints[seg] = ImVec2(s.x, s.y);
+                            }
+                            drawList->AddPolyline(ringPoints, kRingSegments, outlineCol,
+                                                  ImDrawFlags_Closed, 1.0F);
+                        }
+                    } else {
+                        // Render 3D Box / OBB
+                        const Vec3 localCorners[8] = {
+                            Vec3{-halfExtents.x, -halfExtents.y, -halfExtents.z},
+                            Vec3{halfExtents.x, -halfExtents.y, -halfExtents.z},
+                            Vec3{halfExtents.x, halfExtents.y, -halfExtents.z},
+                            Vec3{-halfExtents.x, halfExtents.y, -halfExtents.z},
+                            Vec3{-halfExtents.x, -halfExtents.y, halfExtents.z},
+                            Vec3{halfExtents.x, -halfExtents.y, halfExtents.z},
+                            Vec3{halfExtents.x, halfExtents.y, halfExtents.z},
+                            Vec3{-halfExtents.x, halfExtents.y, halfExtents.z},
+                        };
+
+                        Vec3 worldCorners[8];
+                        Vec3 screenCorners[8];
+                        float depths[8];
+                        bool allVisible = true;
+
+                        for (size_t c = 0; c < 8; ++c) {
+                            worldCorners[c] = tr.position + tr.rotation.rotate(localCorners[c]);
+                            if (!camera_.project(worldCorners[c], canvasOrigin3D, canvasSize3D,
+                                                 screenCorners[c], depths[c])) {
+                                allVisible = false;
+                            }
                         }
 
-                        ImU32 sphereCol =
-                            isSelected ? IM_COL32(56, 189, 248, 160) : IM_COL32(96, 165, 250, 120);
-                        ImU32 outlineCol =
-                            isSelected ? IM_COL32(56, 189, 248, 255) : IM_COL32(147, 197, 253, 200);
+                        if (allVisible) {
+                            struct Face {
+                                int idx[4];
+                                Vec3 normal;
+                            };
 
-                        if (s_viewMode != 1) { // Lit / Normals
-                            drawList->AddCircleFilled(
-                                ImVec2(sphereCenterScreen.x, sphereCenterScreen.y), screenRadius,
-                                sphereCol, 24);
-                        }
-                        drawList->AddCircle(ImVec2(sphereCenterScreen.x, sphereCenterScreen.y),
-                                            screenRadius, outlineCol, 24, isSelected ? 2.0F : 1.2F);
+                            const Face faces[6] = {
+                                {{4, 5, 6, 7}, tr.rotation.rotate(Vec3::unitZ())},  // +Z Front
+                                {{1, 0, 3, 2}, tr.rotation.rotate(-Vec3::unitZ())}, // -Z Back
+                                {{3, 2, 6, 7}, tr.rotation.rotate(Vec3::unitY())},  // +Y Top
+                                {{0, 1, 5, 4}, tr.rotation.rotate(-Vec3::unitY())}, // -Y Bottom
+                                {{1, 5, 6, 2}, tr.rotation.rotate(Vec3::unitX())},  // +X Right
+                                {{0, 4, 7, 3}, tr.rotation.rotate(-Vec3::unitX())}, // -X Left
+                            };
 
-                        // Equatorial and meridian wireframe ellipses
-                        constexpr int kRingSegments = 24;
-                        ImVec2 ringPoints[kRingSegments];
-                        for (int seg = 0; seg < kRingSegments; ++seg) {
-                            float theta =
-                                (static_cast<float>(seg) / static_cast<float>(kRingSegments)) *
-                                (2.0F * std::numbers::pi_v<float>);
-                            Vec3 pt = tr.position +
-                                      (Vec3{std::cos(theta), 0.0F, std::sin(theta)} * sphereRadius);
-                            Vec3 s{};
-                            float d = 0.0F;
-                            (void)camera_.project(pt, canvasOrigin3D, canvasSize3D, s, d);
-                            ringPoints[seg] = ImVec2(s.x, s.y);
+                            for (const auto& face : faces) {
+                                const Vec3 faceCenter =
+                                    (worldCorners[face.idx[0]] + worldCorners[face.idx[1]] +
+                                     worldCorners[face.idx[2]] + worldCorners[face.idx[3]]) *
+                                    0.25F;
+                                const Vec3 toCamera =
+                                    (camera_.getPosition() - faceCenter).normalized();
+                                const float dotCamera = Vec3::dot(face.normal, toCamera);
+
+                                if (dotCamera > 0.0F) {
+                                    ImVec2 poly[4] = {
+                                        ImVec2(screenCorners[face.idx[0]].x,
+                                               screenCorners[face.idx[0]].y),
+                                        ImVec2(screenCorners[face.idx[1]].x,
+                                               screenCorners[face.idx[1]].y),
+                                        ImVec2(screenCorners[face.idx[2]].x,
+                                               screenCorners[face.idx[2]].y),
+                                        ImVec2(screenCorners[face.idx[3]].x,
+                                               screenCorners[face.idx[3]].y),
+                                    };
+
+                                    if (s_viewMode != 1) { // Lit mode
+                                        float diffuse =
+                                            std::max(0.0F, Vec3::dot(face.normal, lightDir));
+                                        float lightFactor = 0.35F + (0.65F * diffuse);
+
+                                        ImU32 faceColor{};
+                                        if (isSelected) {
+                                            faceColor = IM_COL32(
+                                                static_cast<int>(30.0F * lightFactor),
+                                                static_cast<int>(120.0F * lightFactor),
+                                                static_cast<int>(180.0F * lightFactor), 210);
+                                        } else {
+                                            faceColor = IM_COL32(
+                                                static_cast<int>(70.0F * lightFactor),
+                                                static_cast<int>(85.0F * lightFactor),
+                                                static_cast<int>(115.0F * lightFactor), 200);
+                                        }
+                                        drawList->AddConvexPolyFilled(poly, 4, faceColor);
+                                    }
+
+                                    ImU32 edgeColor = isSelected ? IM_COL32(56, 189, 248, 255)
+                                                                 : IM_COL32(130, 150, 180, 180);
+                                    drawList->AddPolyline(poly, 4, edgeColor, ImDrawFlags_Closed,
+                                                          isSelected ? 1.8F : 1.0F);
+                                }
+                            }
                         }
-                        drawList->AddPolyline(ringPoints, kRingSegments, outlineCol,
-                                              ImDrawFlags_Closed, 1.0F);
                     }
-                } else {
-                    // Render 3D Box / OBB
-                    // 8 local bounding box vertices
+                } else if (e.has<physics::ColliderComponent>()) {
+                    // Draw collider shape as a wireframe overlay so collision hull is visible
                     const Vec3 localCorners[8] = {
                         Vec3{-halfExtents.x, -halfExtents.y, -halfExtents.z},
                         Vec3{halfExtents.x, -halfExtents.y, -halfExtents.z},
@@ -401,90 +601,34 @@ void ViewportPanel::draw(EditorContext& ctx) {
                         Vec3{halfExtents.x, halfExtents.y, halfExtents.z},
                         Vec3{-halfExtents.x, halfExtents.y, halfExtents.z},
                     };
-
-                    Vec3 worldCorners[8];
                     Vec3 screenCorners[8];
                     float depths[8];
-                    bool allVisible = true;
-
+                    bool allVis = true;
                     for (size_t c = 0; c < 8; ++c) {
-                        worldCorners[c] = tr.position + tr.rotation.rotate(localCorners[c]);
-                        if (!camera_.project(worldCorners[c], canvasOrigin3D, canvasSize3D,
-                                             screenCorners[c], depths[c])) {
-                            allVisible = false;
+                        const Vec3 wc = tr.position + tr.rotation.rotate(localCorners[c]);
+                        if (!camera_.project(wc, canvasOrigin3D, canvasSize3D, screenCorners[c],
+                                             depths[c])) {
+                            allVis = false;
                         }
                     }
-
-                    if (allVisible) {
-                        // 6 quadrilateral faces: Front, Back, Top, Bottom, Right, Left
-                        struct Face {
-                            int idx[4];
-                            Vec3 normal;
+                    if (allVis) {
+                        const int edges[12][2] = {
+                            {0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6},
+                            {6, 7}, {7, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7},
                         };
-
-                        const Face faces[6] = {
-                            {{4, 5, 6, 7}, tr.rotation.rotate(Vec3::unitZ())},  // +Z Front
-                            {{1, 0, 3, 2}, tr.rotation.rotate(-Vec3::unitZ())}, // -Z Back
-                            {{3, 2, 6, 7}, tr.rotation.rotate(Vec3::unitY())},  // +Y Top
-                            {{0, 1, 5, 4}, tr.rotation.rotate(-Vec3::unitY())}, // -Y Bottom
-                            {{1, 5, 6, 2}, tr.rotation.rotate(Vec3::unitX())},  // +X Right
-                            {{0, 4, 7, 3}, tr.rotation.rotate(-Vec3::unitX())}, // -X Left
-                        };
-
-                        for (const auto& face : faces) {
-                            // Backface culling: test face normal against camera view direction
-                            const Vec3 faceCenter =
-                                (worldCorners[face.idx[0]] + worldCorners[face.idx[1]] +
-                                 worldCorners[face.idx[2]] + worldCorners[face.idx[3]]) *
-                                0.25F;
-                            const Vec3 toCamera = (camera_.getPosition() - faceCenter).normalized();
-                            const float dotCamera = Vec3::dot(face.normal, toCamera);
-
-                            if (dotCamera > 0.0F) {
-                                ImVec2 poly[4] = {
-                                    ImVec2(screenCorners[face.idx[0]].x,
-                                           screenCorners[face.idx[0]].y),
-                                    ImVec2(screenCorners[face.idx[1]].x,
-                                           screenCorners[face.idx[1]].y),
-                                    ImVec2(screenCorners[face.idx[2]].x,
-                                           screenCorners[face.idx[2]].y),
-                                    ImVec2(screenCorners[face.idx[3]].x,
-                                           screenCorners[face.idx[3]].y),
-                                };
-
-                                if (s_viewMode != 1) { // Lit mode
-                                    float diffuse =
-                                        std::max(0.0F, Vec3::dot(face.normal, lightDir));
-                                    float lightFactor = 0.35F + (0.65F * diffuse);
-
-                                    ImU32 faceColor{};
-                                    if (isSelected) {
-                                        faceColor =
-                                            IM_COL32(static_cast<int>(30.0F * lightFactor),
-                                                     static_cast<int>(120.0F * lightFactor),
-                                                     static_cast<int>(180.0F * lightFactor), 210);
-                                    } else {
-                                        faceColor =
-                                            IM_COL32(static_cast<int>(70.0F * lightFactor),
-                                                     static_cast<int>(85.0F * lightFactor),
-                                                     static_cast<int>(115.0F * lightFactor), 200);
-                                    }
-                                    drawList->AddConvexPolyFilled(poly, 4, faceColor);
-                                }
-
-                                // Crisp edge lines
-                                ImU32 edgeColor = isSelected ? IM_COL32(56, 189, 248, 255)
-                                                             : IM_COL32(130, 150, 180, 180);
-                                drawList->AddPolyline(poly, 4, edgeColor, ImDrawFlags_Closed,
-                                                      isSelected ? 1.8F : 1.0F);
-                            }
+                        const ImU32 colWire = IM_COL32(34, 197, 94, 180); // Green wireframe
+                        for (const auto& edge : edges) {
+                            drawList->AddLine(
+                                ImVec2(screenCorners[edge[0]].x, screenCorners[edge[0]].y),
+                                ImVec2(screenCorners[edge[1]].x, screenCorners[edge[1]].y), colWire,
+                                1.0F);
                         }
                     }
                 }
 
                 // Entity name tag when selected
                 if (isSelected) {
-                    Vec3 tagPos = tr.position + Vec3{0.0F, halfExtents.y + 0.4F, 0.0F};
+                    Vec3 tagPos = tr.position + Vec3{0.0F, tagYOffset, 0.0F};
                     Vec3 tagScreen{};
                     float tagDepth = 0.0F;
                     if (camera_.project(tagPos, canvasOrigin3D, canvasSize3D, tagScreen,
@@ -730,6 +874,38 @@ void ViewportPanel::draw(EditorContext& ctx) {
                 }
 
                 const Transform& tr = ptc->transform;
+
+                // Test Ray intersection against MeshComponent bounds if present
+                if (e.has<render::MeshComponent>() && ctx.assetManager != nullptr) {
+                    const auto* mc = e.get<render::MeshComponent>();
+                    if (mc != nullptr && mc->visible) {
+                        const render::MeshData* meshData =
+                            ctx.assetManager->getMeshData(mc->meshAsset);
+                        if (meshData == nullptr && !mc->assetPath.empty()) {
+                            meshData = ctx.assetManager->getMeshData(mc->assetPath);
+                        }
+                        if (meshData != nullptr) {
+                            const Quat invRot = tr.rotation.inverse();
+                            const Vec3 safeScale{
+                                std::max(0.0001F, std::abs(tr.scale.x)),
+                                std::max(0.0001F, std::abs(tr.scale.y)),
+                                std::max(0.0001F, std::abs(tr.scale.z)),
+                            };
+                            const Vec3 localOrigin =
+                                invRot.rotate(pickRay.origin - tr.position) / safeScale;
+                            const Vec3 localDir =
+                                (invRot.rotate(pickRay.direction) / safeScale).normalized();
+                            const Ray localRay(localOrigin, localDir);
+
+                            auto tHit = localRay.intersectAABB(meshData->bounds);
+                            if (tHit.has_value() && *tHit < closestDist) {
+                                closestDist = *tHit;
+                                closestHitHandle = h;
+                            }
+                            continue;
+                        }
+                    }
+                }
 
                 // Test Ray intersection against entity bounding volume
                 if (e.has<physics::ColliderComponent>()) {
