@@ -51,6 +51,9 @@ struct EditorConfig {
     /// Path to the workspace layout file (default: "hikari_editor_layout.ini").
     std::string_view layoutFilePath{"hikari_editor_layout.ini"};
 
+    /// Global UI font scale factor (default: 1.0).
+    float fontScale{1.0F};
+
     /// Whether to automatically save workspace layout on shutdown.
     bool autoSaveLayout{true};
 
@@ -83,8 +86,8 @@ public:
     /// Checks whether the editor engine is currently initialized.
     [[nodiscard]] bool isInitialized() const noexcept;
 
-    /// Starts a new ImGui frame with the given delta time.
-    void beginFrame(Duration dt);
+    /// Starts a new ImGui frame with the given delta time and physical window dimensions.
+    void beginFrame(Duration dt, uint32_t width = 0, uint32_t height = 0);
 
     /// Draws all active editor panels (Conductor, World Inspector, Metrics, Console).
     void drawPanels();

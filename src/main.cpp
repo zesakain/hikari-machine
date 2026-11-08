@@ -120,6 +120,8 @@ public:
 int main(int argc, char* argv[]) {
     bool headless = false;
     uint32_t targetFrames = 0; // 0 = continuous until window close / quit
+    uint32_t windowWidth = 1280;
+    uint32_t windowHeight = 720;
 
     for (int i = 1; i < argc; ++i) {
         std::string_view arg = argv[i];
@@ -127,6 +129,10 @@ int main(int argc, char* argv[]) {
             headless = true;
         } else if (arg == "--frames" && i + 1 < argc) {
             targetFrames = static_cast<uint32_t>(std::atoi(argv[++i]));
+        } else if (arg == "--width" && i + 1 < argc) {
+            windowWidth = static_cast<uint32_t>(std::atoi(argv[++i]));
+        } else if (arg == "--height" && i + 1 < argc) {
+            windowHeight = static_cast<uint32_t>(std::atoi(argv[++i]));
         } else if (arg == "--version") {
             std::cout << "hikari version 0.1.0 (Phase 6 Architecture Complete)\n";
             std::cout << "Architecture: Two-State Conductor over Shared World (C++20)\n";
@@ -137,6 +143,8 @@ int main(int argc, char* argv[]) {
             std::cout << "Options:\n";
             std::cout << "  --headless         Run continuous headless simulation without window\n";
             std::cout << "  --frames <count>   Execute for <count> simulation frames then exit\n";
+            std::cout << "  --width <pixels>   Set window width in pixels (default: 1280)\n";
+            std::cout << "  --height <pixels>  Set window height in pixels (default: 720)\n";
             std::cout << "  --version          Display engine build version\n";
             std::cout << "  --help             Display command-line options\n";
             return 0;
@@ -173,8 +181,10 @@ int main(int argc, char* argv[]) {
         ENG_ASSERT(devRes.hasValue(), "Failed to create Null RHI device in headless mode");
         rhiDevice = std::move(devRes.value());
     } else {
-        auto winRes = platform->createWindow(platform::WindowDesc{
-            .title = "Hikari Engine (C++20)", .width = 1280, .height = 720, .vulkan = true});
+        auto winRes = platform->createWindow(platform::WindowDesc{.title = "Hikari Engine (C++20)",
+                                                                  .width = windowWidth,
+                                                                  .height = windowHeight,
+                                                                  .vulkan = true});
         if (winRes.hasValue()) {
             window = std::move(winRes.value());
             rhi::VulkanDeviceDesc vkDesc{.windowHandle = window->getNativeHandle(),
@@ -284,6 +294,8 @@ body {
     uint32_t frameCount = 0;
     bool running = true;
     const Duration fixedStep = Duration::fromMilliseconds(16);
+    uint32_t lastWindowWidth = window ? window->getWidth() : 1280;
+    uint32_t lastWindowHeight = window ? window->getHeight() : 720;
 
     while (running) {
         platform->pollEvents();
@@ -293,6 +305,18 @@ body {
         if (window && window->shouldClose()) {
             running = false;
             break;
+        }
+
+        uint32_t currentWidth = window ? window->getWidth() : 1280;
+        uint32_t currentHeight = window ? window->getHeight() : 720;
+
+        if (window && !window->isMinimized()) {
+            if (currentWidth != lastWindowWidth || currentHeight != lastWindowHeight) {
+                (void)rhiDevice->resize(currentWidth, currentHeight);
+                uiSystem.resize(currentWidth, currentHeight);
+                lastWindowWidth = currentWidth;
+                lastWindowHeight = currentHeight;
+            }
         }
 
         // Test mode switch every 30 frames in headless
@@ -314,7 +338,7 @@ body {
 #if defined(HIKARI_BUILD_EDITOR)
         if (editorEngine.isInitialized()) {
             editorEngine.processInput(input);
-            editorEngine.beginFrame(fixedStep);
+            editorEngine.beginFrame(fixedStep, currentWidth, currentHeight);
             editorEngine.drawPanels();
         }
 #endif

@@ -251,12 +251,55 @@ static void testThemeTokens() {
     ThemeColors dark = ThemeColors::defaultDark();
     TEST_CHECK(dark.backgroundApp.a == 1.0F);
     TEST_CHECK(dark.accentPrimary.r > 0.0F);
+    TEST_CHECK(dark.colorAxisX.r > 0.9F);
+    TEST_CHECK(dark.colorAxisY.g > 0.7F);
+    TEST_CHECK(dark.colorAxisZ.b > 0.9F);
 
     Color4f testColor(1.0F, 0.0F, 0.0F, 1.0F);
     uint32_t packed = testColor.toRgba32();
     TEST_CHECK((packed & 0xFFU) == 255U); // Red component
 
     std::cout << "[PASS] testThemeTokens\n";
+}
+
+static void testResponsiveViewports() {
+    auto devRes = rhi::createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto nullDevice = std::move(devRes.value());
+
+    auto cmdRes = nullDevice->createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto nullCmd = std::move(cmdRes.value());
+
+    EditorEngine editor;
+    TEST_CHECK(editor.initialize(*nullDevice));
+
+    // Test responsive resizing across multiple standard desktop resolutions
+    struct Resolution {
+        uint32_t w;
+        uint32_t h;
+    };
+    const Resolution resolutions[] = {
+        {1280, 720},  // 720p HD
+        {1366, 768},  // Common Laptop
+        {1600, 900},  // HD+
+        {1920, 1080}, // 1080p FHD
+        {2560, 1440}, // 1440p QHD
+    };
+
+    for (const auto& res : resolutions) {
+        nullCmd->begin();
+        editor.beginFrame(Duration::fromMilliseconds(16), res.w, res.h);
+        editor.drawPanels();
+        editor.endFrame(*nullCmd);
+        nullCmd->end();
+
+        TEST_CHECK(editor.lastDrawCallCount() > 0);
+        TEST_CHECK(editor.lastVertexCount() > 0);
+    }
+
+    editor.shutdown();
+    std::cout << "[PASS] testResponsiveViewports\n";
 }
 
 int main() {
@@ -267,6 +310,7 @@ int main() {
     testWorkspacePersistenceAndRecovery();
     testEditorFrameAndPanels();
     testEditorInputProcessing();
+    testResponsiveViewports();
     std::cout << "All Editor subsystem tests PASSED!\n";
     return 0;
 }

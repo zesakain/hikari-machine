@@ -4,6 +4,7 @@
 #include "editor/workspace_manager.h"
 
 #include "core/log.h"
+#include "editor/editor_theme.h"
 #include "framework/conductor.h"
 #include "physics/physics_components.h"
 #include "rhi/rhi_device.h"
@@ -21,20 +22,39 @@ struct WorkspaceManager::Impl {
     std::vector<std::unique_ptr<EditorPanel>> panels;
     std::string layoutFilePath{"hikari_editor_layout.ini"};
     bool layoutResetPending{false};
+    int activeLayoutPreset{0}; // 0 = Default, 1 = Wide Viewport, 2 = Inspector Focus
     bool showAboutModal{false};
 
-    void buildDefaultLayout(ImGuiID dockspaceId) {
+    void buildDefaultLayout(ImGuiID dockspaceId, int preset = 0) {
         ImGui::DockBuilderRemoveNode(dockspaceId);
         ImGui::DockBuilderAddNode(dockspaceId, ImGuiDockNodeFlags_DockSpace);
-        ImGui::DockBuilderSetNodeSize(dockspaceId, ImGui::GetMainViewport()->Size);
+
+        ImGuiViewport* viewport = ImGui::GetMainViewport();
+        ImGui::DockBuilderSetNodeSize(dockspaceId, viewport->Size);
 
         ImGuiID dockMain = dockspaceId;
+        float leftRatio = 0.20F;
+        float rightRatio = 0.25F;
+        float bottomRatio = 0.28F;
+
+        if (preset == 1) {
+            // Wide Viewport layout
+            leftRatio = 0.16F;
+            rightRatio = 0.20F;
+            bottomRatio = 0.22F;
+        } else if (preset == 2) {
+            // Inspector Focus layout
+            leftRatio = 0.18F;
+            rightRatio = 0.32F;
+            bottomRatio = 0.25F;
+        }
+
         ImGuiID dockLeft =
-            ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Left, 0.20F, nullptr, &dockMain);
+            ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Left, leftRatio, nullptr, &dockMain);
         ImGuiID dockRight =
-            ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Right, 0.25F, nullptr, &dockMain);
+            ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Right, rightRatio, nullptr, &dockMain);
         ImGuiID dockBottom =
-            ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Down, 0.28F, nullptr, &dockMain);
+            ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Down, bottomRatio, nullptr, &dockMain);
         ImGuiID dockCenter = dockMain;
 
         // Dock individual panels into their respective layout regions
@@ -49,10 +69,13 @@ struct WorkspaceManager::Impl {
         ImGui::DockBuilderDockWindow("Conductor Monitor", dockBottom);
 
         ImGui::DockBuilderFinish(dockspaceId);
-        ENG_LOG_INFO("Editor", "Default workspace docking layout successfully synthesized");
+        ENG_LOG_INFO("Editor", "Workspace docking layout successfully synthesized");
     }
 
     void drawMainMenuBar(EditorContext& ctx) {
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8.0F, 6.0F));
+        ImGui::PushStyleColor(ImGuiCol_MenuBarBg, ImVec4(0.082F, 0.086F, 0.098F, 1.0F));
+
         if (ImGui::BeginMainMenuBar()) {
             // 1. File Menu
             if (ImGui::BeginMenu("File")) {
@@ -105,6 +128,7 @@ struct WorkspaceManager::Impl {
             // 3. View Menu
             if (ImGui::BeginMenu("View")) {
                 if (ImGui::MenuItem("Reset Layout to Default")) {
+                    activeLayoutPreset = 0;
                     layoutResetPending = true;
                 }
                 ImGui::Separator();
@@ -125,37 +149,40 @@ struct WorkspaceManager::Impl {
                         ctx.selectedEntityId = h.id;
                     }
                 }
-                if (ImGui::MenuItem("Create 3D Physics Cube")) {
-                    if (ctx.world != nullptr) {
-                        auto h = ctx.world->createEntity("PhysicsCube");
-                        ctx.world->setComponent(h,
-                                                physics::PhysicsTransformComponent{
-                                                    .transform = Transform{Vec3{0.0F, 5.0F, 0.0F}},
-                                                });
-                        ctx.world->setComponent(
-                            h, physics::RigidBodyComponent{
-                                   .bodyHandle = {},
-                                   .motionType = physics::MotionType::Dynamic,
-                                   .collisionLayer = physics::CollisionLayer::kMoving,
-                               });
-                        ctx.selectedEntityId = h.id;
+                if (ImGui::BeginMenu("3D Object")) {
+                    if (ImGui::MenuItem("Physics Cube")) {
+                        if (ctx.world != nullptr) {
+                            auto h = ctx.world->createEntity("PhysicsCube");
+                            ctx.world->setComponent(
+                                h, physics::PhysicsTransformComponent{
+                                       .transform = Transform{Vec3{0.0F, 5.0F, 0.0F}},
+                                   });
+                            ctx.world->setComponent(
+                                h, physics::RigidBodyComponent{
+                                       .bodyHandle = {},
+                                       .motionType = physics::MotionType::Dynamic,
+                                       .collisionLayer = physics::CollisionLayer::kMoving,
+                                   });
+                            ctx.selectedEntityId = h.id;
+                        }
                     }
-                }
-                if (ImGui::MenuItem("Create 3D Physics Sphere")) {
-                    if (ctx.world != nullptr) {
-                        auto h = ctx.world->createEntity("PhysicsSphere");
-                        ctx.world->setComponent(h,
-                                                physics::PhysicsTransformComponent{
-                                                    .transform = Transform{Vec3{2.0F, 8.0F, 0.0F}},
-                                                });
-                        ctx.world->setComponent(
-                            h, physics::RigidBodyComponent{
-                                   .bodyHandle = {},
-                                   .motionType = physics::MotionType::Dynamic,
-                                   .collisionLayer = physics::CollisionLayer::kMoving,
-                               });
-                        ctx.selectedEntityId = h.id;
+                    if (ImGui::MenuItem("Physics Sphere")) {
+                        if (ctx.world != nullptr) {
+                            auto h = ctx.world->createEntity("PhysicsSphere");
+                            ctx.world->setComponent(
+                                h, physics::PhysicsTransformComponent{
+                                       .transform = Transform{Vec3{2.0F, 8.0F, 0.0F}},
+                                   });
+                            ctx.world->setComponent(
+                                h, physics::RigidBodyComponent{
+                                       .bodyHandle = {},
+                                       .motionType = physics::MotionType::Dynamic,
+                                       .collisionLayer = physics::CollisionLayer::kMoving,
+                                   });
+                            ctx.selectedEntityId = h.id;
+                        }
                     }
+                    ImGui::EndMenu();
                 }
                 ImGui::Separator();
                 if (ImGui::MenuItem("Delete Selected Entity", "Del", false,
@@ -197,6 +224,26 @@ struct WorkspaceManager::Impl {
 
             // 6. Window Menu
             if (ImGui::BeginMenu("Window")) {
+                if (ImGui::BeginMenu("Workspace Layouts")) {
+                    if (ImGui::MenuItem("Default Studio", nullptr, activeLayoutPreset == 0)) {
+                        activeLayoutPreset = 0;
+                        layoutResetPending = true;
+                    }
+                    if (ImGui::MenuItem("Wide Viewport", nullptr, activeLayoutPreset == 1)) {
+                        activeLayoutPreset = 1;
+                        layoutResetPending = true;
+                    }
+                    if (ImGui::MenuItem("Inspector Focus", nullptr, activeLayoutPreset == 2)) {
+                        activeLayoutPreset = 2;
+                        layoutResetPending = true;
+                    }
+                    ImGui::Separator();
+                    if (ImGui::MenuItem("Reset Layout")) {
+                        layoutResetPending = true;
+                    }
+                    ImGui::EndMenu();
+                }
+                ImGui::Separator();
                 for (const auto& panel : panels) {
                     bool isOpen = panel->isOpen();
                     if (ImGui::MenuItem(panel->getDisplayName().data(), nullptr, &isOpen)) {
@@ -234,6 +281,9 @@ struct WorkspaceManager::Impl {
             ImGui::EndMainMenuBar();
         }
 
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar();
+
         if (showAboutModal) {
             ImGui::OpenPopup("About Hikari Editor");
             showAboutModal = false;
@@ -241,9 +291,9 @@ struct WorkspaceManager::Impl {
 
         if (ImGui::BeginPopupModal("About Hikari Editor", nullptr,
                                    ImGuiWindowFlags_AlwaysAutoResize)) {
-            ImGui::TextColored(ImVec4(0.38F, 0.74F, 0.98F, 1.0F), "Hikari Engine — Visual Editor");
+            ImGui::TextColored(ImVec4(0.38F, 0.74F, 0.98F, 1.0F), "Hikari Engine — Studio Editor");
             ImGui::Text("Architecture: Two-State Conductor over Single Shared World");
-            ImGui::Text("Version: 0.1.0 (Milestone 1 Professional Workspace)");
+            ImGui::Text("Version: 0.1.0 (Milestone 1.5 Professional Experience)");
             ImGui::Separator();
             ImGui::Text("Graphics RHI: Vulkan 1.3 Dynamic Rendering");
             ImGui::Text("UI Subsystems: Dear ImGui (Editor) & RmlUi (Runtime)");
@@ -258,19 +308,41 @@ struct WorkspaceManager::Impl {
     void drawToolbar(EditorContext& ctx) {
         ImGuiViewport* viewport = ImGui::GetMainViewport();
         float menuBarHeight = ImGui::GetFrameHeight();
+        float toolbarHeight = ThemeMetrics::kToolbarHeight;
 
         ImGui::SetNextWindowPos(ImVec2(viewport->Pos.x, viewport->Pos.y + menuBarHeight));
-        ImGui::SetNextWindowSize(ImVec2(viewport->Size.x, 38.0F));
+        ImGui::SetNextWindowSize(ImVec2(viewport->Size.x, toolbarHeight));
         ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                                  ImGuiWindowFlags_NoScrollWithMouse |
                                  ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking;
 
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0F, 4.0F));
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.12F, 0.13F, 0.15F, 1.0F));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12.0F, 7.0F));
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.102F, 0.106F, 0.122F, 1.0F));
 
         if (ImGui::Begin("##EditorToolbar", nullptr, flags)) {
-            // Transport simulation buttons
-            if (ImGui::Button(ctx.isSimulating && !ctx.isPaused ? " Pause " : "  Play  ")) {
+            // Group 1: Workspace layout selector
+            ImGui::TextDisabled("Layout:");
+            ImGui::SameLine();
+            const char* layoutNames[] = {"Default Studio", "Wide Viewport", "Inspector Focus"};
+            ImGui::SetNextItemWidth(140.0F);
+            if (ImGui::Combo("##LayoutCombo", &activeLayoutPreset, layoutNames, 3)) {
+                buildDefaultLayout(ImGui::GetID("HikariRootDockSpace"), activeLayoutPreset);
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Reset")) {
+                layoutResetPending = true;
+            }
+
+            ImGui::SameLine();
+            ImGui::TextDisabled("|");
+            ImGui::SameLine();
+
+            // Group 2: Transport simulation controls (Centered UX)
+            bool isSimRunning = ctx.isSimulating && !ctx.isPaused;
+            if (isSimRunning) {
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.12F, 0.45F, 0.25F, 1.0F));
+            }
+            if (ImGui::Button(isSimRunning ? " [||] Pause " : " [>] Play ")) {
                 if (!ctx.isSimulating) {
                     ctx.isSimulating = true;
                     ctx.isPaused = false;
@@ -278,13 +350,17 @@ struct WorkspaceManager::Impl {
                     ctx.isPaused = !ctx.isPaused;
                 }
             }
+            if (isSimRunning) {
+                ImGui::PopStyleColor();
+            }
+
             ImGui::SameLine();
-            if (ImGui::Button(" Step ")) {
+            if (ImGui::Button(" [>>] Step ")) {
                 ctx.isPaused = true;
                 ENG_LOG_INFO("Editor", "Simulation Step executed");
             }
             ImGui::SameLine();
-            if (ImGui::Button(" Stop ")) {
+            if (ImGui::Button(" [X] Stop ")) {
                 ctx.isSimulating = false;
                 ctx.isPaused = true;
                 ENG_LOG_INFO("Editor", "Simulation Stopped");
@@ -294,7 +370,7 @@ struct WorkspaceManager::Impl {
             ImGui::TextDisabled("|");
             ImGui::SameLine();
 
-            // Conductor state badge & quick transition
+            // Group 3: Two-State Conductor badge & quick switch
             if (ctx.conductor != nullptr) {
                 auto activeSlot = ctx.conductor->getActiveSlot();
                 auto state = ctx.conductor->getState();
@@ -303,7 +379,7 @@ struct WorkspaceManager::Impl {
                                            ? "State A: Exploration"
                                            : "State B: Skill";
                 ImVec4 badgeColor = (activeSlot == framework::ActiveSlot::SlotA)
-                                        ? ImVec4(0.38F, 0.74F, 0.98F, 1.0F)
+                                        ? ImVec4(0.23F, 0.51F, 0.96F, 1.0F)
                                         : ImVec4(0.96F, 0.62F, 0.04F, 1.0F);
 
                 if (state == framework::ConductorState::Transitioning) {
@@ -319,23 +395,12 @@ struct WorkspaceManager::Impl {
                         (void)ctx.conductor->requestTransition();
                     }
                 } else if (state == framework::ConductorState::Prepared) {
-                    if (ImGui::SmallButton("Execute Switch")) {
+                    if (ImGui::SmallButton("Commit Switch")) {
                         (void)ctx.conductor->executeTransition();
                     }
                 }
             } else {
                 ImGui::TextDisabled("[Conductor: Standalone]");
-            }
-
-            ImGui::SameLine();
-            ImGui::TextDisabled("|");
-            ImGui::SameLine();
-
-            // Workspace Layout Preset selector
-            ImGui::TextDisabled("Workspace:");
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Reset to Default Layout")) {
-                layoutResetPending = true;
             }
         }
         ImGui::End();
@@ -345,7 +410,7 @@ struct WorkspaceManager::Impl {
 
     void drawStatusBar(EditorContext& ctx) {
         ImGuiViewport* viewport = ImGui::GetMainViewport();
-        float statusHeight = 24.0F;
+        float statusHeight = ThemeMetrics::kStatusBarHeight;
 
         ImGui::SetNextWindowPos(
             ImVec2(viewport->Pos.x, viewport->Pos.y + viewport->Size.y - statusHeight));
@@ -354,20 +419,20 @@ struct WorkspaceManager::Impl {
                                  ImGuiWindowFlags_NoScrollWithMouse |
                                  ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking;
 
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0F, 2.0F));
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.09F, 0.09F, 0.11F, 1.0F));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0F, 4.0F));
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.059F, 0.063F, 0.075F, 1.0F));
 
         if (ImGui::Begin("##EditorStatusBar", nullptr, flags)) {
-            // Left: Mode & workspace
+            // Left: Mode & status badge
             if (ctx.isPaused) {
-                ImGui::TextColored(ImVec4(0.96F, 0.62F, 0.04F, 1.0F), "[PAUSED]");
+                ImGui::TextColored(ImVec4(0.96F, 0.62F, 0.04F, 1.0F), "[● PAUSED]");
             } else {
-                ImGui::TextColored(ImVec4(0.06F, 0.73F, 0.51F, 1.0F), "[SIMULATING]");
+                ImGui::TextColored(ImVec4(0.06F, 0.73F, 0.51F, 1.0F), "[● SIMULATING]");
             }
             ImGui::SameLine();
-            ImGui::TextDisabled("| Layout: Default (Docked) |");
+            ImGui::TextDisabled("|");
 
-            // Center: Selected Entity
+            // Selected entity badge
             ImGui::SameLine();
             if (ctx.selectedEntityId != 0) {
                 ImGui::Text("Selected: Entity #%llu",
@@ -376,21 +441,35 @@ struct WorkspaceManager::Impl {
                 ImGui::TextDisabled("No Entity Selected");
             }
 
-            // Right: GPU & performance
+            // ECS stats
+            if (ctx.world != nullptr) {
+                ImGui::SameLine();
+                ImGui::TextDisabled("|");
+                ImGui::SameLine();
+                flecs::world& ecs = ctx.world->getRawWorld();
+                ImGui::TextDisabled("ECS: %d entities", ecs.count<flecs::Component>());
+            }
+
+            // Right: GPU & resolution & performance
+            ImGui::SameLine();
+            ImGui::TextDisabled("|");
+            ImGui::SameLine();
+            if (ctx.rhiDevice != nullptr) {
+                ImGui::TextDisabled("Vulkan 1.3 | %s", ctx.rhiDevice->getCaps().deviceName.data());
+            } else {
+                ImGui::TextDisabled("Null RHI");
+            }
+
+            ImGui::SameLine();
+            ImGui::TextDisabled("|");
+            ImGui::SameLine();
+            ImGui::TextDisabled("Viewport: %ux%u", ctx.windowWidth, ctx.windowHeight);
+
             ImGui::SameLine();
             ImGui::TextDisabled("|");
             ImGui::SameLine();
             ImGui::Text("FPS: %.1f (%.2f ms)", static_cast<double>(ctx.currentFps),
                         static_cast<double>(ctx.lastFrameTimeMs));
-
-            ImGui::SameLine();
-            ImGui::TextDisabled("|");
-            ImGui::SameLine();
-            if (ctx.rhiDevice != nullptr) {
-                ImGui::Text("Vulkan 1.3 | %s", ctx.rhiDevice->getCaps().deviceName.data());
-            } else {
-                ImGui::TextDisabled("Null RHI");
-            }
         }
         ImGui::End();
         ImGui::PopStyleColor();
@@ -490,8 +569,8 @@ void WorkspaceManager::drawWorkspace(EditorContext& ctx) {
     // DockSpace Host Window
     ImGuiViewport* viewport = ImGui::GetMainViewport();
     float menuBarHeight = ImGui::GetFrameHeight();
-    float toolbarHeight = 38.0F;
-    float statusHeight = 24.0F;
+    float toolbarHeight = ThemeMetrics::kToolbarHeight;
+    float statusHeight = ThemeMetrics::kStatusBarHeight;
 
     ImVec2 dockspacePos = ImVec2(viewport->Pos.x, viewport->Pos.y + menuBarHeight + toolbarHeight);
     ImVec2 dockspaceSize =
@@ -517,7 +596,7 @@ void WorkspaceManager::drawWorkspace(EditorContext& ctx) {
 
     // Check if layout needs to be built
     if (impl_->layoutResetPending || ImGui::DockBuilderGetNode(dockspaceId) == nullptr) {
-        impl_->buildDefaultLayout(dockspaceId);
+        impl_->buildDefaultLayout(dockspaceId, impl_->activeLayoutPreset);
         impl_->layoutResetPending = false;
     }
 

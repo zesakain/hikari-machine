@@ -699,6 +699,13 @@ Result<void> VulkanDevice::present() {
     return swapchain_->present(presentQueue_, currentSwapchainImageIndex_, VK_NULL_HANDLE);
 }
 
+Result<void> VulkanDevice::resize(uint32_t width, uint32_t height) {
+    if (!swapchain_) {
+        return Result<void>::success();
+    }
+    return swapchain_->recreate(width, height);
+}
+
 NativeDeviceHandles VulkanDevice::getNativeDeviceHandles() const noexcept {
     return NativeDeviceHandles{
         .instance = instance_ ? instance_->handle() : VK_NULL_HANDLE,

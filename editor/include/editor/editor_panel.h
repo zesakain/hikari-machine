@@ -43,6 +43,10 @@ struct EditorContext {
     bool isSimulating{true};
     bool isPaused{false};
 
+    uint32_t windowWidth{1280};
+    uint32_t windowHeight{720};
+    float fontScale{1.0F};
+
     float lastFrameTimeMs{16.6F};
     float currentFps{60.0F};
 

@@ -69,8 +69,9 @@ bool EditorEngine::initialize(rhi::RhiDevice& rhiDevice, const EditorConfig& con
     io.DisplaySize = ImVec2(1280.0F, 720.0F);
     io.DeltaTime = 1.0F / 60.0F;
 
-    // Apply official Hikari dark graphite theme
+    // Apply official Hikari dark graphite theme and desktop typography
     applyEditorTheme(ThemeColors::defaultDark());
+    (void)loadEditorFonts(config.fontScale);
 
     // Register all standard panels into WorkspaceManager
     impl_->workspaceManager.registerPanel(std::make_unique<HierarchyPanel>());
@@ -162,14 +163,20 @@ bool EditorEngine::isInitialized() const noexcept {
     return impl_->initialized;
 }
 
-void EditorEngine::beginFrame(Duration dt) {
+void EditorEngine::beginFrame(Duration dt, uint32_t width, uint32_t height) {
     if (!impl_->initialized) {
         return;
     }
 
     ImGui::SetCurrentContext(impl_->imguiContext);
     ImGuiIO& io = ImGui::GetIO();
-    io.DisplaySize = ImVec2(1280.0F, 720.0F);
+
+    if (width > 0 && height > 0) {
+        io.DisplaySize = ImVec2(static_cast<float>(width), static_cast<float>(height));
+        impl_->context.windowWidth = width;
+        impl_->context.windowHeight = height;
+    }
+
     float deltaSec = static_cast<float>(dt.toSeconds());
     io.DeltaTime = deltaSec > 0.0F ? deltaSec : (1.0F / 60.0F);
 

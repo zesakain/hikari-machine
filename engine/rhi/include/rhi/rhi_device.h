@@ -102,6 +102,17 @@ public:
     /// @return Result indicating presentation success or failure (no-op in headless/null mode).
     virtual Result<void> present() { return Result<void>::success(); }
 
+    /// Recreates presentation swapchain on window resize or maximization.
+    ///
+    /// @param width New surface width in physical pixels.
+    /// @param height New surface height in physical pixels.
+    /// @return Result indicating resize success or failure (no-op in headless/null mode).
+    virtual Result<void> resize(uint32_t width, uint32_t height) {
+        (void)width;
+        (void)height;
+        return Result<void>::success();
+    }
+
     /// Returns opaque pointers to underlying backend device handles (or null in headless/null
     /// mode).
     [[nodiscard]] virtual NativeDeviceHandles getNativeDeviceHandles() const noexcept { return {}; }
