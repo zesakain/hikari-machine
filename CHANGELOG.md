@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Milestone 8B.2: Viewport GPU Scene Rendering Integration**:
+  - **SceneRenderer GPU Pipeline & Target Management**:
+    - Implemented `SceneRenderer::init()` allocating offscreen color target (`RGBA8_UNORM` with `TransferSrc` support) and depth target (`D32_FLOAT`), compiling embedded SPIR-V shaders, creating pipeline layout, and configuring the Vulkan 1.3 graphics pipeline.
+    - Implemented `SceneRenderer::resize()` with explicit `waitIdle()` GPU synchronization to prevent in-flight texture destruction (resolving Audit Finding F-04).
+    - Implemented `SceneRenderer::shutdown()` with clean RAII destruction of all GPU resources.
+  - **Dynamic Rendering Traversal & Push Constants**:
+    - Expanded `SceneRenderer::renderScene()` to accept camera `Mat4 viewProjection` matrix.
+    - Implemented 128-byte push constants layout (`mat4 viewProj` 64B at offset 0, `mat4 model` 64B at offset 64) for vertex shader transformation.
+    - Added entity model matrix calculation via `physics::PhysicsTransformComponent::transform.toMatrix()` with identity fallback.
+    - Executed scene geometry draws within an offscreen dynamic rendering pass clearing color to `{0.08, 0.12, 0.20, 1.0}` and depth to `1.0`.
+  - **Mesh Shaders & SPIR-V Bytecodes**:
+    - Created `assets/shaders/mesh.vert` and `assets/shaders/mesh.frag` featuring 128-byte push constants, directional diffuse lighting, ambient illumination, and material base color fallback.
+    - Embedded validated precompiled SPIR-V bytecodes in `engine/render/include/render/mesh_shader_spirv.h`.
+  - **Audit Finding F-03 Resolution**:
+    - Ensured `draw()` and `drawIndexed()` explicitly suppress draw call execution via early return when a dynamic rendering pipeline format mismatch is detected, in both `VulkanCommandList` and `NullCommandList`.
+  - **RHI Buffer Read & Texture-to-Buffer Copy**:
+    - Added `RhiDevice::readBuffer()` and `RhiCommandList::copyTextureToBuffer()` for host readback of GPU buffers and image copies.
+  - **GPU Scene Renderer Testing & Hardware Pixel Verification**:
+    - Added `tests/unit/render/scene_renderer_test.cpp` testing lifecycle, empty scenes, visibility filtering, multi-entity mesh draws, and physical Vulkan GPU pixel readback asserting clear color at corners, shaded geometry at center, and depth buffer occlusion.
+  - **Multi-Preset Verification**:
+    - Verified 100% test pass rate across all 6 presets: `debug`, `release`, `profile`, `editor`, `asan`, and `tsan`.
+  - **Architectural Documentation**:
+    - Added `docs/architecture/milestone_8b2_gpu_scene_rendering.md`.
 - **Milestone 8B.1: Offscreen Rendering Infrastructure**:
   - **Generalized Dynamic Render Pass Parameters**:
     - Expanded `RenderPassBeginInfo` (`engine/rhi/include/rhi/command_list.h`) to support arbitrary offscreen `colorTarget` and optional `depthTarget` handles, configurable `clearDepth`, `clearDepthTarget`, `renderWidth`, and `renderHeight`.
