@@ -248,6 +248,91 @@ static void testEntityScriptComponentIntegration() {
     std::cout << "[PASS] testEntityScriptComponentIntegration\n";
 }
 
+static void testScriptEnableLifecycle() {
+    world::World world;
+    ScriptEngine engine;
+    auto initRes = engine.initialize();
+    TEST_CHECK(initRes.hasValue());
+    engine.bindWorld(&world);
+
+    registerScriptComponents(world);
+    registerScriptSystems(world, engine, world::SystemGroup::Continuous);
+
+    auto loadRes = engine.executeString(R"(
+        entityA_ticks = 0
+        entityB_ticks = 0
+
+        function on_entityA_tick(entity, dt)
+            entityA_ticks = entityA_ticks + 1
+        end
+
+        function on_entityB_tick(entity, dt)
+            entityB_ticks = entityB_ticks + 1
+        end
+    )");
+    TEST_CHECK(loadRes.hasValue());
+
+    // 1. Create two entities with distinct script routines
+    auto entityA = world.createEntity("EntityA");
+    ScriptComponent compA{};
+    std::strncpy(compA.scriptName, "on_entityA_tick", sizeof(compA.scriptName) - 1);
+    compA.enabled = true;
+    world.setComponent(entityA, compA);
+
+    auto entityB = world.createEntity("EntityB");
+    ScriptComponent compB{};
+    std::strncpy(compB.scriptName, "on_entityB_tick", sizeof(compB.scriptName) - 1);
+    compB.enabled = true;
+    world.setComponent(entityB, compB);
+
+    // 2. Both entities tick together
+    world.progress(0.016f);
+    auto valA = engine.getGlobal("entityA_ticks");
+    auto valB = engine.getGlobal("entityB_ticks");
+    TEST_CHECK(valA.hasValue() && std::get<double>(valA.value()) == 1.0);
+    TEST_CHECK(valB.hasValue() && std::get<double>(valB.value()) == 1.0);
+
+    // 3. Disable Entity B. Entity A must continue ticking, Entity B must halt.
+    auto& ecs = world.getRawWorld();
+    auto eViewB = ecs.entity(entityB.id);
+    eViewB.get_mut<ScriptComponent>()->enabled = false;
+
+    for (int i = 0; i < 3; ++i) {
+        world.progress(0.016f);
+    }
+
+    valA = engine.getGlobal("entityA_ticks");
+    valB = engine.getGlobal("entityB_ticks");
+    TEST_CHECK(valA.hasValue() && std::get<double>(valA.value()) == 4.0);
+    TEST_CHECK(valB.hasValue() &&
+               std::get<double>(valB.value()) == 1.0); // unchanged while disabled
+
+    // 4. Re-enable Entity B. Both entities resume ticking.
+    eViewB.get_mut<ScriptComponent>()->enabled = true;
+    world.progress(0.016f);
+
+    valA = engine.getGlobal("entityA_ticks");
+    valB = engine.getGlobal("entityB_ticks");
+    TEST_CHECK(valA.hasValue() && std::get<double>(valA.value()) == 5.0);
+    TEST_CHECK(valB.hasValue() && std::get<double>(valB.value()) == 2.0); // resumed and incremented
+
+    // 5. Unassigned entity script component (empty string) does not fail or disable
+    auto entityC = world.createEntity("EntityC");
+    ScriptComponent compC{};
+    compC.scriptName[0] = '\0';
+    compC.enabled = true;
+    world.setComponent(entityC, compC);
+
+    world.progress(0.016f);
+    const auto* compCAfter = world.getComponent<ScriptComponent>(entityC);
+    TEST_CHECK(compCAfter != nullptr);
+    TEST_CHECK(compCAfter->enabled == true);
+
+    engine.unbindWorld();
+    engine.shutdown();
+    std::cout << "[PASS] testScriptEnableLifecycle\n";
+}
+
 int main() {
     std::cout << "Running Script subsystem unit tests...\n";
     testLifecycle();
@@ -256,6 +341,7 @@ int main() {
     testInstructionWatchdog();
     testVec3Bindings();
     testEntityScriptComponentIntegration();
+    testScriptEnableLifecycle();
     std::cout << "All Script subsystem tests PASSED!\n";
     return 0;
 }
