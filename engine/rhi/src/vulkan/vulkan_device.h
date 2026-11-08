@@ -53,6 +53,17 @@ public:
     [[nodiscard]] Result<SamplerHandle> createSampler(const SamplerDesc& desc) override;
     void destroySampler(SamplerHandle handle) override;
 
+    [[nodiscard]] Result<ShaderHandle> createShader(const ShaderDesc& desc) override;
+    void destroyShader(ShaderHandle handle) override;
+
+    [[nodiscard]] Result<PipelineLayoutHandle>
+    createPipelineLayout(const PipelineLayoutDesc& desc) override;
+    void destroyPipelineLayout(PipelineLayoutHandle handle) override;
+
+    [[nodiscard]] Result<PipelineHandle>
+    createGraphicsPipeline(const GraphicsPipelineDesc& desc) override;
+    void destroyGraphicsPipeline(PipelineHandle handle) override;
+
     [[nodiscard]] Result<std::unique_ptr<RhiCommandList>> createCommandList() override;
     Result<void> submit(RhiCommandList* commandList) override;
     void waitIdle() override;
@@ -66,6 +77,14 @@ public:
     // Internal backend helpers
     [[nodiscard]] VkDevice getLogicalDevice() const noexcept { return device_; }
     [[nodiscard]] VkBuffer resolveBuffer(BufferHandle handle) const noexcept;
+    [[nodiscard]] VkShaderModule resolveShader(ShaderHandle handle) const noexcept;
+    [[nodiscard]] VkPipelineLayout
+    resolvePipelineLayout(PipelineLayoutHandle handle) const noexcept;
+    [[nodiscard]] VkPipeline resolvePipeline(PipelineHandle handle) const noexcept;
+    [[nodiscard]] const ShaderDesc* getShaderDesc(ShaderHandle handle) const noexcept;
+    [[nodiscard]] const PipelineLayoutDesc*
+    getPipelineLayoutDesc(PipelineLayoutHandle handle) const noexcept;
+    [[nodiscard]] const GraphicsPipelineDesc* getPipelineDesc(PipelineHandle handle) const noexcept;
     [[nodiscard]] VulkanMemoryManager& getMemoryManager() noexcept { return *memoryManager_; }
     [[nodiscard]] VulkanSwapchain* getSwapchain() noexcept { return swapchain_.get(); }
     [[nodiscard]] uint32_t getCurrentSwapchainImageIndex() const noexcept {
@@ -74,6 +93,9 @@ public:
     [[nodiscard]] bool isBufferValid(BufferHandle handle) const noexcept;
     [[nodiscard]] bool isTextureValid(TextureHandle handle) const noexcept;
     [[nodiscard]] bool isSamplerValid(SamplerHandle handle) const noexcept;
+    [[nodiscard]] bool isShaderValid(ShaderHandle handle) const noexcept;
+    [[nodiscard]] bool isPipelineLayoutValid(PipelineLayoutHandle handle) const noexcept;
+    [[nodiscard]] bool isPipelineValid(PipelineHandle handle) const noexcept;
 
     void registerCommandList(VulkanCommandList* cmdList);
     void unregisterCommandList(VulkanCommandList* cmdList);
@@ -100,6 +122,9 @@ private:
     std::vector<VulkanBufferSlot> buffers_;
     std::vector<VulkanTextureSlot> textures_;
     std::vector<VulkanSamplerSlot> samplers_;
+    std::vector<VulkanShaderSlot> shaders_;
+    std::vector<VulkanPipelineLayoutSlot> pipelineLayouts_;
+    std::vector<VulkanPipelineSlot> pipelines_;
 
     std::vector<VulkanCommandList*> commandLists_;
     mutable std::mutex commandListMutex_;

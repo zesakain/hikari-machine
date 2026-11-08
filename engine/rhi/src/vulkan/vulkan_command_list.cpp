@@ -45,6 +45,14 @@ void VulkanCommandList::begin() {
     cleanupStagingResources();
     vkResetCommandBuffer(cmdBuffer_, 0);
 
+    boundPipelineHandle_ = {};
+    boundPipeline_ = VK_NULL_HANDLE;
+    boundLayoutHandle_ = {};
+    boundLayout_ = VK_NULL_HANDLE;
+    hasUnboundDraw_ = false;
+    pipelineBindCount_ = 0;
+    pushConstantCount_ = 0;
+
     VkCommandBufferBeginInfo beginInfo{
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
         .pNext = nullptr,
@@ -294,6 +302,42 @@ void VulkanCommandList::setScissor(int32_t x, int32_t y, uint32_t width, uint32_
     vkCmdSetScissor(cmdBuffer_, 0, 1, &scissor);
 }
 
+void VulkanCommandList::bindPipeline(PipelineHandle pipeline) {
+    if (!isRecording_ || device_ == nullptr || cmdBuffer_ == VK_NULL_HANDLE) {
+        return;
+    }
+    VkPipeline vkPipeline = device_->resolvePipeline(pipeline);
+    if (vkPipeline != VK_NULL_HANDLE) {
+        boundPipelineHandle_ = pipeline;
+        boundPipeline_ = vkPipeline;
+        const auto* pDesc = device_->getPipelineDesc(pipeline);
+        if (pDesc != nullptr) {
+            boundLayoutHandle_ = pDesc->layout;
+            boundLayout_ = device_->resolvePipelineLayout(pDesc->layout);
+        }
+        vkCmdBindPipeline(cmdBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, vkPipeline);
+        ++pipelineBindCount_;
+    } else {
+        boundPipelineHandle_ = {};
+        boundPipeline_ = VK_NULL_HANDLE;
+        boundLayoutHandle_ = {};
+        boundLayout_ = VK_NULL_HANDLE;
+    }
+}
+
+void VulkanCommandList::pushConstants(PipelineLayoutHandle layout, ShaderStageFlags stages,
+                                      uint32_t offset, uint32_t size, const void* data) {
+    if (!isRecording_ || device_ == nullptr || cmdBuffer_ == VK_NULL_HANDLE || data == nullptr ||
+        size == 0) {
+        return;
+    }
+    VkPipelineLayout vkLayout = device_->resolvePipelineLayout(layout);
+    if (vkLayout != VK_NULL_HANDLE) {
+        vkCmdPushConstants(cmdBuffer_, vkLayout, toVkShaderStageFlags(stages), offset, size, data);
+        ++pushConstantCount_;
+    }
+}
+
 void VulkanCommandList::bindVertexBuffer(uint32_t binding, BufferHandle buffer, size_t offset) {
     if (!isRecording_ || device_ == nullptr || cmdBuffer_ == VK_NULL_HANDLE) {
         return;
@@ -321,6 +365,11 @@ void VulkanCommandList::draw(uint32_t vertexCount, uint32_t instanceCount, uint3
     if (!isRecording_ || device_ == nullptr || cmdBuffer_ == VK_NULL_HANDLE) {
         return;
     }
+    if (boundPipeline_ == VK_NULL_HANDLE) {
+        hasUnboundDraw_ = true;
+        ENG_LOG_WARN("Vulkan", "draw skipped: no graphics pipeline bound");
+        return;
+    }
     vkCmdDraw(cmdBuffer_, vertexCount, instanceCount, firstVertex, firstInstance);
 }
 
@@ -328,6 +377,11 @@ void VulkanCommandList::drawIndexed(uint32_t indexCount, uint32_t instanceCount,
                                     uint32_t firstIndex, int32_t vertexOffset,
                                     uint32_t firstInstance) {
     if (!isRecording_ || device_ == nullptr || cmdBuffer_ == VK_NULL_HANDLE) {
+        return;
+    }
+    if (boundPipeline_ == VK_NULL_HANDLE) {
+        hasUnboundDraw_ = true;
+        ENG_LOG_WARN("Vulkan", "drawIndexed skipped: no graphics pipeline bound");
         return;
     }
     vkCmdDrawIndexed(cmdBuffer_, indexCount, instanceCount, firstIndex, vertexOffset,

@@ -17,8 +17,10 @@
 #include "core/log.h"
 #include "core/result.h"
 #include "rhi/buffer.h"
+#include "rhi/pipeline.h"
 #include "rhi/rhi_types.h"
 #include "rhi/sampler.h"
+#include "rhi/shader.h"
 #include "rhi/texture.h"
 
 #include <cstddef>
@@ -163,6 +165,213 @@ toVkSamplerAddressMode(SamplerAddressMode mode) noexcept {
     return VK_COMPARE_OP_ALWAYS;
 }
 
+/// Converts ShaderStageFlags bitmask to VkShaderStageFlags.
+[[nodiscard]] constexpr VkShaderStageFlags toVkShaderStageFlags(ShaderStageFlags stages) noexcept {
+    VkShaderStageFlags vkStages = 0;
+    if (hasFlag(stages, ShaderStageFlags::Vertex)) {
+        vkStages |= VK_SHADER_STAGE_VERTEX_BIT;
+    }
+    if (hasFlag(stages, ShaderStageFlags::Fragment)) {
+        vkStages |= VK_SHADER_STAGE_FRAGMENT_BIT;
+    }
+    if (hasFlag(stages, ShaderStageFlags::Compute)) {
+        vkStages |= VK_SHADER_STAGE_COMPUTE_BIT;
+    }
+    return vkStages;
+}
+
+/// Converts single ShaderStageFlags to primary VkShaderStageFlagBits.
+[[nodiscard]] constexpr VkShaderStageFlagBits
+toVkShaderStageFlagBits(ShaderStageFlags stage) noexcept {
+    if (hasFlag(stage, ShaderStageFlags::Vertex)) {
+        return VK_SHADER_STAGE_VERTEX_BIT;
+    }
+    if (hasFlag(stage, ShaderStageFlags::Fragment)) {
+        return VK_SHADER_STAGE_FRAGMENT_BIT;
+    }
+    if (hasFlag(stage, ShaderStageFlags::Compute)) {
+        return VK_SHADER_STAGE_COMPUTE_BIT;
+    }
+    return VK_SHADER_STAGE_ALL;
+}
+
+/// Converts VertexFormat to VkFormat.
+[[nodiscard]] constexpr VkFormat toVkVertexFormat(VertexFormat format) noexcept {
+    switch (format) {
+    case VertexFormat::Float:
+        return VK_FORMAT_R32_SFLOAT;
+    case VertexFormat::Float2:
+        return VK_FORMAT_R32G32_SFLOAT;
+    case VertexFormat::Float3:
+        return VK_FORMAT_R32G32B32_SFLOAT;
+    case VertexFormat::Float4:
+        return VK_FORMAT_R32G32B32A32_SFLOAT;
+    case VertexFormat::Byte4Norm:
+        return VK_FORMAT_R8G8B8A8_SNORM;
+    case VertexFormat::UByte4Norm:
+        return VK_FORMAT_R8G8B8A8_UNORM;
+    case VertexFormat::Short2:
+        return VK_FORMAT_R16G16_SINT;
+    case VertexFormat::Short4:
+        return VK_FORMAT_R16G16B16A16_SINT;
+    case VertexFormat::Int:
+        return VK_FORMAT_R32_SINT;
+    case VertexFormat::UInt:
+        return VK_FORMAT_R32_UINT;
+    }
+    return VK_FORMAT_UNDEFINED;
+}
+
+/// Converts VertexInputRate to VkVertexInputRate.
+[[nodiscard]] constexpr VkVertexInputRate toVkVertexInputRate(VertexInputRate rate) noexcept {
+    switch (rate) {
+    case VertexInputRate::Vertex:
+        return VK_VERTEX_INPUT_RATE_VERTEX;
+    case VertexInputRate::Instance:
+        return VK_VERTEX_INPUT_RATE_INSTANCE;
+    }
+    return VK_VERTEX_INPUT_RATE_VERTEX;
+}
+
+/// Converts PrimitiveTopology to VkPrimitiveTopology.
+[[nodiscard]] constexpr VkPrimitiveTopology
+toVkPrimitiveTopology(PrimitiveTopology topology) noexcept {
+    switch (topology) {
+    case PrimitiveTopology::TriangleList:
+        return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    case PrimitiveTopology::TriangleStrip:
+        return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+    case PrimitiveTopology::LineList:
+        return VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+    case PrimitiveTopology::LineStrip:
+        return VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;
+    case PrimitiveTopology::PointList:
+        return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+    }
+    return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+}
+
+/// Converts PolygonMode to VkPolygonMode.
+[[nodiscard]] constexpr VkPolygonMode toVkPolygonMode(PolygonMode mode) noexcept {
+    switch (mode) {
+    case PolygonMode::Fill:
+        return VK_POLYGON_MODE_FILL;
+    case PolygonMode::Line:
+        return VK_POLYGON_MODE_LINE;
+    case PolygonMode::Point:
+        return VK_POLYGON_MODE_POINT;
+    }
+    return VK_POLYGON_MODE_FILL;
+}
+
+/// Converts CullMode to VkCullModeFlags.
+[[nodiscard]] constexpr VkCullModeFlags toVkCullModeFlags(CullMode mode) noexcept {
+    switch (mode) {
+    case CullMode::None:
+        return VK_CULL_MODE_NONE;
+    case CullMode::Front:
+        return VK_CULL_MODE_FRONT_BIT;
+    case CullMode::Back:
+        return VK_CULL_MODE_BACK_BIT;
+    case CullMode::FrontAndBack:
+        return VK_CULL_MODE_FRONT_AND_BACK;
+    }
+    return VK_CULL_MODE_NONE;
+}
+
+/// Converts FrontFace to VkFrontFace.
+[[nodiscard]] constexpr VkFrontFace toVkFrontFace(FrontFace face) noexcept {
+    switch (face) {
+    case FrontFace::CounterClockwise:
+        return VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    case FrontFace::Clockwise:
+        return VK_FRONT_FACE_CLOCKWISE;
+    }
+    return VK_FRONT_FACE_COUNTER_CLOCKWISE;
+}
+
+/// Converts BlendFactor to VkBlendFactor.
+[[nodiscard]] constexpr VkBlendFactor toVkBlendFactor(BlendFactor factor) noexcept {
+    switch (factor) {
+    case BlendFactor::Zero:
+        return VK_BLEND_FACTOR_ZERO;
+    case BlendFactor::One:
+        return VK_BLEND_FACTOR_ONE;
+    case BlendFactor::SrcColor:
+        return VK_BLEND_FACTOR_SRC_COLOR;
+    case BlendFactor::OneMinusSrcColor:
+        return VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
+    case BlendFactor::DstColor:
+        return VK_BLEND_FACTOR_DST_COLOR;
+    case BlendFactor::OneMinusDstColor:
+        return VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR;
+    case BlendFactor::SrcAlpha:
+        return VK_BLEND_FACTOR_SRC_ALPHA;
+    case BlendFactor::OneMinusSrcAlpha:
+        return VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    case BlendFactor::DstAlpha:
+        return VK_BLEND_FACTOR_DST_ALPHA;
+    case BlendFactor::OneMinusDstAlpha:
+        return VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;
+    }
+    return VK_BLEND_FACTOR_ONE;
+}
+
+/// Converts BlendOp to VkBlendOp.
+[[nodiscard]] constexpr VkBlendOp toVkBlendOp(BlendOp op) noexcept {
+    switch (op) {
+    case BlendOp::Add:
+        return VK_BLEND_OP_ADD;
+    case BlendOp::Subtract:
+        return VK_BLEND_OP_SUBTRACT;
+    case BlendOp::ReverseSubtract:
+        return VK_BLEND_OP_REVERSE_SUBTRACT;
+    case BlendOp::Min:
+        return VK_BLEND_OP_MIN;
+    case BlendOp::Max:
+        return VK_BLEND_OP_MAX;
+    }
+    return VK_BLEND_OP_ADD;
+}
+
+/// Converts ColorComponentFlags to VkColorComponentFlags.
+[[nodiscard]] constexpr VkColorComponentFlags
+toVkColorComponentFlags(ColorComponentFlags flags) noexcept {
+    VkColorComponentFlags mask = 0;
+    if (hasFlag(flags, ColorComponentFlags::R)) {
+        mask |= VK_COLOR_COMPONENT_R_BIT;
+    }
+    if (hasFlag(flags, ColorComponentFlags::G)) {
+        mask |= VK_COLOR_COMPONENT_G_BIT;
+    }
+    if (hasFlag(flags, ColorComponentFlags::B)) {
+        mask |= VK_COLOR_COMPONENT_B_BIT;
+    }
+    if (hasFlag(flags, ColorComponentFlags::A)) {
+        mask |= VK_COLOR_COMPONENT_A_BIT;
+    }
+    return mask;
+}
+
+/// Converts DescriptorType to VkDescriptorType.
+[[nodiscard]] constexpr VkDescriptorType toVkDescriptorType(DescriptorType type) noexcept {
+    switch (type) {
+    case DescriptorType::UniformBuffer:
+        return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    case DescriptorType::StorageBuffer:
+        return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    case DescriptorType::SampledImage:
+        return VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    case DescriptorType::Sampler:
+        return VK_DESCRIPTOR_TYPE_SAMPLER;
+    case DescriptorType::CombinedImageSampler:
+        return VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    case DescriptorType::StorageImage:
+        return VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    }
+    return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+}
+
 /// @struct VulkanBufferSlot
 /// @brief Internal tracking slot for a Vulkan buffer resource.
 struct VulkanBufferSlot {
@@ -192,6 +401,37 @@ struct VulkanTextureSlot {
 struct VulkanSamplerSlot {
     VkSampler sampler{VK_NULL_HANDLE};
     SamplerDesc desc{};
+    uint32_t generation{1};
+    bool alive{false};
+};
+
+/// @struct VulkanShaderSlot
+/// @brief Internal tracking slot for a compiled Vulkan shader module.
+struct VulkanShaderSlot {
+    VkShaderModule module{VK_NULL_HANDLE};
+    ShaderDesc desc{};
+    std::string entryPoint{};
+    std::vector<uint32_t> code{};
+    uint32_t generation{1};
+    bool alive{false};
+};
+
+/// @struct VulkanPipelineLayoutSlot
+/// @brief Internal tracking slot for a Vulkan pipeline layout and its descriptor set layouts.
+struct VulkanPipelineLayoutSlot {
+    VkPipelineLayout layout{VK_NULL_HANDLE};
+    std::vector<VkDescriptorSetLayout> descriptorSetLayouts{};
+    PipelineLayoutDesc desc{};
+    uint32_t generation{1};
+    bool alive{false};
+};
+
+/// @struct VulkanPipelineSlot
+/// @brief Internal tracking slot for a Vulkan graphics pipeline state object.
+struct VulkanPipelineSlot {
+    VkPipeline pipeline{VK_NULL_HANDLE};
+    PipelineLayoutHandle layoutHandle{};
+    GraphicsPipelineDesc desc{};
     uint32_t generation{1};
     bool alive{false};
 };

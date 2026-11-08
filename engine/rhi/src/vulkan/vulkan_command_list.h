@@ -47,6 +47,10 @@ public:
                      float maxDepth = 1.0F) override;
     void setScissor(int32_t x, int32_t y, uint32_t width, uint32_t height) override;
 
+    void bindPipeline(PipelineHandle pipeline) override;
+    void pushConstants(PipelineLayoutHandle layout, ShaderStageFlags stages, uint32_t offset,
+                       uint32_t size, const void* data) override;
+
     void bindVertexBuffer(uint32_t binding, BufferHandle buffer, size_t offset = 0) override;
     void bindIndexBuffer(BufferHandle buffer, size_t offset = 0, bool is32Bit = false) override;
 
@@ -62,6 +66,12 @@ public:
     [[nodiscard]] NativeCommandListHandles getNativeCommandListHandles() const noexcept override;
 
     [[nodiscard]] VkCommandBuffer handle() const noexcept { return cmdBuffer_; }
+    [[nodiscard]] PipelineHandle getBoundPipeline() const noexcept { return boundPipelineHandle_; }
+    [[nodiscard]] bool isPipelineBound() const noexcept { return boundPipeline_ != VK_NULL_HANDLE; }
+    [[nodiscard]] bool hasUnboundDraw() const noexcept { return hasUnboundDraw_; }
+    [[nodiscard]] uint32_t getPipelineBindCount() const noexcept { return pipelineBindCount_; }
+    [[nodiscard]] uint32_t getPushConstantCount() const noexcept { return pushConstantCount_; }
+
     void cleanupStagingResources() noexcept;
     void onDeviceDestroyed() noexcept;
 
@@ -72,6 +82,14 @@ private:
     bool isRecording_{false};
     bool isInsideRenderPass_{false};
     VkImage currentRenderImage_{VK_NULL_HANDLE};
+
+    PipelineHandle boundPipelineHandle_{};
+    VkPipeline boundPipeline_{VK_NULL_HANDLE};
+    PipelineLayoutHandle boundLayoutHandle_{};
+    VkPipelineLayout boundLayout_{VK_NULL_HANDLE};
+    bool hasUnboundDraw_{false};
+    uint32_t pipelineBindCount_{0};
+    uint32_t pushConstantCount_{0};
 
     struct StagingBuffer {
         VkBuffer buffer{VK_NULL_HANDLE};
