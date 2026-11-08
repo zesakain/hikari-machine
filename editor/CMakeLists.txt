@@ -43,6 +43,7 @@ endif()
 add_library(editor_lib STATIC
     src/editor_engine.cpp
     src/editor_theme.cpp
+    src/selection_model.cpp
     src/workspace_manager.cpp
     src/panels/hierarchy_panel.cpp
     src/panels/inspector_panel.cpp

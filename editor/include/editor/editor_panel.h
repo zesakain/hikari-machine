@@ -32,12 +32,15 @@ class RhiDevice;
 
 namespace eng::editor {
 
+class SelectionModel;
+
 /// @struct EditorContext
 /// @brief Non-owning execution context passed to editor panels each frame.
 struct EditorContext {
     world::World* world{nullptr};
     framework::Conductor* conductor{nullptr};
     rhi::RhiDevice* rhiDevice{nullptr};
+    SelectionModel* selection{nullptr};
 
     uint64_t selectedEntityId{0};
     bool isSimulating{true};

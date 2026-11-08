@@ -43,6 +43,7 @@ class Conductor;
 
 namespace eng::editor {
 
+class SelectionModel;
 class WorkspaceManager;
 
 /// @struct EditorConfig
@@ -109,6 +110,12 @@ public:
 
     /// Returns the workspace manager governing panels and docking layout (const).
     [[nodiscard]] const WorkspaceManager& getWorkspaceManager() const noexcept;
+
+    /// Returns the centralized selection model governing entity selection across panels.
+    [[nodiscard]] SelectionModel& getSelectionModel() noexcept;
+
+    /// Returns the centralized selection model governing entity selection across panels (const).
+    [[nodiscard]] const SelectionModel& getSelectionModel() const noexcept;
 
     /// Saves the current workspace docking layout to disk.
     bool saveWorkspaceLayout(const char* filepath = nullptr);

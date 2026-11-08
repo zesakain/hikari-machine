@@ -6,6 +6,7 @@
 #include "core/assert.h"
 #include "core/log.h"
 #include "editor/editor_theme.h"
+#include "editor/selection_model.h"
 #include "editor/workspace_manager.h"
 #include "panels/conductor_panel.h"
 #include "panels/console_panel.h"
@@ -34,6 +35,7 @@ struct EditorEngine::Impl {
     EditorConfig config{};
     EditorContext context{};
     WorkspaceManager workspaceManager{};
+    SelectionModel selectionModel{};
 
     bool initialized{false};
     bool vulkanBackendInitialized{false};
@@ -56,6 +58,7 @@ bool EditorEngine::initialize(rhi::RhiDevice& rhiDevice, const EditorConfig& con
     impl_->rhiDevice = &rhiDevice;
     impl_->config = config;
     impl_->context.rhiDevice = &rhiDevice;
+    impl_->context.selection = &impl_->selectionModel;
 
     IMGUI_CHECKVERSION();
     impl_->imguiContext = ImGui::CreateContext();
@@ -183,6 +186,12 @@ void EditorEngine::beginFrame(Duration dt, uint32_t width, uint32_t height) {
     impl_->context.lastFrameTimeMs = io.DeltaTime * 1000.0F;
     impl_->context.currentFps = io.Framerate > 0.0F ? io.Framerate : 60.0F;
 
+    // Validate and synchronize entity selection with authoritative World
+    if (impl_->context.world != nullptr) {
+        impl_->selectionModel.validate(*impl_->context.world);
+    }
+    impl_->context.selectedEntityId = impl_->selectionModel.getPrimarySelected().id;
+
     if (impl_->vulkanBackendInitialized) {
         ImGui_ImplVulkan_NewFrame();
     }
@@ -262,6 +271,14 @@ WorkspaceManager& EditorEngine::getWorkspaceManager() noexcept {
 
 const WorkspaceManager& EditorEngine::getWorkspaceManager() const noexcept {
     return impl_->workspaceManager;
+}
+
+SelectionModel& EditorEngine::getSelectionModel() noexcept {
+    return impl_->selectionModel;
+}
+
+const SelectionModel& EditorEngine::getSelectionModel() const noexcept {
+    return impl_->selectionModel;
 }
 
 bool EditorEngine::saveWorkspaceLayout(const char* filepath) {
