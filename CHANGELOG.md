@@ -8,6 +8,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Editor Milestone 7: Asset Pipeline & Mesh Rendering System**:
+  - **Asset Architecture & Identification**:
+    - Introduced strongly typed `AssetId` (`eng::StrongId<AssetTag, uint64_t>`) generated deterministically via 64-bit FNV-1a path hashing (`engine/render/include/render/asset_types.h`).
+    - Standardized project-relative asset paths (e.g. `assets/models/cube.obj`) across engine, scene serialization, and editor UI.
+    - Defined `AssetType::Mesh`, `AssetType::Material`, `AssetType::Texture`, and lifecycle states `AssetLoadState`.
+  - **CPU Mesh Representation & Geometry Processing**:
+    - Created `eng::render::MeshData` and `Vertex` layout (`position`, `normal`, `uv`, `color`) (`engine/render/include/render/mesh.h`).
+    - Implemented automatic bounding box calculation (`recalculateBounds()`), facet normal generation (`generateNormals()`), and data validation (`validate()`).
+    - Added submesh support with range offsets and individual submesh bounding volumes.
+  - **Wavefront OBJ Importer (Zero Third-Party Dependencies)**:
+    - Implemented a clean, resilient, self-contained C++20 OBJ importer (`engine/render/include/render/obj_importer.h`, `engine/render/src/obj_importer.cpp`).
+    - Supports geometric vertices (`v`), texture coordinates (`vt`), vertex normals (`vn`), polygon face definitions (`f`) with relative negative indexing, multi-index formatting (`v`, `v/vt`, `v//vn`, `v/vt/vn`), fan triangulation for arbitrary n-gons, and object/group grouping (`o`, `g`).
+    - Multi-tier working directory candidate fallback (`../../../`) ensuring reliable asset discovery across CTest build trees and manual execution.
+  - **RHI Buffer Upload Interface & Backend Support**:
+    - Added `writeBuffer(BufferHandle, offset, data, size)` to `eng::rhi::RhiDevice` (`engine/rhi/include/rhi/rhi_device.h`).
+    - Implemented in `NullDevice` for headless simulation tests and `VulkanDevice` for direct host-coherent GPU buffer memory mapping.
+  - **GPU Mesh Buffer Lifecycle Management**:
+    - Created `eng::render::GpuMesh` RAII holder (`engine/render/include/render/gpu_mesh.h`) managing `BufferUsageFlags::Vertex` and `BufferUsageFlags::Index` GPU buffers with automatic lifecycle destruction.
+  - **Centralized Asset Management & Caching**:
+    - Implemented `eng::render::AssetManager` repository (`engine/render/include/render/asset_manager.h`) supporting CPU mesh caching, deduplication, on-demand GPU uploading, metadata querying, and unload lifecycle tracking.
+  - **ECS Mesh Integration**:
+    - Created `eng::render::MeshComponent` (`engine/render/include/render/mesh_component.h`) referencing meshes via `AssetId` and project-relative path.
+    - Registered `MeshComponent` with Flecs via `registerRenderComponents()`.
+  - **Scene Renderer**:
+    - Implemented `eng::render::SceneRenderer` (`engine/render/include/render/scene_renderer.h`) iterating active ECS entities with `MeshComponent` and `PhysicsTransformComponent` to record GPU draw commands to `RhiCommandList`.
+  - **Native Scene Serialization & Runtime World Isolation**:
+    - Integrated `MeshComponent` into native `.hikari` JSON scene serializer and deserializer (`engine/framework/src/scene_serializer.cpp`) preserving asset paths, submesh indices, visibility, and shadow flags.
+    - Updated `RuntimeSession` to register render components in `RuntimeWorld`, ensuring clean simulation lifecycle isolation.
+  - **Professional Editor Integration**:
+    - **Entity Inspector**: Added dedicated `Mesh Component Card` with real-time asset path editing, load state badge, submesh index slider, visibility and shadow casting toggles, component removal, and `+ Add Component` menu integration.
+    - **Scene Viewport**: Added 3D perspective geometry rasterization, directional lighting, wireframe rendering, collision hull overlays, and ray-picking for mesh entities.
+    - **Content Browser**: Scans `assets/models/` for `.obj` files, displays `[OBJ]` type badges, inspects vertex/triangle/submesh metadata, and provides `+ Create Entity with Mesh` and `Assign to Selected Entity` action buttons.
+  - **Sample Assets & Automated Test Suites**:
+    - Created unit assets `assets/models/cube.obj` and `assets/models/prism.obj`.
+    - Added unit test suites `tests/unit/render/mesh_test.cpp`, `tests/unit/render/asset_manager_test.cpp`, and editor test `testEditorMeshAssetPipelineAndRendering`.
+    - Verified 100% pass rate across all 6 CMake presets: `editor`, `debug`, `release`, `profile`, `asan`, and `tsan`.
+
+
+### Added
 - **Editor Milestone 6: Scene Viewport & Camera System**:
   - **Independent 3D Editor Camera**:
     - Created `eng::editor::EditorCamera` (`editor/include/editor/editor_camera.h`) supporting perspective and orthographic projections.
