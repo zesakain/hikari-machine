@@ -13,6 +13,7 @@
 #include "render/mesh_component.h"
 #include "world/world.h"
 
+#include <SDL3/SDL.h>
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -36,6 +37,8 @@ ContentBrowserPanel::ContentBrowserPanel(std::filesystem::path rootDir)
     : controller_(std::move(rootDir)) {}
 
 void ContentBrowserPanel::draw(EditorContext& ctx) {
+    processPendingImports(ctx);
+
     if (!isOpen_) {
         return;
     }
@@ -160,6 +163,11 @@ void ContentBrowserPanel::drawToolbar(EditorContext& ctx) {
     }
 
     ImGui::SameLine();
+    if (ImGui::Button("Import")) {
+        openNativeImportDialog(ctx);
+    }
+
+    ImGui::SameLine();
     const auto* selectedItem = controller_.getSelectedItem();
     const bool canDelete = (selectedItem != nullptr);
     if (!canDelete) {
@@ -169,13 +177,13 @@ void ContentBrowserPanel::drawToolbar(EditorContext& ctx) {
         if (selectedItem != nullptr) {
             targetDeletePath_ = selectedItem->fullPath;
             targetDeleteItemName_ = selectedItem->name;
-            targetDeleteItemType_ = selectedItem->isDirectory
-                                        ? "Folder"
-                                        : (selectedItem->extension.empty()
-                                               ? "File"
-                                               : (selectedItem->extension + " File"));
+            targetDeleteItemType_ =
+                selectedItem->isDirectory
+                    ? "Folder"
+                    : (selectedItem->extension.empty() ? "File"
+                                                       : (selectedItem->extension + " File"));
             isDeleteNonEmptyDir_ = (selectedItem->isDirectory &&
-                                   !controller_.isDirectoryEmpty(selectedItem->fullPath));
+                                    !controller_.isDirectoryEmpty(selectedItem->fullPath));
             showDeleteModal_ = true;
         }
     }
@@ -339,10 +347,9 @@ void ContentBrowserPanel::drawDirectoryTree() {
         char nodeLabel[128];
         std::snprintf(nodeLabel, sizeof(nodeLabel), "[D] %s", dirName.c_str());
 
-        bool nodeOpen =
-            ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<uintptr_t>(
-                                  std::hash<std::string>{}(dirPath.string()))),
-                              flags, "%s", nodeLabel);
+        bool nodeOpen = ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<uintptr_t>(
+                                              std::hash<std::string>{}(dirPath.string()))),
+                                          flags, "%s", nodeLabel);
 
         if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
             controller_.navigateTo(dirPath);
@@ -419,6 +426,10 @@ void ContentBrowserPanel::drawAssetItems(EditorContext& ctx) {
             ImGui::EndMenu();
         }
         ImGui::Separator();
+        if (ImGui::MenuItem("Import Asset...")) {
+            openNativeImportDialog(ctx);
+        }
+        ImGui::Separator();
         if (ImGui::MenuItem("Refresh")) {
             controller_.refresh();
         }
@@ -484,12 +495,14 @@ void ContentBrowserPanel::drawListView(EditorContext& ctx) {
                 if (item.isMesh) {
                     if (ImGui::MenuItem("Create Entity with Mesh")) {
                         if (ctx.world != nullptr) {
-                            const std::string stem = std::filesystem::path(item.name).stem().string();
+                            const std::string stem =
+                                std::filesystem::path(item.name).stem().string();
                             const std::string uniqueName =
                                 HierarchyPanel::generateUniqueEntityName(*ctx.world, stem.c_str());
                             auto h = ctx.world->createEntity(uniqueName);
                             ctx.world->setComponent(h, physics::PhysicsTransformComponent{});
-                            const render::AssetId id = render::makeAssetIdFromPath(item.relativePath);
+                            const render::AssetId id =
+                                render::makeAssetIdFromPath(item.relativePath);
                             ctx.world->setComponent(h, render::MeshComponent{
                                                            .meshAsset = id,
                                                            .assetPath = item.relativePath,
@@ -543,11 +556,10 @@ void ContentBrowserPanel::drawListView(EditorContext& ctx) {
                 if (ImGui::MenuItem("Delete...")) {
                     targetDeletePath_ = item.fullPath;
                     targetDeleteItemName_ = item.name;
-                    targetDeleteItemType_ = item.isDirectory
-                                                ? "Folder"
-                                                : (item.extension.empty()
-                                                       ? "File"
-                                                       : (item.extension + " File"));
+                    targetDeleteItemType_ =
+                        item.isDirectory
+                            ? "Folder"
+                            : (item.extension.empty() ? "File" : (item.extension + " File"));
                     isDeleteNonEmptyDir_ =
                         (item.isDirectory && !controller_.isDirectoryEmpty(item.fullPath));
                     showDeleteModal_ = true;
@@ -634,8 +646,8 @@ void ContentBrowserPanel::drawGridView(EditorContext& ctx) {
         } else {
             drawList->AddRectFilled(cardMin, cardMax,
                                     ImColor(30, 35, 45, isCardHovered ? 200 : 153), 4.0F);
-            drawList->AddRect(cardMin, cardMax,
-                              ImColor(60, 65, 75, isCardHovered ? 220 : 150), 4.0F);
+            drawList->AddRect(cardMin, cardMax, ImColor(60, 65, 75, isCardHovered ? 220 : 150),
+                              4.0F);
         }
 
         // Badge icon
@@ -715,11 +727,10 @@ void ContentBrowserPanel::drawGridView(EditorContext& ctx) {
             if (ImGui::MenuItem("Delete...")) {
                 targetDeletePath_ = item.fullPath;
                 targetDeleteItemName_ = item.name;
-                targetDeleteItemType_ = item.isDirectory
-                                            ? "Folder"
-                                            : (item.extension.empty()
-                                                   ? "File"
-                                                   : (item.extension + " File"));
+                targetDeleteItemType_ =
+                    item.isDirectory
+                        ? "Folder"
+                        : (item.extension.empty() ? "File" : (item.extension + " File"));
                 isDeleteNonEmptyDir_ =
                     (item.isDirectory && !controller_.isDirectoryEmpty(item.fullPath));
                 showDeleteModal_ = true;
@@ -828,7 +839,8 @@ void ContentBrowserPanel::drawModals() {
         showCreateFolderModal_ = false;
     }
 
-    if (ImGui::BeginPopupModal("Create Folder##Modal", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    if (ImGui::BeginPopupModal("Create Folder##Modal", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::Text("Enter folder name:");
         ImGui::InputText("##FolderNameInput", folderNameBuffer_.data(), folderNameBuffer_.size());
 
@@ -906,7 +918,8 @@ void ContentBrowserPanel::drawModals() {
         showDeleteModal_ = false;
     }
 
-    if (ImGui::BeginPopupModal("Confirm Delete##Modal", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    if (ImGui::BeginPopupModal("Confirm Delete##Modal", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
         std::string itemName = targetDeleteItemName_;
         if (itemName.empty()) {
             itemName = targetDeletePath_.filename().string();
@@ -952,7 +965,8 @@ void ContentBrowserPanel::drawModals() {
         showErrorModal_ = false;
     }
 
-    if (ImGui::BeginPopupModal("Filesystem Error##Modal", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    if (ImGui::BeginPopupModal("Filesystem Error##Modal", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::TextColored(ImVec4(1.0F, 0.35F, 0.35F, 1.0F), "Operation Failed:");
         ImGui::TextWrapped("%s", errorMessage_.c_str());
 
@@ -961,6 +975,147 @@ void ContentBrowserPanel::drawModals() {
             ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();
+    }
+
+    // 6. Manual Import Modal (Fallback)
+    if (showImportPathModal_) {
+        ImGui::OpenPopup("Import Asset Path##Modal");
+        showImportPathModal_ = false;
+    }
+
+    if (ImGui::BeginPopupModal("Import Asset Path##Modal", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Enter full or relative path to asset file to import:");
+        ImGui::InputText("##ImportPathInput", importPathBuffer_.data(), importPathBuffer_.size());
+        ImGui::Spacing();
+        ImGui::Separator();
+        if (ImGui::Button("Import", ImVec2(100.0F, 0.0F))) {
+            if (importPathBuffer_[0] != '\0') {
+                std::filesystem::path p(importPathBuffer_.data());
+                queuePendingImports({p});
+            }
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(100.0F, 0.0F))) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+}
+
+void ContentBrowserPanel::openNativeImportDialog(EditorContext& ctx) {
+    (void)ctx;
+    static const SDL_DialogFileFilter filters[] = {
+        {"All Supported Assets (*.obj, *.gltf, *.glb, *.png, *.jpg, ...)",
+         "obj;gltf;glb;png;jpg;jpeg;tga;bmp;wav;ogg;mp3;flac;lua;hikari;json;toml;txt;mtl"},
+        {"3D Models (*.obj, *.gltf, *.glb)", "obj;gltf;glb"},
+        {"Wavefront OBJ (*.obj)", "obj"},
+        {"glTF / GLB (*.gltf, *.glb)", "gltf;glb"},
+        {"Textures (*.png, *.jpg, *.jpeg, *.tga, *.bmp)", "png;jpg;jpeg;tga;bmp"},
+        {"Audio (*.wav, *.ogg, *.mp3, *.flac)", "wav;ogg;mp3;flac"},
+        {"Scripts & Scenes (*.lua, *.hikari)", "lua;hikari"},
+        {"All Files (*.*)", "*"}};
+
+    const std::filesystem::path currentDir = controller_.getCurrentDirectory();
+    std::error_code ec;
+    std::string defaultLocation = std::filesystem::absolute(currentDir, ec).string();
+
+    SDL_ShowOpenFileDialog(
+        [](void* userdata, const char* const* filelist, int filter) {
+            (void)filter;
+            auto* panel = static_cast<ContentBrowserPanel*>(userdata);
+            if (panel == nullptr) {
+                return;
+            }
+            if (filelist == nullptr) {
+                const char* err = SDL_GetError();
+                std::string errStr =
+                    (err != nullptr && *err != '\0') ? err : "Failed to open native file dialog";
+                panel->recordNativeDialogError(errStr);
+                return;
+            }
+            if (*filelist == nullptr) {
+                // User cancelled dialog
+                return;
+            }
+            std::vector<std::filesystem::path> paths;
+            for (const char* const* p = filelist; *p != nullptr; ++p) {
+                paths.emplace_back(*p);
+            }
+            panel->queuePendingImports(std::move(paths));
+        },
+        this, nullptr, filters, static_cast<int>(sizeof(filters) / sizeof(filters[0])),
+        defaultLocation.c_str(), true);
+}
+
+void ContentBrowserPanel::queuePendingImports(std::vector<std::filesystem::path> paths) {
+    if (paths.empty()) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(pendingImportMutex_);
+    pendingImportPaths_.insert(pendingImportPaths_.end(), std::make_move_iterator(paths.begin()),
+                               std::make_move_iterator(paths.end()));
+}
+
+void ContentBrowserPanel::recordNativeDialogError(std::string_view errorMsg) {
+    std::lock_guard<std::mutex> lock(pendingImportMutex_);
+    nativeDialogError_ = std::string(errorMsg);
+}
+
+void ContentBrowserPanel::processPendingImports(EditorContext& ctx) {
+    std::vector<std::filesystem::path> pathsToImport;
+    std::string nativeErr;
+    {
+        std::lock_guard<std::mutex> lock(pendingImportMutex_);
+        pathsToImport.swap(pendingImportPaths_);
+        nativeErr.swap(nativeDialogError_);
+    }
+
+    if (!nativeErr.empty()) {
+        errorMessage_ = "Native file dialog error: " + nativeErr;
+        showErrorModal_ = true;
+        showImportPathModal_ = true;
+    }
+
+    if (pathsToImport.empty()) {
+        return;
+    }
+
+    size_t successCount = 0;
+    std::string firstError{};
+
+    for (const auto& src : pathsToImport) {
+        auto res = controller_.importFile(src);
+        if (!res.hasValue()) {
+            if (firstError.empty()) {
+                firstError = res.error().message;
+            }
+            ENG_LOG_WARN("Editor", "Failed to import asset into Content Browser");
+        } else {
+            successCount++;
+            const auto& dest = res.value();
+            if (ctx.assetManager != nullptr) {
+                std::string ext = dest.extension().string();
+                std::transform(ext.begin(), ext.end(), ext.begin(),
+                               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                if (ext == ".obj" || ext == ".gltf" || ext == ".glb") {
+                    std::string relPath =
+                        ContentBrowserController::normalizeSeparators(dest.string());
+                    (void)ctx.assetManager->loadMesh(relPath);
+                }
+            }
+        }
+    }
+
+    if (successCount > 0) {
+        ctx.markDirty();
+        ENG_LOG_INFO("Editor", "Successfully imported asset into Content Browser");
+    }
+
+    if (!firstError.empty()) {
+        errorMessage_ = firstError;
+        showErrorModal_ = true;
     }
 }
 

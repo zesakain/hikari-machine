@@ -4,6 +4,8 @@
 #include "editor/content_browser_controller.h"
 
 #include "core/log.h"
+#include "render/gltf_importer.h"
+#include "render/obj_importer.h"
 
 #include <algorithm>
 #include <chrono>
@@ -42,7 +44,7 @@ ContentItemType determineItemType(const std::filesystem::path& path, bool isDir)
         return ContentItemType::Scene;
     }
     if (lowerExt == ".json" || lowerExt == ".toml" || lowerExt == ".txt" || lowerExt == ".ini" ||
-        lowerExt == ".cfg") {
+        lowerExt == ".cfg" || lowerExt == ".mtl") {
         return ContentItemType::Data;
     }
     return ContentItemType::Other;
@@ -235,7 +237,8 @@ void ContentBrowserController::pushHistory(const std::filesystem::path& path) {
 
 bool ContentBrowserController::navigateTo(const std::filesystem::path& targetPath) {
     std::error_code ec;
-    if (!std::filesystem::exists(targetPath, ec) || !std::filesystem::is_directory(targetPath, ec)) {
+    if (!std::filesystem::exists(targetPath, ec) ||
+        !std::filesystem::is_directory(targetPath, ec)) {
         return false;
     }
     if (!isPathWithinRoot(targetPath)) {
@@ -365,8 +368,8 @@ void ContentBrowserController::refresh() {
         if (!statEc) {
             item.lastModifiedFormatted = formatFileTime(lastTime);
             auto dur = lastTime.time_since_epoch();
-            item.lastModifiedSeconds =
-                static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(dur).count());
+            item.lastModifiedSeconds = static_cast<uint64_t>(
+                std::chrono::duration_cast<std::chrono::seconds>(dur).count());
         } else {
             item.lastModifiedFormatted = "-";
             item.lastModifiedSeconds = 0;
@@ -528,8 +531,8 @@ Result<std::filesystem::path> ContentBrowserController::createFolder(std::string
     return Result<std::filesystem::path>::success(newPath);
 }
 
-Result<std::filesystem::path> ContentBrowserController::createFile(
-    std::string_view fileName, ContentFileTemplate templateType) {
+Result<std::filesystem::path>
+ContentBrowserController::createFile(std::string_view fileName, ContentFileTemplate templateType) {
     std::string finalName(fileName);
     if (finalName.empty()) {
         switch (templateType) {
@@ -635,8 +638,9 @@ Result<std::filesystem::path> ContentBrowserController::createFile(
     return Result<std::filesystem::path>::success(newPath);
 }
 
-Result<std::filesystem::path> ContentBrowserController::renameItem(
-    const std::filesystem::path& targetPath, std::string_view newName) {
+Result<std::filesystem::path>
+ContentBrowserController::renameItem(const std::filesystem::path& targetPath,
+                                     std::string_view newName) {
     if (!isValidFileName(newName)) {
         return Result<std::filesystem::path>::failure(
             Error(ErrorCode::InvalidArgument, "Invalid name supplied for rename"));
@@ -731,8 +735,8 @@ Result<void> ContentBrowserController::deleteItem(const std::filesystem::path& t
     return Result<void>::success();
 }
 
-Result<std::filesystem::path> ContentBrowserController::duplicateFile(
-    const std::filesystem::path& targetPath) {
+Result<std::filesystem::path>
+ContentBrowserController::duplicateFile(const std::filesystem::path& targetPath) {
     if (!isPathWithinRoot(targetPath)) {
         return Result<std::filesystem::path>::failure(
             Error(ErrorCode::InvalidArgument, "Target path is outside project root"));
@@ -770,6 +774,149 @@ Result<std::filesystem::path> ContentBrowserController::duplicateFile(
     }
 
     return Result<std::filesystem::path>::success(candidate);
+}
+
+bool ContentBrowserController::isSupportedImportExtension(std::string_view extension) noexcept {
+    if (extension.empty()) {
+        return false;
+    }
+    std::string ext(extension);
+    if (ext.front() != '.') {
+        ext = "." + ext;
+    }
+    std::transform(ext.begin(), ext.end(), ext.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+    // 3D Meshes
+    if (ext == ".obj" || ext == ".gltf" || ext == ".glb") {
+        return true;
+    }
+    // Textures
+    if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" || ext == ".bmp") {
+        return true;
+    }
+    // Audio
+    if (ext == ".wav" || ext == ".ogg" || ext == ".mp3" || ext == ".flac") {
+        return true;
+    }
+    // Scripts
+    if (ext == ".lua") {
+        return true;
+    }
+    // Scenes
+    if (ext == ".hikari") {
+        return true;
+    }
+    // Materials & Data
+    if (ext == ".mtl" || ext == ".json" || ext == ".toml" || ext == ".txt" || ext == ".ini" ||
+        ext == ".cfg") {
+        return true;
+    }
+    return false;
+}
+
+Result<std::filesystem::path>
+ContentBrowserController::importFile(const std::filesystem::path& sourcePath) {
+    std::error_code ec;
+    if (!std::filesystem::exists(sourcePath, ec)) {
+        return Result<std::filesystem::path>::failure(Error(
+            ErrorCode::InvalidArgument, "Source file does not exist: " + sourcePath.string()));
+    }
+
+    if (std::filesystem::is_directory(sourcePath, ec)) {
+        return Result<std::filesystem::path>::failure(
+            Error(ErrorCode::InvalidArgument,
+                  "Cannot import a directory directly: " + sourcePath.string()));
+    }
+
+    const std::string ext = sourcePath.extension().string();
+    if (!isSupportedImportExtension(ext)) {
+        return Result<std::filesystem::path>::failure(
+            Error(ErrorCode::InvalidArgument,
+                  "Unsupported asset file format: " + (ext.empty() ? "(none)" : ext)));
+    }
+
+    // Convert extension to lowercase for parser validation
+    std::string lowerExt = ext;
+    std::transform(lowerExt.begin(), lowerExt.end(), lowerExt.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+    // Validate 3D mesh integrity via existing importers before copying
+    if (lowerExt == ".obj") {
+        auto parseRes = render::ObjImporter::importFromFile(sourcePath.string());
+        if (!parseRes.hasValue()) {
+            return Result<std::filesystem::path>::failure(Error(
+                ErrorCode::InvalidArgument, std::string("Failed to parse Wavefront OBJ file: ") +
+                                                std::string(parseRes.error().message)));
+        }
+    } else if (lowerExt == ".gltf" || lowerExt == ".glb") {
+        auto parseRes = render::GltfImporter::importFromFile(sourcePath.string());
+        if (!parseRes.hasValue()) {
+            return Result<std::filesystem::path>::failure(
+                Error(ErrorCode::InvalidArgument, std::string("Failed to parse glTF/GLB file: ") +
+                                                      std::string(parseRes.error().message)));
+        }
+    }
+
+    const std::string fileName = sourcePath.filename().string();
+    if (!isValidFileName(fileName)) {
+        return Result<std::filesystem::path>::failure(Error(
+            ErrorCode::InvalidArgument, "File name contains invalid characters: " + fileName));
+    }
+
+    const std::filesystem::path destPath = currentDirectory_ / fileName;
+    if (!isPathWithinRoot(destPath)) {
+        return Result<std::filesystem::path>::failure(
+            Error(ErrorCode::InvalidArgument, "Destination path escapes project asset root"));
+    }
+
+    // Check if source and destination are the exact same file
+    if (std::filesystem::equivalent(sourcePath, destPath, ec)) {
+        return Result<std::filesystem::path>::failure(
+            Error(ErrorCode::InvalidArgument,
+                  "Source file is already located in the destination folder"));
+    }
+
+    // Copy file into target asset directory
+    std::filesystem::copy_file(sourcePath, destPath,
+                               std::filesystem::copy_options::overwrite_existing, ec);
+    if (ec) {
+        return Result<std::filesystem::path>::failure(Error(
+            ErrorCode::InvalidArgument, "Filesystem copy failed during import: " + ec.message()));
+    }
+
+    // Refresh content browser items and select the newly imported asset
+    refresh();
+
+    for (size_t i = 0; i < displayedItems_.size(); ++i) {
+        if (displayedItems_[i].fullPath == destPath) {
+            selectedIndex_ = static_cast<int>(i);
+            break;
+        }
+    }
+
+    return Result<std::filesystem::path>::success(destPath);
+}
+
+Result<std::vector<std::filesystem::path>>
+ContentBrowserController::importFiles(const std::vector<std::filesystem::path>& sourcePaths) {
+    if (sourcePaths.empty()) {
+        return Result<std::vector<std::filesystem::path>>::failure(
+            Error(ErrorCode::InvalidArgument, "No files specified for import"));
+    }
+
+    std::vector<std::filesystem::path> importedPaths;
+    importedPaths.reserve(sourcePaths.size());
+
+    for (const auto& src : sourcePaths) {
+        auto res = importFile(src);
+        if (!res.hasValue()) {
+            return Result<std::vector<std::filesystem::path>>::failure(res.error());
+        }
+        importedPaths.push_back(res.value());
+    }
+
+    return Result<std::vector<std::filesystem::path>>::success(std::move(importedPaths));
 }
 
 } // namespace eng::editor

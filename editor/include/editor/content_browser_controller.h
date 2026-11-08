@@ -43,46 +43,23 @@ enum class ContentItemType : uint8_t {
 
 /// @enum ContentSortField
 /// @brief Field used to sort directory entries.
-enum class ContentSortField : uint8_t {
-    Name,
-    Type,
-    Size,
-    Date
-};
+enum class ContentSortField : uint8_t { Name, Type, Size, Date };
 
 /// @enum ContentSortDirection
 /// @brief Ascending or descending sort order.
-enum class ContentSortDirection : uint8_t {
-    Ascending,
-    Descending
-};
+enum class ContentSortDirection : uint8_t { Ascending, Descending };
 
 /// @enum ContentFilterCategory
 /// @brief Filter category for displayed assets.
-enum class ContentFilterCategory : uint8_t {
-    All,
-    Meshes,
-    Textures,
-    Audio,
-    Scripts,
-    Scenes
-};
+enum class ContentFilterCategory : uint8_t { All, Meshes, Textures, Audio, Scripts, Scenes };
 
 /// @enum ContentViewMode
 /// @brief Visual presentation mode in the Content Browser.
-enum class ContentViewMode : uint8_t {
-    List,
-    Grid
-};
+enum class ContentViewMode : uint8_t { List, Grid };
 
 /// @enum ContentFileTemplate
 /// @brief Supported template types for new asset creation.
-enum class ContentFileTemplate : uint8_t {
-    EmptyFile,
-    TextFile,
-    LuaScript,
-    HikariScene
-};
+enum class ContentFileTemplate : uint8_t { EmptyFile, TextFile, LuaScript, HikariScene };
 
 /// @struct BreadcrumbSegment
 /// @brief Represents one clickable navigation segment along the active path.
@@ -159,7 +136,8 @@ public:
     /// Refreshes directory contents from disk.
     void refresh();
 
-    /// Verifies whether candidatePath resides strictly within rootDirectory_ and prevents traversal.
+    /// Verifies whether candidatePath resides strictly within rootDirectory_ and prevents
+    /// traversal.
     [[nodiscard]] bool isPathWithinRoot(const std::filesystem::path& candidatePath) const;
 
     /// Returns breadcrumb segments leading from project root down to currentDirectory_.
@@ -210,6 +188,26 @@ public:
 
     /// Duplicates an existing file with an auto-generated unique suffix.
     Result<std::filesystem::path> duplicateFile(const std::filesystem::path& targetPath);
+
+    /// Imports an external file into the current directory.
+    ///
+    /// Validates source file existence, supported format extension, and 3D mesh
+    /// integrity (using existing ObjImporter / GltfImporter pipelines) before copying.
+    /// On success, refreshes directory enumeration and selects the newly imported asset.
+    ///
+    /// @param sourcePath Filesystem path to the external asset to be imported.
+    /// @return Destination path within project asset root on success, or Error on failure.
+    Result<std::filesystem::path> importFile(const std::filesystem::path& sourcePath);
+
+    /// Imports multiple external files into the current directory.
+    ///
+    /// @param sourcePaths List of filesystem paths to external assets.
+    /// @return Vector of destination paths for successfully imported assets, or Error on failure.
+    Result<std::vector<std::filesystem::path>>
+    importFiles(const std::vector<std::filesystem::path>& sourcePaths);
+
+    /// Checks if a file extension is supported for asset import.
+    [[nodiscard]] static bool isSupportedImportExtension(std::string_view extension) noexcept;
 
     /// Checks if a directory contains any files or subdirectories.
     [[nodiscard]] bool isDirectoryEmpty(const std::filesystem::path& dirPath) const;

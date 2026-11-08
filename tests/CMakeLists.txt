@@ -158,7 +158,7 @@ add_test(NAME ui_test COMMAND ui_test)
 if(HIKARI_BUILD_EDITOR)
     add_executable(editor_test unit/editor/editor_test.cpp)
     target_link_libraries(editor_test PRIVATE hikari::editor_lib hikari::engine_framework hikari::engine_world hikari::engine_rhi imgui_static)
-    target_include_directories(editor_test PRIVATE ${imgui_SOURCE_DIR})
+    target_include_directories(editor_test PRIVATE ${imgui_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/editor/src)
     add_test(NAME editor_test COMMAND editor_test)
 
     add_executable(content_browser_test unit/editor/content_browser_test.cpp)

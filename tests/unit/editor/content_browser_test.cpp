@@ -156,7 +156,8 @@ static void testFolderAndFileManagement() {
 
     // CRITICAL REQUIREMENT: Verify valid minimal scene parses with SceneSerializer
     world::World testWorld;
-    auto loadRes = framework::SceneSerializer::deserializeFromFile(testWorld, sceneRes.value().string(), true);
+    auto loadRes =
+        framework::SceneSerializer::deserializeFromFile(testWorld, sceneRes.value().string(), true);
     TEST_CHECK(loadRes.hasValue());
 
     // 4. Duplicate File
@@ -308,12 +309,136 @@ static void testAssetFormatBadgesAndMetadata() {
     std::cout << "[PASS] testAssetFormatBadgesAndMetadata\n";
 }
 
+static void testAssetImportPipeline() {
+    SandboxRAII sandbox;
+    std::filesystem::path root = sandbox.dir / "assets";
+    std::filesystem::path externalDir = sandbox.dir / "external_downloads";
+    std::filesystem::create_directories(root);
+    std::filesystem::create_directories(externalDir);
+
+    // 1. Supported extension validation
+    TEST_CHECK(ContentBrowserController::isSupportedImportExtension(".obj"));
+    TEST_CHECK(ContentBrowserController::isSupportedImportExtension("OBJ"));
+    TEST_CHECK(ContentBrowserController::isSupportedImportExtension(".gltf"));
+    TEST_CHECK(ContentBrowserController::isSupportedImportExtension(".glb"));
+    TEST_CHECK(ContentBrowserController::isSupportedImportExtension(".png"));
+    TEST_CHECK(ContentBrowserController::isSupportedImportExtension(".wav"));
+    TEST_CHECK(ContentBrowserController::isSupportedImportExtension(".lua"));
+    TEST_CHECK(ContentBrowserController::isSupportedImportExtension(".hikari"));
+    TEST_CHECK(ContentBrowserController::isSupportedImportExtension(".mtl"));
+    TEST_CHECK(!ContentBrowserController::isSupportedImportExtension(".exe"));
+    TEST_CHECK(!ContentBrowserController::isSupportedImportExtension(".dll"));
+    TEST_CHECK(!ContentBrowserController::isSupportedImportExtension(""));
+
+    // 2. Create valid Wavefront OBJ in external directory
+    std::filesystem::path validExternalObj = externalDir / "custom_pyramid.obj";
+    {
+        std::ofstream out(validExternalObj);
+        out << "# Valid Wavefront OBJ\n"
+            << "v 0.0 1.0 0.0\n"
+            << "v -1.0 0.0 1.0\n"
+            << "v 1.0 0.0 1.0\n"
+            << "v 0.0 0.0 -1.0\n"
+            << "f 1 2 3\n"
+            << "f 1 3 4\n"
+            << "f 1 4 2\n"
+            << "f 2 4 3\n";
+    }
+
+    ContentBrowserController controller(root);
+
+    // 3. Import valid OBJ
+    auto importRes = controller.importFile(validExternalObj);
+    TEST_CHECK(importRes.hasValue());
+    std::filesystem::path importedPath = importRes.value();
+    TEST_CHECK(std::filesystem::exists(importedPath));
+    TEST_CHECK(importedPath.filename() == "custom_pyramid.obj");
+    TEST_CHECK(importedPath.parent_path() == root);
+
+    // Verify immediately enumerated and selected
+    const auto* selItem = controller.getSelectedItem();
+    TEST_CHECK(selItem != nullptr);
+    TEST_CHECK(selItem->name == "custom_pyramid.obj");
+    TEST_CHECK(selItem->isMesh);
+    TEST_CHECK(std::string(selItem->typeBadge) == "[OBJ]");
+
+    // 4. Import into subfolder
+    auto folderRes = controller.createFolder("ImportedMeshes");
+    TEST_CHECK(folderRes.hasValue());
+    TEST_CHECK(controller.navigateTo(folderRes.value()));
+
+    auto subImportRes = controller.importFile(validExternalObj);
+    TEST_CHECK(subImportRes.hasValue());
+    TEST_CHECK(subImportRes.value().parent_path() == folderRes.value());
+    TEST_CHECK(controller.getItems().size() == 1);
+    TEST_CHECK(controller.getItems()[0].name == "custom_pyramid.obj");
+
+    // 5. Batch import multiple files
+    std::filesystem::path textureFile = externalDir / "diffuse.png";
+    {
+        std::ofstream out(textureFile, std::ios::binary);
+        out << "fake_png_data";
+    }
+    std::filesystem::path materialFile = externalDir / "custom.mtl";
+    {
+        std::ofstream out(materialFile);
+        out << "newmtl Material1\n";
+    }
+
+    auto batchRes = controller.importFiles({textureFile, materialFile});
+    TEST_CHECK(batchRes.hasValue());
+    TEST_CHECK(batchRes.value().size() == 2);
+    TEST_CHECK(std::filesystem::exists(folderRes.value() / "diffuse.png"));
+    TEST_CHECK(std::filesystem::exists(folderRes.value() / "custom.mtl"));
+    TEST_CHECK(controller.getItems().size() == 3);
+
+    // 6. Graceful Error Handling: Non-existent file
+    auto nonExistentRes = controller.importFile(externalDir / "does_not_exist.obj");
+    TEST_CHECK(!nonExistentRes.hasValue());
+
+    // 7. Graceful Error Handling: Unsupported extension
+    std::filesystem::path badExe = externalDir / "malicious.exe";
+    {
+        std::ofstream out(badExe);
+        out << "binary";
+    }
+    auto badExtRes = controller.importFile(badExe);
+    TEST_CHECK(!badExtRes.hasValue());
+
+    // 8. Graceful Error Handling: Corrupted / invalid OBJ (no valid vertex geometry)
+    std::filesystem::path corruptedObj = externalDir / "corrupted.obj";
+    {
+        std::ofstream out(corruptedObj);
+        out << "# Corrupted OBJ file\n"
+            << "invalid line without any vertices\n"
+            << "foo bar baz\n";
+    }
+    auto corruptRes = controller.importFile(corruptedObj);
+    TEST_CHECK(!corruptRes.hasValue());
+
+    // 8b. Graceful Error Handling: Corrupted / invalid glTF
+    std::filesystem::path corruptedGltf = externalDir / "corrupted.gltf";
+    {
+        std::ofstream out(corruptedGltf);
+        out << "{\n  \"not_valid_gltf\": true\n}\n";
+    }
+    auto corruptGltfRes = controller.importFile(corruptedGltf);
+    TEST_CHECK(!corruptGltfRes.hasValue());
+
+    // 9. Graceful Error Handling: Importing file already at destination
+    auto selfImportRes = controller.importFile(folderRes.value() / "custom_pyramid.obj");
+    TEST_CHECK(!selfImportRes.hasValue());
+
+    std::cout << "[PASS] testAssetImportPipeline\n";
+}
+
 int main() {
     std::cout << "Running Content Browser unit tests...\n";
     testNavigationAndHistory();
     testFolderAndFileManagement();
     testSortingAndFiltering();
     testAssetFormatBadgesAndMetadata();
+    testAssetImportPipeline();
     std::cout << "All Content Browser tests passed successfully!\n";
     return 0;
 }

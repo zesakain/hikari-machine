@@ -1,6 +1,7 @@
 /// @file editor_test.cpp
 /// @brief Comprehensive test suite for the Dear ImGui editor tooling subsystem.
 
+#include "editor/content_browser_controller.h"
 #include "editor/editor_camera.h"
 #include "editor/editor_engine.h"
 #include "editor/editor_theme.h"
@@ -8,11 +9,10 @@
 #include "editor/selection_model.h"
 #include "editor/ui_helpers.h"
 #include "editor/workspace_manager.h"
-#include "editor/content_browser_controller.h"
 #include "framework/conductor.h"
-#include <imgui.h>
 #include "framework/mode.h"
 #include "framework/runtime_session.h"
+#include "panels/content_browser_panel.h"
 #include "physics/physics_components.h"
 #include "platform/input_snapshot.h"
 #include "render/asset_manager.h"
@@ -28,6 +28,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <imgui.h>
 #include <iostream>
 
 using namespace eng;
@@ -2243,14 +2244,83 @@ static void testObjDragAndDropSpawning() {
     std::cout << "[PASS] testObjDragAndDropSpawning\n";
 }
 
+static void testContentBrowserImportWorkflow() {
+    auto devRes = rhi::createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto nullDev = std::move(devRes.value());
+
+    EditorEngine editor;
+    EditorConfig config{.autoSaveLayout = false};
+    TEST_CHECK(editor.initialize(*nullDev, config));
+
+    auto* panelRaw = editor.getWorkspaceManager().findPanel("content_browser");
+    TEST_CHECK(panelRaw != nullptr);
+    auto* cbPanel = static_cast<ContentBrowserPanel*>(panelRaw);
+
+    // 1. Create a temporary external OBJ asset
+    std::filesystem::path extDir =
+        std::filesystem::temp_directory_path() / "hikari_import_test_tmp";
+    std::error_code ec;
+    std::filesystem::create_directories(extDir, ec);
+
+    std::filesystem::path extObj = extDir / "external_imported_cube.obj";
+    {
+        std::ofstream out(extObj);
+        out << "# Valid Wavefront OBJ\n"
+            << "v -0.5 -0.5 0.5\n"
+            << "v 0.5 -0.5 0.5\n"
+            << "v 0.5 0.5 0.5\n"
+            << "f 1 2 3\n";
+    }
+
+    // 2. Queue external file for import
+    cbPanel->queuePendingImports({extObj});
+
+    // 3. Process frame (which executes processPendingImports)
+    editor.beginFrame(Duration::fromMilliseconds(16), 1280, 720);
+    editor.drawPanels();
+    editor.endFrame(*nullDev->createCommandList().value());
+
+    // 4. Verify imported into asset directory
+    std::filesystem::path expectedDest =
+        cbPanel->getController().getRootDirectory() / "external_imported_cube.obj";
+    TEST_CHECK(std::filesystem::exists(expectedDest));
+
+    // Verify enumerated in items
+    bool foundInItems = false;
+    for (const auto& it : cbPanel->getController().getItems()) {
+        if (it.name == "external_imported_cube.obj") {
+            foundInItems = true;
+            TEST_CHECK(it.isMesh);
+            break;
+        }
+    }
+    TEST_CHECK(foundInItems);
+
+    // 5. Test queueing invalid file reports error gracefully
+    std::filesystem::path badFile = extDir / "corrupted_empty.obj";
+    {
+        std::ofstream out(badFile);
+        out << "invalid obj header without geometry\n";
+    }
+    cbPanel->queuePendingImports({badFile});
+
+    editor.beginFrame(Duration::fromMilliseconds(16), 1280, 720);
+    editor.drawPanels();
+    editor.endFrame(*nullDev->createCommandList().value());
+
+    // Clean up temporary files
+    std::filesystem::remove(expectedDest, ec);
+    std::filesystem::remove_all(extDir, ec);
+
+    editor.shutdown();
+    std::cout << "[PASS] testContentBrowserImportWorkflow\n";
+}
+
 int main() {
     std::cout << "Running Editor subsystem unit tests...\n";
-    const std::filesystem::path candidates[] = {
-        "assets/models",
-        "../../../assets/models",
-        "../../assets/models",
-        "../assets/models"
-    };
+    const std::filesystem::path candidates[] = {"assets/models", "../../../assets/models",
+                                                "../../assets/models", "../assets/models"};
     for (const auto& c : candidates) {
         if (std::filesystem::exists(c)) {
             std::error_code ec;
@@ -2262,6 +2332,7 @@ int main() {
         }
     }
     testObjDragAndDropSpawning();
+    testContentBrowserImportWorkflow();
     testThemeTokens();
     testEditorLifecycle();
     testPanelManagerAndRegistry();

@@ -7,7 +7,9 @@
 #include "editor/editor_panel.h"
 
 #include <array>
+#include <mutex>
 #include <string>
+#include <vector>
 
 namespace eng::editor {
 
@@ -32,6 +34,15 @@ public:
         return controller_;
     }
 
+    /// Opens the native platform file dialog to import assets into the current directory.
+    void openNativeImportDialog(EditorContext& ctx);
+
+    /// Queues external file paths to be imported safely on the main thread.
+    void queuePendingImports(std::vector<std::filesystem::path> paths);
+
+    /// Records an error message from native dialog callbacks.
+    void recordNativeDialogError(std::string_view errorMsg);
+
 private:
     void drawToolbar(EditorContext& ctx);
     void drawBreadcrumbs();
@@ -41,6 +52,7 @@ private:
     void drawGridView(EditorContext& ctx);
     void drawFooter(EditorContext& ctx);
     void drawModals();
+    void processPendingImports(EditorContext& ctx);
 
     ContentBrowserController controller_{"assets"};
 
@@ -64,6 +76,13 @@ private:
 
     bool showErrorModal_{false};
     std::string errorMessage_{};
+
+    // Import state
+    mutable std::mutex pendingImportMutex_{};
+    std::vector<std::filesystem::path> pendingImportPaths_{};
+    std::string nativeDialogError_{};
+    bool showImportPathModal_{false};
+    std::array<char, 512> importPathBuffer_{};
 };
 
 } // namespace eng::editor
