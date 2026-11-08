@@ -110,6 +110,18 @@ add_executable(render_graph_test unit/render/render_graph_test.cpp)
 target_link_libraries(render_graph_test PRIVATE hikari::engine_render)
 add_test(NAME render_graph_test COMMAND render_graph_test)
 
+# Mesh Unit Tests
+add_executable(mesh_test unit/render/mesh_test.cpp)
+target_link_libraries(mesh_test PRIVATE hikari::engine_render hikari::engine_rhi)
+add_test(NAME mesh_test COMMAND mesh_test)
+set_tests_properties(mesh_test PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+# Asset Manager Unit Tests
+add_executable(asset_manager_test unit/render/asset_manager_test.cpp)
+target_link_libraries(asset_manager_test PRIVATE hikari::engine_render hikari::engine_rhi hikari::engine_framework hikari::engine_world)
+add_test(NAME asset_manager_test COMMAND asset_manager_test)
+set_tests_properties(asset_manager_test PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
 # Physics Unit Tests
 add_executable(physics_test unit/physics/physics_test.cpp)
 target_link_libraries(physics_test PRIVATE hikari::engine_physics)

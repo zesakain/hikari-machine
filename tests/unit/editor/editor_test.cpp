@@ -12,6 +12,8 @@
 #include "framework/runtime_session.h"
 #include "physics/physics_components.h"
 #include "platform/input_snapshot.h"
+#include "render/asset_manager.h"
+#include "render/mesh_component.h"
 #include "rhi/command_list.h"
 #include "rhi/rhi_device.h"
 #include "script/script_components.h"
@@ -1549,6 +1551,111 @@ static void testViewportRuntimeWorldPreviewAndSelectionSafety() {
     std::cout << "[PASS] testViewportRuntimeWorldPreviewAndSelectionSafety\n";
 }
 
+static void testEditorMeshAssetPipelineAndRendering() {
+    auto devRes = rhi::createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto& device = *devRes.value();
+
+    auto cmdRes = device.createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto nullCmd = std::move(cmdRes.value());
+
+    world::World editWorld;
+    physics::registerPhysicsComponents(editWorld);
+    render::registerRenderComponents(editWorld);
+
+    EditorEngine editor;
+    TEST_CHECK(editor.initialize(device));
+    editor.bindWorld(&editWorld);
+
+    // 1. AssetManager integration in editor
+    auto& assetManager = editor.getAssetManager();
+    auto loadRes = assetManager.loadMesh("assets/models/cube.obj");
+    TEST_CHECK(loadRes.hasValue());
+    const render::AssetId cubeId = loadRes.value();
+    TEST_CHECK(assetManager.isLoaded(cubeId));
+
+    // 2. Create mesh entity in Edit World
+    auto meshEnt = editWorld.createEntity("MeshCubeEntity");
+    editWorld.setComponent(meshEnt, physics::PhysicsTransformComponent{
+                                        .transform = Transform(Vec3(0.0F, 1.0F, 0.0F)),
+                                    });
+    editWorld.setComponent(meshEnt, render::MeshComponent{
+                                        .meshAsset = cubeId,
+                                        .assetPath = "assets/models/cube.obj",
+                                        .submeshIndex = 0,
+                                        .visible = true,
+                                        .castShadows = true,
+                                    });
+
+    // 3. Render frame with mesh entity
+    editor.beginFrame(Duration::fromMilliseconds(16), 1280, 720);
+    editor.getSelectionModel().select(meshEnt);
+
+    nullCmd->begin();
+    editor.drawPanels();
+    editor.endFrame(*nullCmd);
+    nullCmd->end();
+
+    // 4. Test scene serialization and round-trip reloading with MeshComponent
+    const char* testSceneFile = "test_mesh_scene.hikari";
+    TEST_CHECK(editor.getWorkspaceManager().saveScene(editWorld, testSceneFile));
+
+    world::World reloadedWorld;
+    physics::registerPhysicsComponents(reloadedWorld);
+    render::registerRenderComponents(reloadedWorld);
+
+    TEST_CHECK(editor.getWorkspaceManager().openScene(reloadedWorld, testSceneFile));
+    auto reloadedEntities = reloadedWorld.getAllEntities();
+    TEST_CHECK(!reloadedEntities.empty());
+
+    bool foundMeshComponent = false;
+    for (auto h : reloadedEntities) {
+        if (reloadedWorld.hasComponent<render::MeshComponent>(h)) {
+            const auto* mc = reloadedWorld.getComponent<render::MeshComponent>(h);
+            TEST_CHECK(mc != nullptr);
+            TEST_CHECK(mc->assetPath == "assets/models/cube.obj");
+            TEST_CHECK(mc->meshAsset == cubeId);
+            TEST_CHECK(mc->visible);
+            foundMeshComponent = true;
+        }
+    }
+    TEST_CHECK(foundMeshComponent);
+
+    // Clean up temporary scene file
+    std::filesystem::remove(testSceneFile);
+
+    // 5. Test Runtime Session with MeshComponent
+    auto playRes = editor.getRuntimeSession().play();
+    TEST_CHECK(playRes.hasValue());
+
+    editor.beginFrame(Duration::fromMilliseconds(16), 1280, 720);
+    world::World* runtimeWorld = editor.getRuntimeSession().getActiveWorld();
+    TEST_CHECK(runtimeWorld != nullptr);
+    TEST_CHECK(runtimeWorld != &editWorld);
+
+    auto rtEntities = runtimeWorld->getAllEntities();
+    TEST_CHECK(!rtEntities.empty());
+    bool rtHasMesh = false;
+    for (auto h : rtEntities) {
+        if (runtimeWorld->hasComponent<render::MeshComponent>(h)) {
+            rtHasMesh = true;
+        }
+    }
+    TEST_CHECK(rtHasMesh);
+
+    nullCmd->begin();
+    editor.drawPanels();
+    editor.endFrame(*nullCmd);
+    nullCmd->end();
+
+    auto stopRes = editor.getRuntimeSession().stop();
+    TEST_CHECK(stopRes.hasValue());
+
+    editor.shutdown();
+    std::cout << "[PASS] testEditorMeshAssetPipelineAndRendering\n";
+}
+
 int main() {
     std::cout << "Running Editor subsystem unit tests...\n";
     testThemeTokens();
@@ -1575,6 +1682,7 @@ int main() {
     testViewportRayPickingAndEntitySelection();
     testViewportTransformGizmoManipulation();
     testViewportRuntimeWorldPreviewAndSelectionSafety();
+    testEditorMeshAssetPipelineAndRendering();
     std::cout << "All Editor subsystem tests PASSED!\n";
     return 0;
 }
