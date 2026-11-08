@@ -8,7 +8,9 @@
 #include "editor/selection_model.h"
 #include "editor/ui_helpers.h"
 #include "editor/workspace_manager.h"
+#include "editor/content_browser_controller.h"
 #include "framework/conductor.h"
+#include <imgui.h>
 #include "framework/mode.h"
 #include "framework/runtime_session.h"
 #include "physics/physics_components.h"
@@ -2111,8 +2113,155 @@ static void testEditorGpuViewportVulkanHardware() {
     std::cout << "[PASS] testEditorGpuViewportVulkanHardware\n";
 }
 
+static void testObjDragAndDropSpawning() {
+    auto devRes = rhi::createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto nullDev = std::move(devRes.value());
+
+    EditorEngine editor;
+    EditorConfig config{.autoSaveLayout = false};
+    TEST_CHECK(editor.initialize(*nullDev, config));
+
+    world::World world;
+    physics::registerPhysicsComponents(world);
+    render::registerRenderComponents(world);
+    editor.bindWorld(&world);
+
+    // 1. ContentBrowser discovery & relative path validation
+    ContentBrowserController cb("assets");
+    TEST_CHECK(cb.navigateTo("assets/models"));
+    const auto& items = cb.getItems();
+    const ContentBrowserItem* cubeItem = nullptr;
+    for (const auto& item : items) {
+        if (item.name == "cube.obj") {
+            cubeItem = &item;
+        }
+    }
+    TEST_CHECK(cubeItem != nullptr);
+    TEST_CHECK(cubeItem->isMesh);
+    TEST_CHECK(cubeItem->relativePath == "assets/models/cube.obj");
+
+    // 2. AssetManager loads OBJ vertices, triangles, and bounds
+    auto& am = editor.getAssetManager();
+    auto loadRes = am.loadMesh(cubeItem->relativePath);
+    TEST_CHECK(loadRes.hasValue());
+    auto meshId = loadRes.value();
+    const auto* md = am.getMeshData(meshId);
+    TEST_CHECK(md != nullptr);
+    TEST_CHECK(md->getVertexCount() > 0);
+    TEST_CHECK(md->getTriangleCount() > 0);
+    TEST_CHECK(md->bounds.isValid());
+
+    // 3. ImGui multi-frame drag and drop into Viewport
+    // Frame 1: Establish layout and panels
+    editor.beginFrame(Duration::fromMilliseconds(16), 1280, 720);
+    editor.drawPanels();
+    editor.endFrame(*nullDev->createCommandList().value());
+
+    auto simulateMeshDrop = [&](const std::string& path) {
+        ImGuiIO& io = ImGui::GetIO();
+        for (int f = 0; f < 2; ++f) {
+            editor.beginFrame(Duration::fromMilliseconds(16), 1280, 720);
+            io.MousePos = ImVec2(400.0F, 200.0F); // Center of Scene Viewport
+            io.MouseDown[0] = true;
+            if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceExtern)) {
+                ImGui::SetDragDropPayload("CONTENT_BROWSER_MESH", path.c_str(), path.size() + 1);
+                ImGui::EndDragDropSource();
+            }
+            editor.drawPanels();
+            editor.endFrame(*nullDev->createCommandList().value());
+        }
+        editor.beginFrame(Duration::fromMilliseconds(16), 1280, 720);
+        io.MousePos = ImVec2(400.0F, 200.0F);
+        io.MouseDown[0] = false;
+        editor.drawPanels();
+        editor.endFrame(*nullDev->createCommandList().value());
+    };
+
+    // First drop: cube.obj
+    simulateMeshDrop(cubeItem->relativePath);
+
+    // 4. Verify spawned entity in ECS
+    auto entities = world.getAllEntities();
+    TEST_CHECK(!entities.empty());
+
+    world::EntityHandle firstEntity{};
+    for (auto ent : entities) {
+        if (world.hasComponent<render::MeshComponent>(ent)) {
+            firstEntity = ent;
+            break;
+        }
+    }
+    TEST_CHECK(firstEntity.isValid());
+
+    const auto* tc = world.getComponent<physics::PhysicsTransformComponent>(firstEntity);
+    TEST_CHECK(tc != nullptr);
+
+    const auto* mc = world.getComponent<render::MeshComponent>(firstEntity);
+    TEST_CHECK(mc != nullptr);
+    TEST_CHECK(mc->assetPath == "assets/models/cube.obj");
+    TEST_CHECK(mc->meshAsset == render::makeAssetIdFromPath("assets/models/cube.obj"));
+    TEST_CHECK(mc->visible);
+    TEST_CHECK(mc->castShadows);
+
+    const auto* col = world.getComponent<physics::ColliderComponent>(firstEntity);
+    TEST_CHECK(col != nullptr);
+    TEST_CHECK(col->desc.type == physics::ColliderType::Box);
+    TEST_CHECK(col->desc.halfExtents.x > 0.0F);
+    TEST_CHECK(col->desc.halfExtents.y > 0.0F);
+    TEST_CHECK(col->desc.halfExtents.z > 0.0F);
+
+    // Verify entity was selected
+    const auto& sel = editor.getSelectionModel();
+    TEST_CHECK(sel.isSelected(firstEntity));
+
+    // 5. Test duplicate drop produces UNIQUE entities (no name collision in Flecs)
+    simulateMeshDrop(cubeItem->relativePath);
+
+    auto allEntitiesAfterSecondDrop = world.getAllEntities();
+    size_t meshEntityCount = 0;
+    for (auto ent : allEntitiesAfterSecondDrop) {
+        if (world.hasComponent<render::MeshComponent>(ent)) {
+            meshEntityCount++;
+        }
+    }
+    TEST_CHECK(meshEntityCount == 2);
+
+    // 6. Test graceful handling of invalid / missing asset path
+    const std::string nonExistentPath = "assets/models/non_existent.obj";
+    simulateMeshDrop(nonExistentPath);
+
+    // 7. Verify SceneRenderer executes cleanly with all entities
+    auto cmdRes = nullDev->createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto cmd = std::move(cmdRes.value());
+    cmd->begin();
+    editor.renderScene(*cmd);
+    cmd->end();
+
+    editor.shutdown();
+    std::cout << "[PASS] testObjDragAndDropSpawning\n";
+}
+
 int main() {
     std::cout << "Running Editor subsystem unit tests...\n";
+    const std::filesystem::path candidates[] = {
+        "assets/models",
+        "../../../assets/models",
+        "../../assets/models",
+        "../assets/models"
+    };
+    for (const auto& c : candidates) {
+        if (std::filesystem::exists(c)) {
+            std::error_code ec;
+            std::filesystem::path targetDir = c.parent_path().parent_path();
+            if (!targetDir.empty()) {
+                std::filesystem::current_path(targetDir, ec);
+            }
+            break;
+        }
+    }
+    testObjDragAndDropSpawning();
     testThemeTokens();
     testEditorLifecycle();
     testPanelManagerAndRegistry();

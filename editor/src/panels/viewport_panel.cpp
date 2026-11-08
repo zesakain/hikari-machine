@@ -7,6 +7,7 @@
 #include "core/log.h"
 #include "editor/editor_engine.h"
 #include "editor/editor_theme.h"
+#include "editor/hierarchy_panel.h"
 #include "editor/selection_model.h"
 #include "framework/conductor.h"
 #include "physics/physics_components.h"
@@ -159,7 +160,10 @@ void ViewportPanel::draw(EditorContext& ctx) {
                 const char* meshPath = static_cast<const char*>(payload->Data);
                 if (meshPath != nullptr && ctx.world != nullptr) {
                     std::filesystem::path p(meshPath);
-                    auto h = ctx.world->createEntity(p.stem().string());
+                    const std::string stem = p.stem().string();
+                    const std::string uniqueName =
+                        HierarchyPanel::generateUniqueEntityName(*ctx.world, stem.c_str());
+                    auto h = ctx.world->createEntity(uniqueName);
                     ctx.world->setComponent(
                         h, physics::PhysicsTransformComponent{
                                .transform = Transform{camera_.getPivot()},
@@ -175,11 +179,11 @@ void ViewportPanel::draw(EditorContext& ctx) {
 
                     Vec3 boxHalfExtents{0.5F, 0.5F, 0.5F};
                     if (ctx.assetManager != nullptr) {
-                        const auto* md = ctx.assetManager->getMeshData(id);
-                        if (md == nullptr) {
-                            (void)ctx.assetManager->loadMesh(meshPath);
-                            md = ctx.assetManager->getMeshData(id);
+                        auto loadRes = ctx.assetManager->loadMesh(meshPath);
+                        if (!loadRes.hasValue()) {
+                            ENG_LOG_WARN("Editor", "Failed to load mesh asset");
                         }
+                        const auto* md = ctx.assetManager->getMeshData(id);
                         if (md != nullptr && md->bounds.isValid()) {
                             boxHalfExtents = md->bounds.getSize() * 0.5F;
                         }
@@ -194,6 +198,7 @@ void ViewportPanel::draw(EditorContext& ctx) {
                     }
                     ctx.selectedEntityId = h.id;
                     ctx.markDirty();
+                    ENG_LOG_INFO("Editor", "Spawned entity with mesh at camera pivot");
                 }
             }
             ImGui::EndDragDropTarget();

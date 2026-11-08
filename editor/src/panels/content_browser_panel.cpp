@@ -6,6 +6,7 @@
 
 #include "core/log.h"
 #include "editor/editor_theme.h"
+#include "editor/hierarchy_panel.h"
 #include "editor/selection_model.h"
 #include "physics/physics_components.h"
 #include "render/asset_manager.h"
@@ -483,7 +484,10 @@ void ContentBrowserPanel::drawListView(EditorContext& ctx) {
                 if (item.isMesh) {
                     if (ImGui::MenuItem("Create Entity with Mesh")) {
                         if (ctx.world != nullptr) {
-                            auto h = ctx.world->createEntity(item.name);
+                            const std::string stem = std::filesystem::path(item.name).stem().string();
+                            const std::string uniqueName =
+                                HierarchyPanel::generateUniqueEntityName(*ctx.world, stem.c_str());
+                            auto h = ctx.world->createEntity(uniqueName);
                             ctx.world->setComponent(h, physics::PhysicsTransformComponent{});
                             const render::AssetId id = render::makeAssetIdFromPath(item.relativePath);
                             ctx.world->setComponent(h, render::MeshComponent{
@@ -496,11 +500,11 @@ void ContentBrowserPanel::drawListView(EditorContext& ctx) {
 
                             Vec3 boxHalfExtents{0.5F, 0.5F, 0.5F};
                             if (ctx.assetManager != nullptr) {
-                                const auto* md = ctx.assetManager->getMeshData(id);
-                                if (md == nullptr) {
-                                    (void)ctx.assetManager->loadMesh(item.relativePath);
-                                    md = ctx.assetManager->getMeshData(id);
+                                auto loadRes = ctx.assetManager->loadMesh(item.relativePath);
+                                if (!loadRes.hasValue()) {
+                                    ENG_LOG_WARN("Editor", "Failed to load mesh asset");
                                 }
+                                const auto* md = ctx.assetManager->getMeshData(id);
                                 if (md != nullptr && md->bounds.isValid()) {
                                     boxHalfExtents = md->bounds.getSize() * 0.5F;
                                 }
@@ -592,38 +596,21 @@ void ContentBrowserPanel::drawGridView(EditorContext& ctx) {
         ImGui::PushID(static_cast<int>(i));
         const bool isSelected = (controller_.getSelectedItemIndex() == static_cast<int>(i));
 
-        if (isSelected) {
-            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.23F, 0.51F, 0.96F, 0.25F));
-        } else {
-            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.12F, 0.14F, 0.18F, 0.60F));
-        }
+        const ImVec2 cardMin = ImGui::GetCursorScreenPos();
+        const ImVec2 cardMax = ImVec2(cardMin.x + cardWidth, cardMin.y + cardHeight);
 
-        ImGui::BeginChild("Card", ImVec2(cardWidth, cardHeight), true,
-                          ImGuiWindowFlags_NoScrollbar);
+        char cardSelectableId[64];
+        std::snprintf(cardSelectableId, sizeof(cardSelectableId), "##card_%zu", i);
 
-        // Badge icon
-        ImGui::Spacing();
-        ImGui::SetCursorPosX((cardWidth - 44.0F) * 0.5F);
-        ImGui::TextColored(rgbaToImVec4(item.badgeColorRgba), "%s", item.typeBadge);
-
-        // Name
-        ImGui::Spacing();
-        std::string displayName = item.name;
-        if (displayName.size() > 10) {
-            displayName = displayName.substr(0, 8) + "..";
-        }
-        ImGui::SetCursorPosX(std::max(4.0F, (cardWidth - ImGui::CalcTextSize(displayName.c_str()).x) * 0.5F));
-        ImGui::TextUnformatted(displayName.c_str());
-
-        ImGui::EndChild();
-        ImGui::PopStyleColor();
-
-        // Interaction
-        if (ImGui::IsItemClicked()) {
+        if (ImGui::Selectable(cardSelectableId, isSelected, ImGuiSelectableFlags_None,
+                              ImVec2(cardWidth, cardHeight))) {
             controller_.setSelectedItemIndex(static_cast<int>(i));
         }
 
-        if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+        const bool isCardHovered = ImGui::IsItemHovered();
+
+        // Double-click opens folder
+        if (isCardHovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
             if (item.isDirectory) {
                 controller_.navigateTo(item.fullPath);
                 ImGui::PopID();
@@ -639,13 +626,43 @@ void ContentBrowserPanel::drawGridView(EditorContext& ctx) {
             ImGui::EndDragDropSource();
         }
 
+        // Render card background & visuals over selectable
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        if (isSelected) {
+            drawList->AddRectFilled(cardMin, cardMax, ImColor(59, 130, 246, 64), 4.0F);
+            drawList->AddRect(cardMin, cardMax, ImColor(59, 130, 246, 255), 4.0F);
+        } else {
+            drawList->AddRectFilled(cardMin, cardMax,
+                                    ImColor(30, 35, 45, isCardHovered ? 200 : 153), 4.0F);
+            drawList->AddRect(cardMin, cardMax,
+                              ImColor(60, 65, 75, isCardHovered ? 220 : 150), 4.0F);
+        }
+
+        // Badge icon
+        const ImVec2 badgeSize = ImGui::CalcTextSize(item.typeBadge);
+        const ImVec2 badgePos(cardMin.x + (cardWidth - badgeSize.x) * 0.5F, cardMin.y + 12.0F);
+        drawList->AddText(badgePos, item.badgeColorRgba, item.typeBadge);
+
+        // Name
+        std::string displayName = item.name;
+        if (displayName.size() > 10) {
+            displayName = displayName.substr(0, 8) + "..";
+        }
+        const ImVec2 nameSize = ImGui::CalcTextSize(displayName.c_str());
+        const ImVec2 namePos(cardMin.x + std::max(4.0F, (cardWidth - nameSize.x) * 0.5F),
+                             cardMin.y + cardHeight - 24.0F);
+        drawList->AddText(namePos, ImColor(220, 220, 220, 255), displayName.c_str());
+
         // Context menu
         if (ImGui::BeginPopupContextItem("GridItemCtx")) {
             controller_.setSelectedItemIndex(static_cast<int>(i));
 
             if (item.isMesh && ImGui::MenuItem("Create Entity with Mesh")) {
                 if (ctx.world != nullptr) {
-                    auto h = ctx.world->createEntity(item.name);
+                    const std::string stem = std::filesystem::path(item.name).stem().string();
+                    const std::string uniqueName =
+                        HierarchyPanel::generateUniqueEntityName(*ctx.world, stem.c_str());
+                    auto h = ctx.world->createEntity(uniqueName);
                     ctx.world->setComponent(h, physics::PhysicsTransformComponent{});
                     const render::AssetId id = render::makeAssetIdFromPath(item.relativePath);
                     ctx.world->setComponent(h, render::MeshComponent{
@@ -655,6 +672,23 @@ void ContentBrowserPanel::drawGridView(EditorContext& ctx) {
                                                    .visible = true,
                                                    .castShadows = true,
                                                });
+
+                    Vec3 boxHalfExtents{0.5F, 0.5F, 0.5F};
+                    if (ctx.assetManager != nullptr) {
+                        auto loadRes = ctx.assetManager->loadMesh(item.relativePath);
+                        if (!loadRes.hasValue()) {
+                            ENG_LOG_WARN("Editor", "Failed to load mesh asset");
+                        }
+                        const auto* md = ctx.assetManager->getMeshData(id);
+                        if (md != nullptr && md->bounds.isValid()) {
+                            boxHalfExtents = md->bounds.getSize() * 0.5F;
+                        }
+                    }
+                    ctx.world->setComponent(
+                        h, physics::ColliderComponent{
+                               .desc = physics::ColliderDesc::makeBox(boxHalfExtents),
+                           });
+
                     if (ctx.selection != nullptr) {
                         ctx.selection->select(h);
                     }

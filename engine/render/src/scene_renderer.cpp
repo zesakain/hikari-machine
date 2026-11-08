@@ -358,9 +358,9 @@ RenderStats SceneRenderer::renderScene(world::World& world, AssetManager& assetM
         }
 
         AssetId meshId = meshComp.meshAsset;
-        if (!meshId.isValid() && !meshComp.assetPath.empty()) {
+        if ((!meshId.isValid() || !assetManager.isLoaded(meshId)) && !meshComp.assetPath.empty()) {
             meshId = assetManager.findAssetByPath(meshComp.assetPath);
-            if (!meshId.isValid()) {
+            if (!meshId.isValid() || !assetManager.isLoaded(meshId)) {
                 auto loadRes = assetManager.loadMesh(meshComp.assetPath);
                 if (loadRes.hasValue()) {
                     meshId = loadRes.value();
@@ -368,7 +368,7 @@ RenderStats SceneRenderer::renderScene(world::World& world, AssetManager& assetM
             }
         }
 
-        if (!meshId.isValid()) {
+        if (!meshId.isValid() || !assetManager.isLoaded(meshId)) {
             return;
         }
 
