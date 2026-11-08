@@ -122,6 +122,12 @@ target_link_libraries(asset_manager_test PRIVATE hikari::engine_render hikari::e
 add_test(NAME asset_manager_test COMMAND asset_manager_test)
 set_tests_properties(asset_manager_test PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
+# glTF 2.0 & 3D Asset Importer Unit Tests
+add_executable(gltf_importer_test unit/render/gltf_importer_test.cpp)
+target_link_libraries(gltf_importer_test PRIVATE hikari::engine_render hikari::engine_rhi hikari::engine_framework hikari::engine_physics hikari::engine_world)
+add_test(NAME glTF_importer_test COMMAND gltf_importer_test)
+set_tests_properties(glTF_importer_test PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
 # Scene Renderer Unit Tests
 add_executable(scene_renderer_test unit/render/scene_renderer_test.cpp)
 target_link_libraries(scene_renderer_test PRIVATE hikari::engine_render hikari::engine_rhi hikari::engine_framework hikari::engine_physics hikari::engine_world)
