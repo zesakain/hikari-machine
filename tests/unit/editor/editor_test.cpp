@@ -8,6 +8,7 @@
 #include "editor/workspace_manager.h"
 #include "framework/conductor.h"
 #include "framework/mode.h"
+#include "framework/runtime_session.h"
 #include "physics/physics_components.h"
 #include "platform/input_snapshot.h"
 #include "rhi/command_list.h"
@@ -1182,6 +1183,125 @@ static void testWorkspaceSceneLifecycleAndFileOperations() {
     std::cout << "[PASS] testWorkspaceSceneLifecycleAndFileOperations\n";
 }
 
+static void testEditorRuntimeSessionIntegrationAndIsolation() {
+    auto devRes = rhi::createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto nullDevice = std::move(devRes.value());
+
+    auto cmdRes = nullDevice->createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto nullCmd = std::move(cmdRes.value());
+
+    world::World editWorld;
+    physics::registerPhysicsComponents(editWorld);
+
+    auto e1 = editWorld.createEntity("EditableBox");
+    editWorld.setComponent(e1, physics::PhysicsTransformComponent{
+                                   .transform = Transform(Vec3(0.0F, 50.0F, 0.0F), Quat::identity(),
+                                                          Vec3(1.0F, 1.0F, 1.0F)),
+                               });
+    editWorld.setComponent(e1, physics::RigidBodyComponent{
+                                   .bodyHandle = {},
+                                   .motionType = physics::MotionType::Dynamic,
+                                   .collisionLayer = physics::CollisionLayer::kMoving,
+                               });
+
+    EditorEngine editor;
+    TEST_CHECK(editor.initialize(*nullDevice));
+    editor.bindWorld(&editWorld);
+
+    // Initial state: Edit Mode
+    auto& session = editor.getRuntimeSession();
+    TEST_CHECK(session.getSimulationState() == framework::SimulationState::Edit);
+    TEST_CHECK(!session.isSimulating());
+
+    // Select e1 in Edit Mode
+    editor.getSelectionModel().select(e1);
+    TEST_CHECK(editor.getSelectionModel().count() == 1);
+
+    // Run frame in Edit Mode
+    nullCmd->begin();
+    editor.beginFrame(Duration::fromMilliseconds(16));
+    editor.drawPanels();
+    editor.endFrame(*nullCmd);
+    nullCmd->end();
+
+    // 1. Play simulation
+    TEST_CHECK(session.play().hasValue());
+    TEST_CHECK(session.getSimulationState() == framework::SimulationState::Playing);
+    TEST_CHECK(session.isSimulating());
+
+    // Run 5 frames in Playing Mode
+    for (int i = 0; i < 5; ++i) {
+        nullCmd->begin();
+        editor.beginFrame(Duration::fromMilliseconds(16));
+        editor.drawPanels();
+        editor.endFrame(*nullCmd);
+        nullCmd->end();
+        session.update(Duration::fromMilliseconds(16));
+    }
+
+    // Active world during Playing is the Runtime World
+    auto* rtWorld = session.getRuntimeWorld();
+    TEST_CHECK(rtWorld != nullptr);
+    TEST_CHECK(rtWorld != &editWorld);
+
+    // Dynamic body in Runtime World has moved under gravity
+    auto rtEntities = rtWorld->getAllEntities();
+    TEST_CHECK(rtEntities.size() == 1);
+    auto* rtTr = rtWorld->getComponent<physics::PhysicsTransformComponent>(rtEntities[0]);
+    TEST_CHECK(rtTr != nullptr);
+    TEST_CHECK(rtTr->transform.position.y < 50.0F);
+
+    // Edit World remains completely unaffected at y = 50.0F
+    auto* editTr = editWorld.getComponent<physics::PhysicsTransformComponent>(e1);
+    TEST_CHECK(editTr != nullptr);
+    TEST_CHECK(editTr->transform.position.y == 50.0F);
+
+    // 2. Pause simulation
+    TEST_CHECK(session.pause().hasValue());
+    TEST_CHECK(session.getSimulationState() == framework::SimulationState::Paused);
+    float yAtPause = rtTr->transform.position.y;
+
+    // Run frame in Paused Mode
+    nullCmd->begin();
+    editor.beginFrame(Duration::fromMilliseconds(16));
+    editor.drawPanels();
+    editor.endFrame(*nullCmd);
+    nullCmd->end();
+    session.update(Duration::fromMilliseconds(16));
+
+    // While paused, position does not advance
+    TEST_CHECK(rtTr->transform.position.y == yAtPause);
+
+    // 3. Resume simulation
+    TEST_CHECK(session.resume().hasValue());
+    TEST_CHECK(session.getSimulationState() == framework::SimulationState::Playing);
+
+    // 4. Stop simulation
+    TEST_CHECK(session.stop().hasValue());
+    TEST_CHECK(session.getSimulationState() == framework::SimulationState::Edit);
+    TEST_CHECK(!session.isSimulating());
+    TEST_CHECK(session.getRuntimeWorld() == nullptr);
+
+    // Run frame in Edit Mode post-Stop
+    nullCmd->begin();
+    editor.beginFrame(Duration::fromMilliseconds(16));
+    editor.drawPanels();
+    editor.endFrame(*nullCmd);
+    nullCmd->end();
+
+    // Verify Edit World is intact and identical to before Play
+    TEST_CHECK(editWorld.getAllEntities().size() == 1);
+    TEST_CHECK(editWorld.isAlive(e1));
+    auto* finalEditTr = editWorld.getComponent<physics::PhysicsTransformComponent>(e1);
+    TEST_CHECK(finalEditTr != nullptr);
+    TEST_CHECK(finalEditTr->transform.position.y == 50.0F);
+
+    editor.shutdown();
+    std::cout << "[PASS] testEditorRuntimeSessionIntegrationAndIsolation\n";
+}
+
 int main() {
     std::cout << "Running Editor subsystem unit tests...\n";
     testThemeTokens();
@@ -1203,6 +1323,7 @@ int main() {
     testTransformAndPhysicsPropertyEditing();
     testMultiSelectionPropertyEditingAndBatchOperations();
     testWorkspaceSceneLifecycleAndFileOperations();
+    testEditorRuntimeSessionIntegrationAndIsolation();
     std::cout << "All Editor subsystem tests PASSED!\n";
     return 0;
 }
