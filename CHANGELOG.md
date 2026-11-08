@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Script Component Enable Toggle and Routine Configuration in Editor**:
+  - Fixed an issue where the Script Component's **Enable** toggle could not be activated or immediately reverted to unchecked after adding the component in the Inspector.
+  - **Root Cause**: When adding a `ScriptComponent`, `scriptName` was hardcoded to `"scripts/main.lua"`, which was not a registered global Lua function. On the very next simulation step in `world.progress()`, `ScriptUpdateSystem` failed to find the function, invoked error isolation, and set `comp.enabled = false`. Furthermore, `scriptName` was rendered as read-only text in the Inspector, preventing the user from correcting the routine name or keeping it unassigned.
+  - **Remedy**:
+    - Initialized new `ScriptComponent` instances with an empty routine name (`scriptName = ""`) and `enabled = true`. Unassigned script components cleanly bypass invocation without error or auto-disabling.
+    - Added an editable `InputTextWithHint` field in `InspectorPanel` so users can configure, inspect, and update the Lua routine name.
+    - Connected enabled checkbox toggling and routine edits to Flecs `e.modified<ScriptComponent>()` notifications.
+    - Added real-time visual status badges: `[Active]`, `[Unassigned]`, and `[Disabled]`.
+    - Added `Script Component` to the `WorkspaceManager` main `Component` menu.
+    - Registered a default global `on_update(entity, dt)` hook in `src/main.cpp`.
+    - Added comprehensive regression tests in `tests/unit/editor/editor_test.cpp` (`testScriptComponentEnableToggleBehavior`) and `tests/unit/script/script_test.cpp` (`testScriptEnableLifecycle`).
 - **Physics Object & Entity Creation Crash in Scene Hierarchy**:
   - Fixed fatal assertion `flecs.c: 9695: assert: entity != 0 INVALID_PARAMETER` triggered when adding Physics Objects, Empty Entities, or duplicated entities in the Scene Hierarchy.
   - **Root Cause**: `generateUniqueEntityName` polled candidate names using `while (ecs.lookup(candidate).is_alive())`. When an entity name did not yet exist, Flecs returned an entity handle with ID `0`. Invoking `.is_alive()` on entity ID `0` asserted in `ecs_is_alive()`.

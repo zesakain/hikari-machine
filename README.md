@@ -145,7 +145,7 @@ The engine includes a functional developer visual editor (`editor/`) built with 
   - Multi-selection inspection card with entity list and batch deletion.
   - `PhysicsTransformComponent`: 3D position (`DragFloat3`), Euler rotation (`DragFloat3`), and scale (`DragFloat3`).
   - `RigidBodyComponent`: Motion type selection (`Static`, `Kinematic`, `Dynamic`) and collision layer editing.
-  - `ScriptComponent`: Displays attached Lua script routine and execution state.
+  - `ScriptComponent`: Editable Lua script routine name, enabled/disabled execution toggle, update interval, and real-time status indicators (`[Active]`, `[Unassigned]`, `[Disabled]`).
 - **Scene Viewport Panel:** Viewport resolution and aspect ratio calculation, dark slate canvas, coordinate grid lines, center crosshairs, and honest empty-scene baseline indicators.
 - **Content Browser:** Virtual project asset filesystem navigation tree (`assets/`, `data/`, `game/`, `docs/`).
 - **Log Console Panel:** Streams live ring-buffer records from `Logger::defaultLogger()` with severity filtering (All, Info, Warning, Error), search, and clear controls.
