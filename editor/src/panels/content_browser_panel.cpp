@@ -60,14 +60,22 @@ std::vector<AssetItem> discoverAssets() {
                 std::string relPath = path.string();
                 std::replace(relPath.begin(), relPath.end(), '\\', '/');
 
-                if (ext == ".obj") {
+                if (ext == ".obj" || ext == ".gltf" || ext == ".glb") {
                     AssetItem item{};
                     item.name = path.stem().string();
                     item.extension = ext;
                     item.relativePath = relPath;
                     item.sizeStr = formatFileSize(entry.file_size());
-                    item.typeBadge = "[OBJ]";
-                    item.badgeColor = ImVec4(0.20F, 0.70F, 0.95F, 1.0F);
+                    if (ext == ".glb") {
+                        item.typeBadge = "[GLB]";
+                        item.badgeColor = ImVec4(0.20F, 0.85F, 0.45F, 1.0F);
+                    } else if (ext == ".gltf") {
+                        item.typeBadge = "[GLTF]";
+                        item.badgeColor = ImVec4(0.95F, 0.55F, 0.20F, 1.0F);
+                    } else {
+                        item.typeBadge = "[OBJ]";
+                        item.badgeColor = ImVec4(0.20F, 0.70F, 0.95F, 1.0F);
+                    }
                     item.isMesh = true;
                     items.push_back(std::move(item));
                 }
@@ -268,10 +276,11 @@ void ContentBrowserPanel::draw(EditorContext& ctx) {
                 }
 
                 if (md != nullptr) {
-                    ImGui::TextColored(ImVec4(0.35F, 0.85F, 0.40F, 1.0F),
-                                       "Mesh Stats: %u vertices, %u triangles, %zu submeshes",
-                                       md->getVertexCount(), md->getTriangleCount(),
-                                       md->submeshes.size());
+                    ImGui::TextColored(
+                        ImVec4(0.35F, 0.85F, 0.40F, 1.0F),
+                        "Mesh Stats: %u vertices, %u triangles, %zu submeshes, %zu materials",
+                        md->getVertexCount(), md->getTriangleCount(), md->submeshes.size(),
+                        md->materials.size());
                 }
 
                 ImGui::SameLine();
