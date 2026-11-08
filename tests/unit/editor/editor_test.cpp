@@ -12,6 +12,8 @@
 #include "platform/input_snapshot.h"
 #include "rhi/command_list.h"
 #include "rhi/rhi_device.h"
+#include "script/script_components.h"
+#include "script/script_engine.h"
 #include "world/world.h"
 
 #include <cstdlib>
@@ -769,6 +771,91 @@ static void testRepeatedPhysicsObjectCreationAndHierarchyRendering() {
     std::cout << "[PASS] testRepeatedPhysicsObjectCreationAndHierarchyRendering\n";
 }
 
+static void testScriptComponentEnableToggleBehavior() {
+    world::World world;
+    script::ScriptEngine scriptEngine;
+    auto initRes = scriptEngine.initialize();
+    TEST_CHECK(initRes.hasValue());
+    scriptEngine.bindWorld(&world);
+
+    script::registerScriptComponents(world);
+    script::registerScriptSystems(world, scriptEngine);
+
+    // 1. Create an entity with a non-existent script function name (the bug state)
+    auto entityBug = world.createEntity("BuggyScriptEntity");
+    auto& ecs = world.getRawWorld();
+    auto eViewBug = ecs.entity(entityBug.id);
+    eViewBug.set<script::ScriptComponent>({
+        .scriptName = "scripts/main.lua",
+        .enabled = true,
+    });
+
+    TEST_CHECK(eViewBug.get<script::ScriptComponent>()->enabled == true);
+
+    // Simulation frame runs: ScriptUpdateSystem fails to find 'scripts/main.lua'
+    world.progress(0.016f);
+
+    // Component gets automatically disabled due to failure isolation
+    TEST_CHECK(eViewBug.get<script::ScriptComponent>()->enabled == false);
+
+    // If the user tries to toggle the checkbox back to enabled in the Inspector
+    auto* scMut = eViewBug.get_mut<script::ScriptComponent>();
+    scMut->enabled = true;
+    TEST_CHECK(eViewBug.get<script::ScriptComponent>()->enabled == true);
+
+    // On the next frame, because scriptName is still invalid, it gets disabled again!
+    world.progress(0.016f);
+    TEST_CHECK(eViewBug.get<script::ScriptComponent>()->enabled == false);
+
+    // 2. Unassigned script component behavior (scriptName is empty "")
+    auto entityUnassigned = world.createEntity("UnassignedScriptEntity");
+    auto eViewUnassigned = ecs.entity(entityUnassigned.id);
+    eViewUnassigned.set<script::ScriptComponent>({
+        .scriptName = "",
+        .enabled = true,
+    });
+
+    // An unassigned script component must NOT fail and must remain enabled across frames
+    for (int i = 0; i < 5; ++i) {
+        world.progress(0.016f);
+        TEST_CHECK(eViewUnassigned.get<script::ScriptComponent>()->enabled == true);
+    }
+
+    // 3. Valid registered routine behavior
+    auto execRes = scriptEngine.executeString("test_tick_count = 0\nfunction on_test_tick(e, dt)\n "
+                                              " test_tick_count = test_tick_count + 1\nend\n");
+    TEST_CHECK(execRes.hasValue());
+    auto entityValid = world.createEntity("ValidScriptEntity");
+    auto eViewValid = ecs.entity(entityValid.id);
+    eViewValid.set<script::ScriptComponent>({
+        .scriptName = "on_test_tick",
+        .enabled = true,
+    });
+
+    world.progress(0.016f);
+    TEST_CHECK(eViewValid.get<script::ScriptComponent>()->enabled == true);
+    auto tickVal = scriptEngine.getGlobal("test_tick_count");
+    TEST_CHECK(tickVal.hasValue() && std::holds_alternative<double>(tickVal.value()));
+    TEST_CHECK(std::get<double>(tickVal.value()) == 1.0);
+
+    // When disabled explicitly, on_test_tick must not be invoked
+    eViewValid.get_mut<script::ScriptComponent>()->enabled = false;
+    world.progress(0.016f);
+    TEST_CHECK(eViewValid.get<script::ScriptComponent>()->enabled == false);
+    tickVal = scriptEngine.getGlobal("test_tick_count");
+    TEST_CHECK(std::get<double>(tickVal.value()) == 1.0); // unchanged
+
+    // Re-enabling explicitly resumes execution
+    eViewValid.get_mut<script::ScriptComponent>()->enabled = true;
+    world.progress(0.016f);
+    TEST_CHECK(eViewValid.get<script::ScriptComponent>()->enabled == true);
+    tickVal = scriptEngine.getGlobal("test_tick_count");
+    TEST_CHECK(std::get<double>(tickVal.value()) == 2.0); // incremented
+
+    scriptEngine.shutdown();
+    std::cout << "[PASS] testScriptComponentEnableToggleBehavior\n";
+}
+
 int main() {
     std::cout << "Running Editor subsystem unit tests...\n";
     testThemeTokens();
@@ -785,6 +872,7 @@ int main() {
     testInvalidEntityLookupSafety();
     testPhysicsObjectCreationAndUniqueNamingRegression();
     testRepeatedPhysicsObjectCreationAndHierarchyRendering();
+    testScriptComponentEnableToggleBehavior();
     std::cout << "All Editor subsystem tests PASSED!\n";
     return 0;
 }
