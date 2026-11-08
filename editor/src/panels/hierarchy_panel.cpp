@@ -82,6 +82,20 @@ world::EntityHandle duplicateEntity(world::World& world, world::EntityHandle sou
     return clone;
 }
 
+void deleteSelectedEntities(world::World& world, SelectionModel* selection, uint64_t& selectedId) {
+    if (selection != nullptr && !selection->empty()) {
+        auto entities = selection->getSelectedEntities();
+        for (const auto& h : entities) {
+            world.destroyEntity(h);
+        }
+        selection->clear();
+        selectedId = 0;
+    } else if (selectedId != 0) {
+        world.destroyEntity(world::EntityHandle(selectedId));
+        selectedId = 0;
+    }
+}
+
 } // namespace
 
 void HierarchyPanel::startRenaming(world::EntityHandle entity, std::string_view currentName) {
@@ -344,12 +358,27 @@ void HierarchyPanel::draw(EditorContext& ctx) {
                             }
                         }
                         ImGui::Separator();
-                        if (ImGui::MenuItem("Delete Entity")) {
-                            e.destruct();
-                            if (ctx.selection != nullptr) {
-                                ctx.selection->deselect(handle);
+                        bool hasMultiSelection =
+                            (ctx.selection != nullptr && ctx.selection->count() > 1 &&
+                             ctx.selection->isSelected(handle));
+                        if (hasMultiSelection) {
+                            char delLabel[64];
+                            std::snprintf(delLabel, sizeof(delLabel), "Delete %zu Entities",
+                                          ctx.selection->count());
+                            if (ImGui::MenuItem(delLabel, "Delete")) {
+                                deleteSelectedEntities(*ctx.world, ctx.selection,
+                                                       ctx.selectedEntityId);
                             }
-                            ctx.selectedEntityId = 0;
+                        } else {
+                            if (ImGui::MenuItem("Delete Entity", "Delete")) {
+                                ctx.world->destroyEntity(handle);
+                                if (ctx.selection != nullptr) {
+                                    ctx.selection->deselect(handle);
+                                }
+                                if (ctx.selectedEntityId == handle.id) {
+                                    ctx.selectedEntityId = 0;
+                                }
+                            }
                         }
                         ImGui::EndPopup();
                     }
@@ -438,6 +467,12 @@ void HierarchyPanel::draw(EditorContext& ctx) {
                         ctx.selectedEntityId = clone.id;
                     }
                 }
+            }
+
+            // Keyboard shortcut Delete to delete selected entities
+            if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows) &&
+                ImGui::IsKeyPressed(ImGuiKey_Delete) && !renamingEntity_.isValid()) {
+                deleteSelectedEntities(*ctx.world, ctx.selection, ctx.selectedEntityId);
             }
         } else {
             ImGui::TextDisabled("No Shared World bound");

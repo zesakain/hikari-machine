@@ -5,6 +5,7 @@
 
 #include "core/log.h"
 #include "editor/editor_theme.h"
+#include "editor/selection_model.h"
 #include "physics/physics_components.h"
 #include "script/script_components.h"
 #include "world/world.h"
@@ -233,12 +234,19 @@ void InspectorPanel::draw(EditorContext& ctx) {
                 ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.55F, 0.15F, 0.15F, 1.0F));
                 ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.75F, 0.20F, 0.20F, 1.0F));
                 if (ImGui::Button("Delete Entity", ImVec2(-1.0F, 24.0F))) {
-                    e.destruct();
+                    world::EntityHandle h(e.id());
+                    ctx.world->destroyEntity(h);
+                    if (ctx.selection != nullptr) {
+                        ctx.selection->deselect(h);
+                    }
                     ctx.selectedEntityId = 0;
                 }
                 ImGui::PopStyleColor(2);
             } else {
                 ImGui::TextDisabled("Selected entity is no longer alive.");
+                if (ctx.selection != nullptr) {
+                    ctx.selection->deselect(world::EntityHandle(ctx.selectedEntityId));
+                }
                 ctx.selectedEntityId = 0;
             }
         } else {
