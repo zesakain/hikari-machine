@@ -124,6 +124,7 @@ public:
 
     void copyBuffer(BufferHandle src, BufferHandle dst, size_t srcOffset, size_t dstOffset,
                     size_t size) override;
+    void copyTextureToBuffer(TextureHandle srcTexture, BufferHandle dstBuffer) override;
     void updateBuffer(BufferHandle dst, size_t dstOffset, const void* data, size_t size) override;
 
     [[nodiscard]] State getState() const noexcept { return state_; }

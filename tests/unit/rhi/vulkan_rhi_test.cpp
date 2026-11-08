@@ -1087,6 +1087,90 @@ static int testVulkanOffscreenPipelineCompatibility() {
     return 0;
 }
 
+static int testVulkanBufferReadAndTextureCopy() {
+    VulkanDeviceDesc devDesc{.windowHandle = nullptr, .enableValidation = true};
+    auto devRes = createVulkanDevice(devDesc);
+    if (!devRes.hasValue()) {
+        std::cout << "Vulkan device unavailable; skipping buffer read & copy test\n";
+        return 0;
+    }
+    auto device = std::move(devRes.value());
+
+    const uint32_t width = 16;
+    const uint32_t height = 16;
+    const size_t byteSize = width * height * 4;
+
+    BufferDesc bufDesc{
+        .sizeInBytes = byteSize,
+        .usage = BufferUsageFlags::TransferDst,
+        .memoryUsage = MemoryUsage::CpuToGpu,
+    };
+    auto bufRes = device->createBuffer(bufDesc);
+    TEST_CHECK(bufRes.hasValue());
+    BufferHandle buf = bufRes.value();
+
+    // 1. Verify direct CPU write and read back
+    std::vector<uint8_t> sampleData(byteSize, 0xAB);
+    TEST_CHECK(device->writeBuffer(buf, 0, sampleData.data(), byteSize).hasValue());
+
+    std::vector<uint8_t> readBack(byteSize, 0);
+    TEST_CHECK(device->readBuffer(buf, 0, readBack.data(), byteSize).hasValue());
+    TEST_CHECK(std::memcmp(sampleData.data(), readBack.data(), byteSize) == 0);
+
+    // 2. Create offscreen color texture and clear it, then copyTextureToBuffer
+    TextureDesc texDesc{
+        .type = TextureType::Texture2D,
+        .format = TextureFormat::RGBA8_UNORM,
+        .width = width,
+        .height = height,
+        .depth = 1,
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .usage = TextureUsageFlags::ColorAttachment | TextureUsageFlags::TransferSrc,
+    };
+    auto texRes = device->createTexture(texDesc);
+    TEST_CHECK(texRes.hasValue());
+    TextureHandle tex = texRes.value();
+
+    auto cmdRes = device->createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto cmd = std::move(cmdRes.value());
+
+    cmd->begin();
+    // Render pass with explicit clear color: (1.0, 0.0, 0.0, 1.0) = red
+    RenderPassBeginInfo passInfo{
+        .colorTarget = tex,
+        .clearColor = {1.0F, 0.0F, 0.0F, 1.0F},
+        .clearTarget = true,
+    };
+    cmd->beginRenderPass(passInfo);
+    cmd->endRenderPass();
+
+    // Copy rendered red image to buffer
+    cmd->copyTextureToBuffer(tex, buf);
+    cmd->end();
+
+    auto subRes = device->submit(cmd.get());
+    TEST_CHECK(subRes.hasValue());
+    device->waitIdle();
+
+    // 3. Read back pixels from buffer and assert that pixel bytes match clear red (255, 0, 0, 255)
+    std::vector<uint8_t> pixelData(byteSize, 0);
+    TEST_CHECK(device->readBuffer(buf, 0, pixelData.data(), byteSize).hasValue());
+    for (size_t i = 0; i < byteSize; i += 4) {
+        TEST_CHECK(pixelData[i] == 255);     // R
+        TEST_CHECK(pixelData[i + 1] == 0);   // G
+        TEST_CHECK(pixelData[i + 2] == 0);   // B
+        TEST_CHECK(pixelData[i + 3] == 255); // A
+    }
+
+    device->destroyTexture(tex);
+    device->destroyBuffer(buf);
+
+    std::cout << "Vulkan buffer read and texture-to-buffer copy verified!\n";
+    return 0;
+}
+
 int main() {
     std::cout << "Running Vulkan RHI Tests...\n";
 
@@ -1149,6 +1233,9 @@ int main() {
         return 1;
     }
     if (testVulkanOffscreenPipelineCompatibility() != 0) {
+        return 1;
+    }
+    if (testVulkanBufferReadAndTextureCopy() != 0) {
         return 1;
     }
 

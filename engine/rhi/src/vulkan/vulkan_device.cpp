@@ -424,6 +424,31 @@ Result<void> VulkanDevice::writeBuffer(BufferHandle handle, size_t offset, const
     return Result<void>::success();
 }
 
+Result<void> VulkanDevice::readBuffer(BufferHandle handle, size_t offset, void* outData,
+                                      size_t size) {
+    if (outData == nullptr && size > 0) {
+        return Error{.code = ErrorCode::InvalidArgument,
+                     .message = "Null destination pointer in readBuffer"};
+    }
+    if (!isBufferValid(handle)) {
+        return Error{.code = ErrorCode::HandleResolutionFailed,
+                     .message = "Invalid buffer handle in readBuffer"};
+    }
+    const auto& slot = buffers_[handle.index()];
+    if (offset + size > slot.sizeInBytes) {
+        return Error{.code = ErrorCode::OutOfBounds,
+                     .message = "Buffer read exceeds allocated storage bounds"};
+    }
+    if (slot.mappedData == nullptr) {
+        return Error{.code = ErrorCode::NotSupported,
+                     .message = "Buffer is not host-visible or mapped"};
+    }
+    if (size > 0) {
+        std::memcpy(outData, static_cast<const uint8_t*>(slot.mappedData) + offset, size);
+    }
+    return Result<void>::success();
+}
+
 Result<TextureHandle> VulkanDevice::createTexture(const TextureDesc& desc) {
     if (desc.width == 0 || desc.height == 0 || desc.depth == 0) {
         return Error{.code = ErrorCode::InvalidArgument,

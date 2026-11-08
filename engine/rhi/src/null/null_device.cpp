@@ -103,6 +103,27 @@ Result<void> NullDevice::writeBuffer(BufferHandle handle, size_t offset, const v
     return Result<void>::success();
 }
 
+Result<void> NullDevice::readBuffer(BufferHandle handle, size_t offset, void* outData,
+                                    size_t size) {
+    if (outData == nullptr && size > 0) {
+        return Error{.code = ErrorCode::InvalidArgument,
+                     .message = "Null destination pointer in readBuffer"};
+    }
+    auto* slot = resolveBuffer(handle);
+    if (slot == nullptr) {
+        return Error{.code = ErrorCode::HandleResolutionFailed,
+                     .message = "Invalid buffer handle in readBuffer"};
+    }
+    if (offset + size > slot->storage.size()) {
+        return Error{.code = ErrorCode::OutOfBounds,
+                     .message = "Buffer read exceeds allocated storage bounds"};
+    }
+    if (size > 0) {
+        std::memcpy(outData, slot->storage.data() + offset, size);
+    }
+    return Result<void>::success();
+}
+
 Result<TextureHandle> NullDevice::createTexture(const TextureDesc& desc) {
     if (desc.format == TextureFormat::Undefined) {
         return Error{.code = ErrorCode::InvalidArgument,

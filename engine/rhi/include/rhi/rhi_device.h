@@ -78,6 +78,22 @@ public:
         return Error{.code = ErrorCode::NotSupported, .message = "writeBuffer not implemented"};
     }
 
+    /// Reads host-visible GPU buffer contents into CPU memory.
+    ///
+    /// @param handle Generational handle referencing the allocated buffer.
+    /// @param offset Byte offset within the source buffer.
+    /// @param outData Pointer to destination host memory.
+    /// @param size Number of bytes to transfer.
+    /// @return Result indicating success or buffer access failure.
+    virtual Result<void> readBuffer(BufferHandle handle, size_t offset, void* outData,
+                                    size_t size) {
+        (void)handle;
+        (void)offset;
+        (void)outData;
+        (void)size;
+        return Error{.code = ErrorCode::NotSupported, .message = "readBuffer not implemented"};
+    }
+
     /// Allocates a new GPU texture resource.
     ///
     /// @param desc Texture dimensions, format, and usage flags.

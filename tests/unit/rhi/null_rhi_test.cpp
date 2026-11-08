@@ -876,6 +876,56 @@ static int testOffscreenPipelineCompatibility() {
     return 0;
 }
 
+static int testBufferReadAndTextureCopy() {
+    auto devRes = createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto device = std::move(devRes.value());
+
+    BufferDesc bDesc{
+        .sizeInBytes = 256,
+        .usage = BufferUsageFlags::TransferDst,
+        .memoryUsage = MemoryUsage::CpuToGpu,
+    };
+    auto bufRes = device->createBuffer(bDesc);
+    TEST_CHECK(bufRes.hasValue());
+    BufferHandle buf = bufRes.value();
+
+    uint8_t writeBytes[4] = {0x11, 0x22, 0x33, 0x44};
+    TEST_CHECK(device->writeBuffer(buf, 0, writeBytes, sizeof(writeBytes)).hasValue());
+
+    uint8_t readBytes[4] = {0};
+    TEST_CHECK(device->readBuffer(buf, 0, readBytes, sizeof(readBytes)).hasValue());
+    TEST_CHECK(std::memcmp(writeBytes, readBytes, sizeof(writeBytes)) == 0);
+
+    // Negative tests for readBuffer
+    TEST_CHECK(!device->readBuffer(buf, 0, nullptr, 4).hasValue());
+    TEST_CHECK(!device->readBuffer(buf, 250, readBytes, 10).hasValue());
+
+    TextureDesc tDesc{
+        .type = TextureType::Texture2D,
+        .format = TextureFormat::RGBA8_UNORM,
+        .width = 64,
+        .height = 64,
+        .depth = 1,
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .usage = TextureUsageFlags::ColorAttachment | TextureUsageFlags::TransferSrc,
+    };
+    auto texRes = device->createTexture(tDesc);
+    TEST_CHECK(texRes.hasValue());
+    TextureHandle tex = texRes.value();
+
+    auto cmdRes = device->createCommandList();
+    auto cmd = std::move(cmdRes.value());
+    cmd->begin();
+    cmd->copyTextureToBuffer(tex, buf);
+    cmd->end();
+
+    device->destroyTexture(tex);
+    device->destroyBuffer(buf);
+    return 0;
+}
+
 int main() {
     if (testGpuCapsQuery() != 0) {
         return 1;
@@ -908,6 +958,9 @@ int main() {
         return 1;
     }
     if (testOffscreenPipelineCompatibility() != 0) {
+        return 1;
+    }
+    if (testBufferReadAndTextureCopy() != 0) {
         return 1;
     }
     std::cout << "All Null RHI unit tests passed!\n";

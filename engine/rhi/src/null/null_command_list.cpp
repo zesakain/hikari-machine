@@ -249,6 +249,13 @@ void NullCommandList::copyBuffer(BufferHandle src, BufferHandle dst, size_t srcO
     ++copyCount_;
 }
 
+void NullCommandList::copyTextureToBuffer(TextureHandle srcTexture, BufferHandle dstBuffer) {
+    ENG_ASSERT(state_ == State::Recording, "copyTextureToBuffer called outside begin()/end()");
+    if (device_.isTextureValid(srcTexture) && device_.isBufferValid(dstBuffer)) {
+        ++copyCount_;
+    }
+}
+
 void NullCommandList::updateBuffer(BufferHandle dst, size_t dstOffset, const void* data,
                                    size_t size) {
     ENG_ASSERT(state_ == State::Recording, "updateBuffer called outside begin()/end()");

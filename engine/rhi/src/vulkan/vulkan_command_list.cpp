@@ -761,6 +761,119 @@ void VulkanCommandList::copyBuffer(BufferHandle src, BufferHandle dst, size_t sr
     }
 }
 
+void VulkanCommandList::copyTextureToBuffer(TextureHandle srcTexture, BufferHandle dstBuffer) {
+    if (!isRecording_ || device_ == nullptr || cmdBuffer_ == VK_NULL_HANDLE) {
+        return;
+    }
+    if (!device_->isTextureValid(srcTexture) || !device_->isBufferValid(dstBuffer)) {
+        ENG_LOG_ERROR("Vulkan", "copyTextureToBuffer failed: invalid texture or buffer handle");
+        return;
+    }
+
+    const auto* texDesc = device_->getTextureDesc(srcTexture);
+    if (texDesc == nullptr) {
+        return;
+    }
+
+    VkImage srcImage = device_->resolveTextureImage(srcTexture);
+    VkBuffer dstBuf = device_->resolveBuffer(dstBuffer);
+    if (srcImage == VK_NULL_HANDLE || dstBuf == VK_NULL_HANDLE) {
+        return;
+    }
+
+    // Transition image to TRANSFER_SRC_OPTIMAL
+    VkImageLayout oldLayout = device_->getTextureLayout(srcTexture);
+    VkImageMemoryBarrier2 barrierToSrc{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+        .pNext = nullptr,
+        .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        .srcAccessMask =
+            (oldLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+                ? VK_ACCESS_2_SHADER_READ_BIT
+                : (VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT),
+        .dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+        .dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT,
+        .oldLayout = oldLayout,
+        .newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image = srcImage,
+        .subresourceRange =
+            {
+                .aspectMask = isDepthFormat(texDesc->format) ? VK_IMAGE_ASPECT_DEPTH_BIT
+                                                             : VK_IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel = 0,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            },
+    };
+
+    VkDependencyInfo depInfoToSrc{
+        .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+        .pNext = nullptr,
+        .dependencyFlags = 0,
+        .memoryBarrierCount = 0,
+        .pMemoryBarriers = nullptr,
+        .bufferMemoryBarrierCount = 0,
+        .pBufferMemoryBarriers = nullptr,
+        .imageMemoryBarrierCount = 1,
+        .pImageMemoryBarriers = &barrierToSrc,
+    };
+    vkCmdPipelineBarrier2(cmdBuffer_, &depInfoToSrc);
+
+    VkBufferImageCopy region{
+        .bufferOffset = 0,
+        .bufferRowLength = 0,
+        .bufferImageHeight = 0,
+        .imageSubresource =
+            {
+                .aspectMask = isDepthFormat(texDesc->format) ? VK_IMAGE_ASPECT_DEPTH_BIT
+                                                             : VK_IMAGE_ASPECT_COLOR_BIT,
+                .mipLevel = 0,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            },
+        .imageOffset = {0, 0, 0},
+        .imageExtent = {texDesc->width, texDesc->height, 1},
+    };
+    vkCmdCopyImageToBuffer(cmdBuffer_, srcImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstBuf, 1,
+                           &region);
+
+    // Transition back to oldLayout (or SHADER_READ_ONLY_OPTIMAL)
+    VkImageLayout returnLayout = (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED)
+                                     ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                                     : oldLayout;
+    VkImageMemoryBarrier2 barrierBack{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+        .pNext = nullptr,
+        .srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+        .srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT,
+        .dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
+        .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        .newLayout = returnLayout,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image = srcImage,
+        .subresourceRange = barrierToSrc.subresourceRange,
+    };
+
+    VkDependencyInfo depInfoBack{
+        .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+        .pNext = nullptr,
+        .dependencyFlags = 0,
+        .memoryBarrierCount = 0,
+        .pMemoryBarriers = nullptr,
+        .bufferMemoryBarrierCount = 0,
+        .pBufferMemoryBarriers = nullptr,
+        .imageMemoryBarrierCount = 1,
+        .pImageMemoryBarriers = &barrierBack,
+    };
+    vkCmdPipelineBarrier2(cmdBuffer_, &depInfoBack);
+    device_->setTextureLayout(srcTexture, returnLayout);
+}
+
 void VulkanCommandList::updateBuffer(BufferHandle dst, size_t dstOffset, const void* data,
                                      size_t size) {
     if (!isRecording_ || device_ == nullptr || cmdBuffer_ == VK_NULL_HANDLE || data == nullptr ||

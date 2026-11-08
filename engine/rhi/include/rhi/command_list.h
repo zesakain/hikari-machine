@@ -115,6 +115,15 @@ public:
     virtual void copyBuffer(BufferHandle src, BufferHandle dst, size_t srcOffset, size_t dstOffset,
                             size_t size) = 0;
 
+    /// Records a GPU transfer copying an entire 2D texture level to a destination buffer.
+    ///
+    /// @param srcTexture Valid handle of the source texture.
+    /// @param dstBuffer Valid handle of the destination buffer with sufficient capacity.
+    virtual void copyTextureToBuffer(TextureHandle srcTexture, BufferHandle dstBuffer) {
+        (void)srcTexture;
+        (void)dstBuffer;
+    }
+
     /// Updates a destination buffer with host CPU data inline.
     virtual void updateBuffer(BufferHandle dst, size_t dstOffset, const void* data,
                               size_t size) = 0;
