@@ -141,11 +141,14 @@ The engine includes a functional developer visual editor (`editor/`) built with 
   - **Safe Entity Duplication:** Ctrl+D duplication with component cloning and spatial offset.
   - **Entity Deletion:** Single and multi-entity deletion with immediate selection cache invalidation.
   - **Search & Filtering:** Real-time case-insensitive search and component filter chips (`[All]`, `[Tr]`, `[RB]`, `[Script]`).
-- **Entity Inspector:** Interactive live inspection and editing of entity components:
-  - Multi-selection inspection card with entity list and batch deletion.
-  - `PhysicsTransformComponent`: 3D position (`DragFloat3`), Euler rotation (`DragFloat3`), and scale (`DragFloat3`).
-  - `RigidBodyComponent`: Motion type selection (`Static`, `Kinematic`, `Dynamic`) and collision layer editing.
-  - `ScriptComponent`: Editable Lua script routine name, enabled/disabled execution toggle, update interval, and real-time status indicators (`[Active]`, `[Unassigned]`, `[Disabled]`).
+- **Entity Inspector (Milestone 3):** Full-featured ECS component and property editor:
+  - **Component Management:** Categorized `+ Add Component` menu (Physics, Scripting) with duplicate prevention, and component removal via card headers and right-click context menus (`Remove Component`, `Reset to Default`).
+  - **Entity Header:** In-place entity renaming with automatic ECS synchronization on Enter or defocus, entity ID telemetry, and color-coded component archetype tags (`[Transform]`, `[RigidBody]`, `[Collider]`, `[Script]`).
+  - **PhysicsTransformComponent:** 3D position (`DragFloat3`), Euler angles rotation (`DragFloat3` in degrees converted to/from unit quaternions), and scale with degenerate dimension validation.
+  - **RigidBodyComponent:** Kinematic motion type combo (`Static`, `Kinematic`, `Dynamic`) and collision layer combo (Static, Moving, Player, Sensor).
+  - **ColliderComponent:** Geometric primitive shapes (`Box`, `Sphere`, `Capsule`), shape-specific dimensions (half-extents, radius, half-height), and center offsets.
+  - **ScriptComponent:** Editable Lua script routine name, enabled/disabled execution toggle, update interval, and real-time status indicators (`[Active]`, `[Unassigned]`, `[Disabled]`).
+  - **Multi-Selection Editing:** Detection of common components across all selected entities, per-axis mixed-state indicators (`---`), batch property modifications applied to all selected entities without affecting unselected entities, batch Add Component to all, and batch Remove Component from all.
 - **Scene Viewport Panel:** Viewport resolution and aspect ratio calculation, dark slate canvas, coordinate grid lines, center crosshairs, and honest empty-scene baseline indicators.
 - **Content Browser:** Virtual project asset filesystem navigation tree (`assets/`, `data/`, `game/`, `docs/`).
 - **Log Console Panel:** Streams live ring-buffer records from `Logger::defaultLogger()` with severity filtering (All, Info, Warning, Error), search, and clear controls.

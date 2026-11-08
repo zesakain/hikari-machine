@@ -28,6 +28,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added regression test suite (`testInvalidEntityLookupSafety`, `testPhysicsObjectCreationAndUniqueNamingRegression`, `testRepeatedPhysicsObjectCreationAndHierarchyRendering`) in `tests/unit/editor/editor_test.cpp`.
 
 ### Added
+- **Editor Milestone 3: Production-Quality Entity Inspector Completion**:
+  - **ECS Component Lifecycle Management**:
+    - Comprehensive component management in `InspectorPanel` supporting `PhysicsTransformComponent`, `RigidBodyComponent`, `ColliderComponent`, and `ScriptComponent`.
+    - Component removal mechanism via right-click header context menu (`Remove Component`, `Reset to Default`) and explicit card action buttons (`Remove <Component>`).
+    - Categorized `+ Add Component` popup menu (`Physics`, `Scripting`) with duplicate prevention (disabling items already attached to the entity).
+    - Unified component addition support in `WorkspaceManager` under `Component` menu bar.
+  - **Enhanced Property Editing & Mathematical Correctness**:
+    - Proper Euler angles (Pitch, Yaw, Roll in degrees) to/from unit quaternion conversions (`quatToEulerDegrees`, `eulerDegreesToQuat`) eliminating distortion and gimbal errors.
+    - Scale validation ensuring positive thresholds (> 0.001) to prevent degenerate geometry.
+    - Full `ColliderComponent` property editor supporting Box (half-extents), Sphere (radius), Capsule (radius, half-height), and center offsets.
+    - Full `RigidBodyComponent` configuration with Motion Type and all 4 collision layers (Static, Moving, Player, Sensor).
+    - Script routine, execution status badge (`[Active]`, `[Unassigned]`, `[Disabled]`), and update interval editor.
+  - **Multi-Selection Editing & Batch Operations**:
+    - Detection of common components present across all selected entities.
+    - Per-axis mixed-state indicators (`---`) when property values differ across entities, allowing isolated per-axis batch edits.
+    - Batch application of component property updates across all selected entities without affecting unselected entities.
+    - Batch `+ Add Component (To All)` and `Remove Component from All`.
+    - Batch entity deletion and selection clearing.
+  - **Inspector UI/UX & Synchronization**:
+    - Entity name input committing on Enter and input defocus (`IsItemDeactivatedAfterEdit`) synchronized with `world::World`.
+    - Color-coded component archetype chip tags (`[Transform]`, `[RigidBody]`, `[Collider]`, `[Script]`) in the header.
+    - Polished empty state with shortcuts and usage tips when no entity is selected.
+  - **Automated Regression Test Suite**:
+    - `testInspectorComponentManagementLifecycle`: verified adding, removing, and re-adding individual components in isolation.
+    - `testTransformAndPhysicsPropertyEditing`: verified Euler rotation, RigidBody layers, and Box/Sphere/Capsule collider transitions.
+    - `testMultiSelectionPropertyEditingAndBatchOperations`: verified mixed-value editing, unselected entity isolation, and batch component lifecycles.
 - **Editor Milestone 2: Production-Quality Scene Hierarchy & Entity Management**:
   - **Centralized Entity Selection Service (`SelectionModel`)**:
     - Generational entity selection service (`editor/selection_model.h`) managing single, multi, and range selection across all editor panels.
