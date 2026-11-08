@@ -5,15 +5,34 @@
 
 #include "core/log.h"
 #include "editor/editor_theme.h"
+#include "editor/selection_model.h"
 #include "physics/physics_components.h"
 #include "script/script_components.h"
 #include "world/world.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <imgui.h>
+#include <string>
+#include <vector>
 
 namespace eng::editor {
+
+namespace {
+
+std::string generateUniqueEntityName(flecs::world& ecs, const char* baseName) {
+    std::string candidate = baseName;
+    int suffix = 1;
+    while (ecs.lookup(candidate.c_str()).is_alive()) {
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "%s_%d", baseName, suffix++);
+        candidate = buf;
+    }
+    return candidate;
+}
+
+} // namespace
 
 void HierarchyPanel::draw(EditorContext& ctx) {
     if (!isOpen_) {
@@ -32,13 +51,30 @@ void HierarchyPanel::draw(EditorContext& ctx) {
             }
 
             if (ImGui::BeginPopup("AddEntityPopup")) {
-                if (ImGui::MenuItem("Empty Entity")) {
-                    auto h = ctx.world->createEntity("EmptyEntity");
+                flecs::world& ecs = ctx.world->getRawWorld();
+                if (ImGui::MenuItem("Create Empty Entity")) {
+                    auto name = generateUniqueEntityName(ecs, "EmptyEntity");
+                    auto h = ctx.world->createEntity(name);
+                    if (ctx.selection != nullptr) {
+                        ctx.selection->select(h, false);
+                    }
+                    ctx.selectedEntityId = h.id;
+                }
+                if (ImGui::MenuItem("Create Entity with Transform")) {
+                    auto name = generateUniqueEntityName(ecs, "Entity");
+                    auto h = ctx.world->createEntity(name);
+                    ctx.world->setComponent(h, physics::PhysicsTransformComponent{
+                                                   .transform = Transform{},
+                                               });
+                    if (ctx.selection != nullptr) {
+                        ctx.selection->select(h, false);
+                    }
                     ctx.selectedEntityId = h.id;
                 }
                 ImGui::Separator();
                 if (ImGui::MenuItem("3D Physics Cube")) {
-                    auto h = ctx.world->createEntity("PhysicsCube");
+                    auto name = generateUniqueEntityName(ecs, "PhysicsCube");
+                    auto h = ctx.world->createEntity(name);
                     ctx.world->setComponent(h, physics::PhysicsTransformComponent{
                                                    .transform = Transform{Vec3{0.0F, 2.0F, 0.0F}},
                                                });
@@ -48,10 +84,14 @@ void HierarchyPanel::draw(EditorContext& ctx) {
                                                 .motionType = physics::MotionType::Dynamic,
                                                 .collisionLayer = physics::CollisionLayer::kMoving,
                                             });
+                    if (ctx.selection != nullptr) {
+                        ctx.selection->select(h, false);
+                    }
                     ctx.selectedEntityId = h.id;
                 }
                 if (ImGui::MenuItem("3D Physics Sphere")) {
-                    auto h = ctx.world->createEntity("PhysicsSphere");
+                    auto name = generateUniqueEntityName(ecs, "PhysicsSphere");
+                    auto h = ctx.world->createEntity(name);
                     ctx.world->setComponent(h, physics::PhysicsTransformComponent{
                                                    .transform = Transform{Vec3{1.0F, 4.0F, 0.0F}},
                                                });
@@ -61,6 +101,9 @@ void HierarchyPanel::draw(EditorContext& ctx) {
                                                 .motionType = physics::MotionType::Dynamic,
                                                 .collisionLayer = physics::CollisionLayer::kMoving,
                                             });
+                    if (ctx.selection != nullptr) {
+                        ctx.selection->select(h, false);
+                    }
                     ctx.selectedEntityId = h.id;
                 }
                 ImGui::EndPopup();
@@ -72,18 +115,35 @@ void HierarchyPanel::draw(EditorContext& ctx) {
                               ImGuiWindowFlags_AlwaysVerticalScrollbar);
 
             flecs::world& ecs = ctx.world->getRawWorld();
-            int entityCount = 0;
-
+            std::vector<flecs::entity> entities;
             ecs.each([&](flecs::entity e) {
                 if (!e.is_alive()) {
                     return;
                 }
-                const char* name = e.name().c_str();
+                if (e.id() < EcsFirstUserEntityId || e.has(flecs::Module) ||
+                    e.has<flecs::Component>()) {
+                    return;
+                }
+                entities.push_back(e);
+            });
+
+            std::sort(
+                entities.begin(), entities.end(),
+                [](const flecs::entity& a, const flecs::entity& b) { return a.id() < b.id(); });
+
+            int entityCount = 0;
+
+            for (const auto& e : entities) {
+                const char* rawName = e.name().c_str();
+                char fallbackName[64];
+                const char* name = rawName;
                 if (name == nullptr || name[0] == '\0') {
-                    name = "Unnamed Entity";
+                    std::snprintf(fallbackName, sizeof(fallbackName), "Entity #%llu",
+                                  static_cast<unsigned long long>(e.id()));
+                    name = fallbackName;
                 }
                 if (searchFilter_[0] != '\0' && strstr(name, searchFilter_.data()) == nullptr) {
-                    return;
+                    continue;
                 }
                 entityCount++;
 
@@ -99,7 +159,13 @@ void HierarchyPanel::draw(EditorContext& ctx) {
                 std::snprintf(label, sizeof(label), "%s %s##%llu", icon, name,
                               static_cast<unsigned long long>(e.id()));
 
-                bool isSelected = (ctx.selectedEntityId == e.id());
+                bool isSelected = false;
+                if (ctx.selection != nullptr) {
+                    isSelected = ctx.selection->isSelected(world::EntityHandle(e.id()));
+                } else {
+                    isSelected = (ctx.selectedEntityId == e.id());
+                }
+
                 ImGuiTreeNodeFlags nodeFlags = ImGuiTreeNodeFlags_Leaf |
                                                ImGuiTreeNodeFlags_NoTreePushOnOpen |
                                                ImGuiTreeNodeFlags_SpanAvailWidth;
@@ -111,6 +177,9 @@ void HierarchyPanel::draw(EditorContext& ctx) {
                                   nodeFlags, "%s", label);
 
                 if (ImGui::IsItemClicked()) {
+                    if (ctx.selection != nullptr) {
+                        ctx.selection->select(world::EntityHandle(e.id()), false);
+                    }
                     ctx.selectedEntityId = e.id();
                 }
 
@@ -155,7 +224,7 @@ void HierarchyPanel::draw(EditorContext& ctx) {
                     }
                     ImGui::EndPopup();
                 }
-            });
+            }
 
             if (entityCount == 0) {
                 ImGui::Spacing();
@@ -167,14 +236,39 @@ void HierarchyPanel::draw(EditorContext& ctx) {
                                                ImGuiPopupFlags_MouseButtonRight |
                                                    ImGuiPopupFlags_NoOpenOverItems)) {
                 if (ImGui::MenuItem("Create Empty Entity")) {
-                    auto h = ctx.world->createEntity("EmptyEntity");
+                    auto name = generateUniqueEntityName(ecs, "EmptyEntity");
+                    auto h = ctx.world->createEntity(name);
+                    if (ctx.selection != nullptr) {
+                        ctx.selection->select(h, false);
+                    }
+                    ctx.selectedEntityId = h.id;
+                }
+                if (ImGui::MenuItem("Create Entity with Transform")) {
+                    auto name = generateUniqueEntityName(ecs, "Entity");
+                    auto h = ctx.world->createEntity(name);
+                    ctx.world->setComponent(h, physics::PhysicsTransformComponent{
+                                                   .transform = Transform{},
+                                               });
+                    if (ctx.selection != nullptr) {
+                        ctx.selection->select(h, false);
+                    }
                     ctx.selectedEntityId = h.id;
                 }
                 if (ImGui::MenuItem("Create Physics Cube")) {
-                    auto h = ctx.world->createEntity("PhysicsCube");
+                    auto name = generateUniqueEntityName(ecs, "PhysicsCube");
+                    auto h = ctx.world->createEntity(name);
                     ctx.world->setComponent(h, physics::PhysicsTransformComponent{
                                                    .transform = Transform{Vec3{0.0F, 2.0F, 0.0F}},
                                                });
+                    ctx.world->setComponent(h,
+                                            physics::RigidBodyComponent{
+                                                .bodyHandle = {},
+                                                .motionType = physics::MotionType::Dynamic,
+                                                .collisionLayer = physics::CollisionLayer::kMoving,
+                                            });
+                    if (ctx.selection != nullptr) {
+                        ctx.selection->select(h, false);
+                    }
                     ctx.selectedEntityId = h.id;
                 }
                 ImGui::EndPopup();
