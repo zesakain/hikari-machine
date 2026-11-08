@@ -69,6 +69,12 @@ public:
     [[nodiscard]] PipelineHandle getBoundPipeline() const noexcept { return boundPipelineHandle_; }
     [[nodiscard]] bool isPipelineBound() const noexcept { return boundPipeline_ != VK_NULL_HANDLE; }
     [[nodiscard]] bool hasUnboundDraw() const noexcept { return hasUnboundDraw_; }
+    [[nodiscard]] bool isInsideRenderPass() const noexcept { return isInsideRenderPass_; }
+    [[nodiscard]] TextureHandle getActiveColorTarget() const noexcept { return activeColorTarget_; }
+    [[nodiscard]] TextureHandle getActiveDepthTarget() const noexcept { return activeDepthTarget_; }
+    [[nodiscard]] TextureFormat getActiveColorFormat() const noexcept { return activeColorFormat_; }
+    [[nodiscard]] TextureFormat getActiveDepthFormat() const noexcept { return activeDepthFormat_; }
+    [[nodiscard]] bool hasFormatMismatch() const noexcept { return hasFormatMismatch_; }
     [[nodiscard]] uint32_t getPipelineBindCount() const noexcept { return pipelineBindCount_; }
     [[nodiscard]] uint32_t getPushConstantCount() const noexcept { return pushConstantCount_; }
 
@@ -82,6 +88,11 @@ private:
     bool isRecording_{false};
     bool isInsideRenderPass_{false};
     VkImage currentRenderImage_{VK_NULL_HANDLE};
+    TextureHandle activeColorTarget_{};
+    TextureHandle activeDepthTarget_{};
+    TextureFormat activeColorFormat_{TextureFormat::Undefined};
+    TextureFormat activeDepthFormat_{TextureFormat::Undefined};
+    bool hasFormatMismatch_{false};
 
     PipelineHandle boundPipelineHandle_{};
     VkPipeline boundPipeline_{VK_NULL_HANDLE};

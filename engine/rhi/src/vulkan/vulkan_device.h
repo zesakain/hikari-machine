@@ -77,6 +77,11 @@ public:
     // Internal backend helpers
     [[nodiscard]] VkDevice getLogicalDevice() const noexcept { return device_; }
     [[nodiscard]] VkBuffer resolveBuffer(BufferHandle handle) const noexcept;
+    [[nodiscard]] VkImage resolveTextureImage(TextureHandle handle) const noexcept;
+    [[nodiscard]] VkImageView resolveTextureView(TextureHandle handle) const noexcept;
+    [[nodiscard]] VkImageLayout getTextureLayout(TextureHandle handle) const noexcept;
+    void setTextureLayout(TextureHandle handle, VkImageLayout layout) noexcept;
+    [[nodiscard]] const TextureDesc* getTextureDesc(TextureHandle handle) const noexcept override;
     [[nodiscard]] VkShaderModule resolveShader(ShaderHandle handle) const noexcept;
     [[nodiscard]] VkPipelineLayout
     resolvePipelineLayout(PipelineLayoutHandle handle) const noexcept;

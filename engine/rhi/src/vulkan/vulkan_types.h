@@ -392,6 +392,7 @@ struct VulkanTextureSlot {
     VkImageView view{VK_NULL_HANDLE};
     VkDeviceMemory memory{VK_NULL_HANDLE};
     TextureDesc desc{};
+    VkImageLayout currentLayout{VK_IMAGE_LAYOUT_UNDEFINED};
     uint32_t generation{1};
     bool alive{false};
 };

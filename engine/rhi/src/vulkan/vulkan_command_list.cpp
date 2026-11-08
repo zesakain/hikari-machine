@@ -50,6 +50,13 @@ void VulkanCommandList::begin() {
     boundLayoutHandle_ = {};
     boundLayout_ = VK_NULL_HANDLE;
     hasUnboundDraw_ = false;
+    isInsideRenderPass_ = false;
+    currentRenderImage_ = VK_NULL_HANDLE;
+    activeColorTarget_ = {};
+    activeDepthTarget_ = {};
+    activeColorFormat_ = TextureFormat::Undefined;
+    activeDepthFormat_ = TextureFormat::Undefined;
+    hasFormatMismatch_ = false;
     pipelineBindCount_ = 0;
     pushConstantCount_ = 0;
 
@@ -78,7 +85,226 @@ void VulkanCommandList::beginRenderPass(const RenderPassBeginInfo& info) {
     if (!isRecording_ || device_ == nullptr || cmdBuffer_ == VK_NULL_HANDLE) {
         return;
     }
+    if (isInsideRenderPass_) {
+        ENG_LOG_WARN("Vulkan", "beginRenderPass ignored: already inside an active render pass");
+        return;
+    }
 
+    if (info.colorTarget.isValid()) {
+        // Offscreen Render Target path
+        if (!device_->isTextureValid(info.colorTarget)) {
+            ENG_LOG_ERROR("Vulkan",
+                          "beginRenderPass failed: invalid offscreen color target handle");
+            return;
+        }
+        const auto* colorDesc = device_->getTextureDesc(info.colorTarget);
+        if (colorDesc == nullptr ||
+            !hasFlag(colorDesc->usage, TextureUsageFlags::ColorAttachment) ||
+            !isColorFormat(colorDesc->format)) {
+            ENG_LOG_ERROR("Vulkan",
+                          "beginRenderPass failed: colorTarget lacks ColorAttachment usage or "
+                          "is not a color format");
+            return;
+        }
+
+        bool hasDepth = false;
+        const TextureDesc* depthDesc = nullptr;
+        if (info.depthTarget.isValid()) {
+            if (!device_->isTextureValid(info.depthTarget)) {
+                ENG_LOG_ERROR("Vulkan",
+                              "beginRenderPass failed: invalid offscreen depth target handle");
+                return;
+            }
+            depthDesc = device_->getTextureDesc(info.depthTarget);
+            if (depthDesc == nullptr ||
+                !hasFlag(depthDesc->usage, TextureUsageFlags::DepthStencilAttachment) ||
+                !isDepthFormat(depthDesc->format)) {
+                ENG_LOG_ERROR("Vulkan",
+                              "beginRenderPass failed: depthTarget lacks DepthStencilAttachment "
+                              "usage or is not a depth format");
+                return;
+            }
+            if (depthDesc->width != colorDesc->width || depthDesc->height != colorDesc->height) {
+                ENG_LOG_ERROR("Vulkan",
+                              "beginRenderPass failed: color and depth attachment dimensions "
+                              "mismatch");
+                return;
+            }
+            hasDepth = true;
+        }
+
+        uint32_t width = (info.renderWidth > 0 && info.renderWidth <= colorDesc->width)
+                             ? info.renderWidth
+                             : colorDesc->width;
+        uint32_t height = (info.renderHeight > 0 && info.renderHeight <= colorDesc->height)
+                              ? info.renderHeight
+                              : colorDesc->height;
+
+        VkImage colorImage = device_->resolveTextureImage(info.colorTarget);
+        VkImageView colorView = device_->resolveTextureView(info.colorTarget);
+        if (colorImage == VK_NULL_HANDLE || colorView == VK_NULL_HANDLE) {
+            ENG_LOG_ERROR("Vulkan", "beginRenderPass failed: resolved color image or view is null");
+            return;
+        }
+
+        // Transition offscreen color image to COLOR_ATTACHMENT_OPTIMAL
+        VkImageLayout oldColorLayout = device_->getTextureLayout(info.colorTarget);
+        VkImageMemoryBarrier2 colorBarrier{
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+            .pNext = nullptr,
+            .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+            .srcAccessMask = (oldColorLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+                                 ? VK_ACCESS_2_SHADER_READ_BIT
+                                 : 0,
+            .dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+            .dstAccessMask =
+                VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
+            .oldLayout = oldColorLayout,
+            .newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image = colorImage,
+            .subresourceRange =
+                {
+                    .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                    .baseMipLevel = 0,
+                    .levelCount = 1,
+                    .baseArrayLayer = 0,
+                    .layerCount = 1,
+                },
+        };
+
+        VkImageMemoryBarrier2 depthBarrier{};
+        VkImageView depthView = VK_NULL_HANDLE;
+        if (hasDepth) {
+            VkImage depthImage = device_->resolveTextureImage(info.depthTarget);
+            depthView = device_->resolveTextureView(info.depthTarget);
+            VkImageLayout oldDepthLayout = device_->getTextureLayout(info.depthTarget);
+            depthBarrier = VkImageMemoryBarrier2{
+                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                .pNext = nullptr,
+                .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                .srcAccessMask = (oldDepthLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL)
+                                     ? VK_ACCESS_2_SHADER_READ_BIT
+                                     : 0,
+                .dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+                                VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+                .dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+                                 VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+                .oldLayout = oldDepthLayout,
+                .newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .image = depthImage,
+                .subresourceRange =
+                    {
+                        .aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
+                        .baseMipLevel = 0,
+                        .levelCount = 1,
+                        .baseArrayLayer = 0,
+                        .layerCount = 1,
+                    },
+            };
+        }
+
+        VkImageMemoryBarrier2 barriers[2];
+        barriers[0] = colorBarrier;
+        uint32_t barrierCount = 1;
+        if (hasDepth) {
+            barriers[1] = depthBarrier;
+            barrierCount = 2;
+        }
+
+        VkDependencyInfo depInfo{
+            .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+            .pNext = nullptr,
+            .dependencyFlags = 0,
+            .memoryBarrierCount = 0,
+            .pMemoryBarriers = nullptr,
+            .bufferMemoryBarrierCount = 0,
+            .pBufferMemoryBarriers = nullptr,
+            .imageMemoryBarrierCount = barrierCount,
+            .pImageMemoryBarriers = barriers,
+        };
+        vkCmdPipelineBarrier2(cmdBuffer_, &depInfo);
+        device_->setTextureLayout(info.colorTarget, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        if (hasDepth) {
+            device_->setTextureLayout(info.depthTarget,
+                                      VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+        }
+
+        VkRenderingAttachmentInfo colorAttachment{
+            .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+            .pNext = nullptr,
+            .imageView = colorView,
+            .imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            .resolveMode = VK_RESOLVE_MODE_NONE,
+            .resolveImageView = VK_NULL_HANDLE,
+            .resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .loadOp = info.clearTarget ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD,
+            .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+            .clearValue =
+                {
+                    .color =
+                        {
+                            .float32 = {info.clearColor[0], info.clearColor[1], info.clearColor[2],
+                                        info.clearColor[3]},
+                        },
+                },
+        };
+
+        VkRenderingAttachmentInfo depthAttachment{
+            .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+            .pNext = nullptr,
+            .imageView = depthView,
+            .imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+            .resolveMode = VK_RESOLVE_MODE_NONE,
+            .resolveImageView = VK_NULL_HANDLE,
+            .resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .loadOp =
+                info.clearDepthTarget ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD,
+            .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+            .clearValue =
+                {
+                    .depthStencil =
+                        {
+                            .depth = info.clearDepth,
+                            .stencil = 0,
+                        },
+                },
+        };
+
+        VkRenderingInfo renderingInfo{
+            .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .renderArea =
+                {
+                    .offset = {0, 0},
+                    .extent = {width, height},
+                },
+            .layerCount = 1,
+            .viewMask = 0,
+            .colorAttachmentCount = 1,
+            .pColorAttachments = &colorAttachment,
+            .pDepthAttachment = hasDepth ? &depthAttachment : nullptr,
+            .pStencilAttachment = nullptr,
+        };
+
+        vkCmdBeginRendering(cmdBuffer_, &renderingInfo);
+        isInsideRenderPass_ = true;
+        currentRenderImage_ = VK_NULL_HANDLE; // Offscreen, not swapchain image
+        activeColorTarget_ = info.colorTarget;
+        activeDepthTarget_ = info.depthTarget;
+        activeColorFormat_ = colorDesc->format;
+        activeDepthFormat_ = hasDepth ? depthDesc->format : TextureFormat::Undefined;
+
+        setViewport(0.0F, 0.0F, static_cast<float>(width), static_cast<float>(height), 0.0F, 1.0F);
+        setScissor(0, 0, width, height);
+        return;
+    }
+
+    // Default Swapchain Render Pass
     auto* swapchain = device_->getSwapchain();
     if (swapchain == nullptr) {
         return;
@@ -94,6 +320,10 @@ void VulkanCommandList::beginRenderPass(const RenderPassBeginInfo& info) {
     }
 
     currentRenderImage_ = swapImage;
+    activeColorTarget_ = {};
+    activeDepthTarget_ = {};
+    activeColorFormat_ = TextureFormat::BGRA8_UNORM;
+    activeDepthFormat_ = TextureFormat::Undefined;
 
     // Transition swapchain image: UNDEFINED/PRESENT_SRC -> COLOR_ATTACHMENT_OPTIMAL
     VkImageMemoryBarrier2 barrier{
@@ -186,7 +416,91 @@ void VulkanCommandList::endRenderPass() {
     vkCmdEndRendering(cmdBuffer_);
     isInsideRenderPass_ = false;
 
-    if (currentRenderImage_ != VK_NULL_HANDLE) {
+    if (activeColorTarget_.isValid()) {
+        // Offscreen Color Target transition: COLOR_ATTACHMENT_OPTIMAL -> SHADER_READ_ONLY_OPTIMAL
+        VkImage colorImage = device_->resolveTextureImage(activeColorTarget_);
+        if (colorImage != VK_NULL_HANDLE) {
+            VkImageMemoryBarrier2 colorBarrier{
+                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                .pNext = nullptr,
+                .srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                .srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+                .dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+                .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
+                .oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .image = colorImage,
+                .subresourceRange =
+                    {
+                        .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                        .baseMipLevel = 0,
+                        .levelCount = 1,
+                        .baseArrayLayer = 0,
+                        .layerCount = 1,
+                    },
+            };
+
+            VkImageMemoryBarrier2 depthBarrier{};
+            bool hasDepth = false;
+            if (activeDepthTarget_.isValid()) {
+                VkImage depthImage = device_->resolveTextureImage(activeDepthTarget_);
+                if (depthImage != VK_NULL_HANDLE) {
+                    hasDepth = true;
+                    depthBarrier = VkImageMemoryBarrier2{
+                        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                        .pNext = nullptr,
+                        .srcStageMask = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+                        .srcAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                        .dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+                        .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
+                        .oldLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                        .newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+                        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                        .image = depthImage,
+                        .subresourceRange =
+                            {
+                                .aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
+                                .baseMipLevel = 0,
+                                .levelCount = 1,
+                                .baseArrayLayer = 0,
+                                .layerCount = 1,
+                            },
+                    };
+                }
+            }
+
+            VkImageMemoryBarrier2 barriers[2];
+            barriers[0] = colorBarrier;
+            uint32_t count = 1;
+            if (hasDepth) {
+                barriers[1] = depthBarrier;
+                count = 2;
+            }
+
+            VkDependencyInfo depInfo{
+                .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+                .pNext = nullptr,
+                .dependencyFlags = 0,
+                .memoryBarrierCount = 0,
+                .pMemoryBarriers = nullptr,
+                .bufferMemoryBarrierCount = 0,
+                .pBufferMemoryBarriers = nullptr,
+                .imageMemoryBarrierCount = count,
+                .pImageMemoryBarriers = barriers,
+            };
+            vkCmdPipelineBarrier2(cmdBuffer_, &depInfo);
+            device_->setTextureLayout(activeColorTarget_, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            if (hasDepth) {
+                device_->setTextureLayout(activeDepthTarget_,
+                                          VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+            }
+        }
+        activeColorTarget_ = {};
+        activeDepthTarget_ = {};
+    } else if (currentRenderImage_ != VK_NULL_HANDLE) {
         // Transition swapchain image: COLOR_ATTACHMENT_OPTIMAL -> PRESENT_SRC_KHR
         VkImageMemoryBarrier2 barrier{
             .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
@@ -370,6 +684,25 @@ void VulkanCommandList::draw(uint32_t vertexCount, uint32_t instanceCount, uint3
         ENG_LOG_WARN("Vulkan", "draw skipped: no graphics pipeline bound");
         return;
     }
+    if (isInsideRenderPass_) {
+        const auto* pDesc = device_->getPipelineDesc(boundPipelineHandle_);
+        if (pDesc != nullptr) {
+            if (!pDesc->colorAttachmentFormats.empty() &&
+                pDesc->colorAttachmentFormats[0] != activeColorFormat_) {
+                hasFormatMismatch_ = true;
+                ENG_LOG_WARN("Vulkan",
+                             "draw warning: pipeline color format does not match active render "
+                             "target format");
+            }
+            if (pDesc->depthAttachmentFormat != TextureFormat::Undefined &&
+                pDesc->depthAttachmentFormat != activeDepthFormat_) {
+                hasFormatMismatch_ = true;
+                ENG_LOG_WARN("Vulkan",
+                             "draw warning: pipeline depth format does not match active render "
+                             "target depth format");
+            }
+        }
+    }
     vkCmdDraw(cmdBuffer_, vertexCount, instanceCount, firstVertex, firstInstance);
 }
 
@@ -383,6 +716,25 @@ void VulkanCommandList::drawIndexed(uint32_t indexCount, uint32_t instanceCount,
         hasUnboundDraw_ = true;
         ENG_LOG_WARN("Vulkan", "drawIndexed skipped: no graphics pipeline bound");
         return;
+    }
+    if (isInsideRenderPass_) {
+        const auto* pDesc = device_->getPipelineDesc(boundPipelineHandle_);
+        if (pDesc != nullptr) {
+            if (!pDesc->colorAttachmentFormats.empty() &&
+                pDesc->colorAttachmentFormats[0] != activeColorFormat_) {
+                hasFormatMismatch_ = true;
+                ENG_LOG_WARN("Vulkan",
+                             "drawIndexed warning: pipeline color format does not match active "
+                             "render target format");
+            }
+            if (pDesc->depthAttachmentFormat != TextureFormat::Undefined &&
+                pDesc->depthAttachmentFormat != activeDepthFormat_) {
+                hasFormatMismatch_ = true;
+                ENG_LOG_WARN("Vulkan",
+                             "drawIndexed warning: pipeline depth format does not match active "
+                             "render target depth format");
+            }
+        }
     }
     vkCmdDrawIndexed(cmdBuffer_, indexCount, instanceCount, firstIndex, vertexOffset,
                      firstInstance);

@@ -543,6 +543,7 @@ Result<TextureHandle> VulkanDevice::createTexture(const TextureDesc& desc) {
     slot.view = view;
     slot.memory = memRes.value();
     slot.desc = desc;
+    slot.currentLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     slot.alive = true;
 
     return TextureHandle(GenerationalHandle{slotIdx, slot.generation});
@@ -1198,6 +1199,40 @@ VkBuffer VulkanDevice::resolveBuffer(BufferHandle handle) const noexcept {
         return VK_NULL_HANDLE;
     }
     return buffers_[handle.index()].buffer;
+}
+
+VkImage VulkanDevice::resolveTextureImage(TextureHandle handle) const noexcept {
+    if (isTextureValid(handle)) {
+        return textures_[handle.index()].image;
+    }
+    return VK_NULL_HANDLE;
+}
+
+VkImageView VulkanDevice::resolveTextureView(TextureHandle handle) const noexcept {
+    if (isTextureValid(handle)) {
+        return textures_[handle.index()].view;
+    }
+    return VK_NULL_HANDLE;
+}
+
+VkImageLayout VulkanDevice::getTextureLayout(TextureHandle handle) const noexcept {
+    if (isTextureValid(handle)) {
+        return textures_[handle.index()].currentLayout;
+    }
+    return VK_IMAGE_LAYOUT_UNDEFINED;
+}
+
+void VulkanDevice::setTextureLayout(TextureHandle handle, VkImageLayout layout) noexcept {
+    if (isTextureValid(handle)) {
+        textures_[handle.index()].currentLayout = layout;
+    }
+}
+
+const TextureDesc* VulkanDevice::getTextureDesc(TextureHandle handle) const noexcept {
+    if (isTextureValid(handle)) {
+        return &textures_[handle.index()].desc;
+    }
+    return nullptr;
 }
 
 bool VulkanDevice::isBufferValid(BufferHandle handle) const noexcept {
