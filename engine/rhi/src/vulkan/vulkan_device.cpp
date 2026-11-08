@@ -1392,4 +1392,19 @@ NativeDeviceHandles VulkanDevice::getNativeDeviceHandles() const noexcept {
     };
 }
 
+void* VulkanDevice::getNativeTextureView(TextureHandle handle) const noexcept {
+    return static_cast<void*>(resolveTextureView(handle));
+}
+
+void* VulkanDevice::getNativeSampler(SamplerHandle handle) const noexcept {
+    return static_cast<void*>(resolveSampler(handle));
+}
+
+VkSampler VulkanDevice::resolveSampler(SamplerHandle handle) const noexcept {
+    if (isSamplerValid(handle)) {
+        return samplers_[handle.index()].sampler;
+    }
+    return VK_NULL_HANDLE;
+}
+
 } // namespace eng::rhi::vk

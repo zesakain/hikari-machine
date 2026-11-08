@@ -44,6 +44,7 @@ class RuntimeSession;
 
 namespace eng::render {
 class AssetManager;
+class SceneRenderer;
 } // namespace eng::render
 
 namespace eng::editor {
@@ -98,6 +99,12 @@ public:
     /// Draws all active editor panels (Conductor, World Inspector, Metrics, Console).
     void drawPanels();
 
+    /// Records offscreen GPU scene rendering commands before swapchain presentation.
+    ///
+    /// Preconditions : cmdList must be recording outside of any active render pass.
+    /// Postconditions: color target transitioned to SHADER_READ_ONLY_OPTIMAL for ImGui sampling.
+    void renderScene(rhi::RhiCommandList& cmdList);
+
     /// Finalizes the ImGui frame and records draw commands to the command list.
     void endFrame(rhi::RhiCommandList& cmdList);
 
@@ -136,6 +143,15 @@ public:
 
     /// Returns the central asset manager repository (const).
     [[nodiscard]] const render::AssetManager& getAssetManager() const noexcept;
+
+    /// Returns the internal SceneRenderer subsystem.
+    [[nodiscard]] render::SceneRenderer& getSceneRenderer() noexcept;
+
+    /// Returns the internal SceneRenderer subsystem (const).
+    [[nodiscard]] const render::SceneRenderer& getSceneRenderer() const noexcept;
+
+    /// Checks whether GPU viewport presentation is active.
+    [[nodiscard]] bool isGpuViewportActive() const noexcept;
 
     /// Saves the current workspace docking layout to disk.
     bool saveWorkspaceLayout(const char* filepath = nullptr);

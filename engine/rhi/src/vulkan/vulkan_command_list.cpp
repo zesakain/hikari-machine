@@ -859,14 +859,29 @@ void VulkanCommandList::copyTextureToBuffer(TextureHandle srcTexture, BufferHand
         .subresourceRange = barrierToSrc.subresourceRange,
     };
 
+    // Buffer memory barrier to ensure transfer writes are visible to subsequent host readback
+    VkBufferMemoryBarrier2 bufBarrier{
+        .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+        .pNext = nullptr,
+        .srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+        .srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+        .dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT | VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        .dstAccessMask = VK_ACCESS_2_HOST_READ_BIT | VK_ACCESS_2_MEMORY_READ_BIT,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .buffer = dstBuf,
+        .offset = 0,
+        .size = VK_WHOLE_SIZE,
+    };
+
     VkDependencyInfo depInfoBack{
         .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
         .pNext = nullptr,
         .dependencyFlags = 0,
         .memoryBarrierCount = 0,
         .pMemoryBarriers = nullptr,
-        .bufferMemoryBarrierCount = 0,
-        .pBufferMemoryBarriers = nullptr,
+        .bufferMemoryBarrierCount = 1,
+        .pBufferMemoryBarriers = &bufBarrier,
         .imageMemoryBarrierCount = 1,
         .pImageMemoryBarriers = &barrierBack,
     };

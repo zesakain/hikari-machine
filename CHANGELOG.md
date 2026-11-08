@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Milestone 8B.3: Dear ImGui Viewport GPU Integration**:
+  - **Dear ImGui Vulkan Viewport GPU Integration**:
+    - Integrated Vulkan `render::SceneRenderer` directly into the Dear ImGui Scene Viewport via `ImGui_ImplVulkan_AddTexture` and `ImGui_ImplVulkan_RemoveTexture`.
+    - Eliminated CPU readback for viewport rendering path: direct GPU dynamic rendering to offscreen target -> sampled by Dear ImGui in swapchain render pass.
+    - Added abstract native handle accessors `RhiDevice::getNativeTextureView()` and `RhiDevice::getNativeSampler()`, implemented for `VulkanDevice`.
+    - Added dedicated linear clamp-to-edge sampler in `EditorEngine` for viewport texture sampling.
+    - Added automatic dynamic viewport resizing with device synchronization (`waitIdle()`), zero-size/collapse safety handling, and descriptor set replacement.
+    - Preserved CPU software wireframe rasterizer in `ViewportPanel` intact as fallback, with user toggle (`[Renderer: GPU]` / `[Renderer: CPU]`).
+    - Preserved all editor overlays (3D world grid, tripod, selection cages, collider outlines, gizmos, ray picking) rendering cleanly over the GPU viewport image.
+  - **Audit Findings Resolution (8B.2)**:
+    - **8B.2-01**: Rewrote depth occlusion verification in `scene_renderer_test.cpp` using distinct front Red and rear Green vertex colors to conclusively prove depth occlusion.
+    - **8B.2-02**: Added `VkBufferMemoryBarrier2` on destination buffer in `VulkanCommandList::copyTextureToBuffer` ensuring transfer writes are visible to host readback.
+    - **8B.2-03**: Added zero-sized resize regression tests in `scene_renderer_test.cpp` and `editor_test.cpp`.
+    - **8B.2-04**: Documented LSan behavior and proprietary NVIDIA Vulkan driver memory allocations.
+  - **Comprehensive Multi-Preset Verification**:
+    - Verified 100% test pass rate across all 6 presets: `editor` (33/33), `debug` (32/32), `release` (32/32), `profile` (32/32), `asan` (32/32), and `tsan` (32/32).
+  - **Architectural Documentation**:
+    - Added `docs/architecture/milestone_8b3_viewport_gpu_integration.md`.
 - **Milestone 8B.2: Viewport GPU Scene Rendering Integration**:
   - **SceneRenderer GPU Pipeline & Target Management**:
     - Implemented `SceneRenderer::init()` allocating offscreen color target (`RGBA8_UNORM` with `TransferSrc` support) and depth target (`D32_FLOAT`), compiling embedded SPIR-V shaders, creating pipeline layout, and configuring the Vulkan 1.3 graphics pipeline.

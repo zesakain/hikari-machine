@@ -75,12 +75,15 @@ public:
     Result<void> resize(uint32_t width, uint32_t height) override;
 
     [[nodiscard]] NativeDeviceHandles getNativeDeviceHandles() const noexcept override;
+    [[nodiscard]] void* getNativeTextureView(TextureHandle handle) const noexcept override;
+    [[nodiscard]] void* getNativeSampler(SamplerHandle handle) const noexcept override;
 
     // Internal backend helpers
     [[nodiscard]] VkDevice getLogicalDevice() const noexcept { return device_; }
     [[nodiscard]] VkBuffer resolveBuffer(BufferHandle handle) const noexcept;
     [[nodiscard]] VkImage resolveTextureImage(TextureHandle handle) const noexcept;
     [[nodiscard]] VkImageView resolveTextureView(TextureHandle handle) const noexcept;
+    [[nodiscard]] VkSampler resolveSampler(SamplerHandle handle) const noexcept;
     [[nodiscard]] VkImageLayout getTextureLayout(TextureHandle handle) const noexcept;
     void setTextureLayout(TextureHandle handle, VkImageLayout layout) noexcept;
     [[nodiscard]] const TextureDesc* getTextureDesc(TextureHandle handle) const noexcept override;

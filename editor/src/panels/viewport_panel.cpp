@@ -31,6 +31,7 @@ int s_snappingMode = 2;  // 0 = Off, 1 = 0.1m, 2 = 0.5m, 3 = 1.0m
 int s_coordSpace = 0;    // 0 = World, 1 = Local
 bool s_showGrid = true;
 bool s_showStats = true;
+bool s_useGpuRenderer = true; // True = GPU Viewport (SceneRenderer), False = CPU Software Rasterizer
 
 // Active gizmo dragging state
 bool s_isDraggingGizmo = false;
@@ -106,16 +107,37 @@ void ViewportPanel::draw(EditorContext& ctx) {
             return;
         }
 
+        // Request offscreen viewport resize when canvas dimensions change
+        const uint32_t targetWidth = static_cast<uint32_t>(canvasSize.x);
+        const uint32_t targetHeight = static_cast<uint32_t>(canvasSize.y);
+        if (targetWidth != ctx.sceneRenderWidth || targetHeight != ctx.sceneRenderHeight) {
+            ctx.requestViewportResize = true;
+            ctx.requestedViewportWidth = targetWidth;
+            ctx.requestedViewportHeight = targetHeight;
+        }
+
         // Synchronize camera matrices with active viewport dimensions
         camera_.updateMatrices(canvasSize.x, canvasSize.y);
+        ctx.viewportCameraViewProj = camera_.getViewProjectionMatrix();
 
         const Vec3 canvasOrigin3D{canvasPos.x, canvasPos.y, 0.0F};
         const Vec3 canvasSize3D{canvasSize.x, canvasSize.y, 0.0F};
 
-        // 1. Viewport canvas background (#131722 dark graphite)
-        drawList->AddRectFilled(canvasPos,
-                                ImVec2(canvasPos.x + canvasSize.x, canvasPos.y + canvasSize.y),
-                                IM_COL32(19, 23, 34, 255));
+        const bool isGpuAvailable = (ctx.gpuRenderingActive && ctx.viewportTextureId != nullptr);
+
+        // 1. Viewport canvas background & GPU texture
+        if (isGpuAvailable && s_useGpuRenderer) {
+            drawList->AddImage(
+                static_cast<ImTextureID>(reinterpret_cast<uintptr_t>(ctx.viewportTextureId)),
+                canvasPos,
+                ImVec2(canvasPos.x + canvasSize.x, canvasPos.y + canvasSize.y),
+                ImVec2(0.0F, 0.0F),
+                ImVec2(1.0F, 1.0F));
+        } else {
+            drawList->AddRectFilled(canvasPos,
+                                    ImVec2(canvasPos.x + canvasSize.x, canvasPos.y + canvasSize.y),
+                                    IM_COL32(19, 23, 34, 255));
+        }
 
         // 2. Invisible button over canvas to capture mouse input
         ImGui::SetCursorScreenPos(canvasPos);
@@ -345,86 +367,89 @@ void ViewportPanel::draw(EditorContext& ctx) {
                             hasCustomMesh = true;
                             tagYOffset = (meshData->bounds.maxBound.y * tr.scale.y) + 0.4F;
 
-                            // Cache projected screen vertices for this mesh instance
-                            std::vector<Vec3> screenVertices(meshData->vertices.size());
-                            std::vector<float> vertexDepths(meshData->vertices.size());
-                            std::vector<bool> vertexVisible(meshData->vertices.size(), false);
+                            // CPU Custom Mesh Software Rasterizer (Preserved Intact as Fallback)
+                            if (!isGpuAvailable || !s_useGpuRenderer) {
+                                // Cache projected screen vertices for this mesh instance
+                                std::vector<Vec3> screenVertices(meshData->vertices.size());
+                                std::vector<float> vertexDepths(meshData->vertices.size());
+                                std::vector<bool> vertexVisible(meshData->vertices.size(), false);
 
-                            for (size_t vi = 0; vi < meshData->vertices.size(); ++vi) {
-                                const Vec3 worldPos =
-                                    tr.position +
-                                    tr.rotation.rotate(meshData->vertices[vi].position * tr.scale);
-                                vertexVisible[vi] =
-                                    camera_.project(worldPos, canvasOrigin3D, canvasSize3D,
-                                                    screenVertices[vi], vertexDepths[vi]);
-                            }
+                                for (size_t vi = 0; vi < meshData->vertices.size(); ++vi) {
+                                    const Vec3 worldPos =
+                                        tr.position +
+                                        tr.rotation.rotate(meshData->vertices[vi].position * tr.scale);
+                                    vertexVisible[vi] =
+                                        camera_.project(worldPos, canvasOrigin3D, canvasSize3D,
+                                                        screenVertices[vi], vertexDepths[vi]);
+                                }
 
-                            const size_t triCount = meshData->indices.size() / 3;
-                            for (size_t ti = 0; ti < triCount; ++ti) {
-                                const uint32_t i0 = meshData->indices[ti * 3 + 0];
-                                const uint32_t i1 = meshData->indices[ti * 3 + 1];
-                                const uint32_t i2 = meshData->indices[ti * 3 + 2];
+                                const size_t triCount = meshData->indices.size() / 3;
+                                for (size_t ti = 0; ti < triCount; ++ti) {
+                                    const uint32_t i0 = meshData->indices[ti * 3 + 0];
+                                    const uint32_t i1 = meshData->indices[ti * 3 + 1];
+                                    const uint32_t i2 = meshData->indices[ti * 3 + 2];
 
-                                if (i0 < meshData->vertices.size() &&
-                                    i1 < meshData->vertices.size() &&
-                                    i2 < meshData->vertices.size()) {
-                                    if (vertexVisible[i0] || vertexVisible[i1] ||
-                                        vertexVisible[i2]) {
-                                        const Vec3 w0 =
-                                            tr.position +
-                                            tr.rotation.rotate(meshData->vertices[i0].position *
-                                                               tr.scale);
-                                        const Vec3 w1 =
-                                            tr.position +
-                                            tr.rotation.rotate(meshData->vertices[i1].position *
-                                                               tr.scale);
-                                        const Vec3 w2 =
-                                            tr.position +
-                                            tr.rotation.rotate(meshData->vertices[i2].position *
-                                                               tr.scale);
+                                    if (i0 < meshData->vertices.size() &&
+                                        i1 < meshData->vertices.size() &&
+                                        i2 < meshData->vertices.size()) {
+                                        if (vertexVisible[i0] || vertexVisible[i1] ||
+                                            vertexVisible[i2]) {
+                                            const Vec3 w0 =
+                                                tr.position +
+                                                tr.rotation.rotate(meshData->vertices[i0].position *
+                                                                   tr.scale);
+                                            const Vec3 w1 =
+                                                tr.position +
+                                                tr.rotation.rotate(meshData->vertices[i1].position *
+                                                                   tr.scale);
+                                            const Vec3 w2 =
+                                                tr.position +
+                                                tr.rotation.rotate(meshData->vertices[i2].position *
+                                                                   tr.scale);
 
-                                        const Vec3 triNormal =
-                                            Vec3::cross(w1 - w0, w2 - w0).normalized();
-                                        const Vec3 triCenter = (w0 + w1 + w2) * (1.0F / 3.0F);
-                                        const Vec3 toCamera =
-                                            (camera_.getPosition() - triCenter).normalized();
+                                            const Vec3 triNormal =
+                                                Vec3::cross(w1 - w0, w2 - w0).normalized();
+                                            const Vec3 triCenter = (w0 + w1 + w2) * (1.0F / 3.0F);
+                                            const Vec3 toCamera =
+                                                (camera_.getPosition() - triCenter).normalized();
 
-                                        if (Vec3::dot(triNormal, toCamera) > 0.0F) {
-                                            const ImVec2 p0(screenVertices[i0].x,
-                                                            screenVertices[i0].y);
-                                            const ImVec2 p1(screenVertices[i1].x,
-                                                            screenVertices[i1].y);
-                                            const ImVec2 p2(screenVertices[i2].x,
-                                                            screenVertices[i2].y);
+                                            if (Vec3::dot(triNormal, toCamera) > 0.0F) {
+                                                const ImVec2 p0(screenVertices[i0].x,
+                                                                screenVertices[i0].y);
+                                                const ImVec2 p1(screenVertices[i1].x,
+                                                                screenVertices[i1].y);
+                                                const ImVec2 p2(screenVertices[i2].x,
+                                                                screenVertices[i2].y);
 
-                                            if (s_viewMode != 1) { // Lit mode
-                                                float diffuse =
-                                                    std::max(0.0F, Vec3::dot(triNormal, lightDir));
-                                                float lightFactor = 0.35F + (0.65F * diffuse);
+                                                if (s_viewMode != 1) { // Lit mode
+                                                    float diffuse =
+                                                        std::max(0.0F, Vec3::dot(triNormal, lightDir));
+                                                    float lightFactor = 0.35F + (0.65F * diffuse);
 
-                                                ImU32 triColor{};
-                                                if (isSelected) {
-                                                    triColor = IM_COL32(
-                                                        static_cast<int>(40.0F * lightFactor),
-                                                        static_cast<int>(140.0F * lightFactor),
-                                                        static_cast<int>(210.0F * lightFactor),
-                                                        235);
-                                                } else {
-                                                    triColor = IM_COL32(
-                                                        static_cast<int>(80.0F * lightFactor),
-                                                        static_cast<int>(95.0F * lightFactor),
-                                                        static_cast<int>(125.0F * lightFactor),
-                                                        220);
+                                                    ImU32 triColor{};
+                                                    if (isSelected) {
+                                                        triColor = IM_COL32(
+                                                            static_cast<int>(40.0F * lightFactor),
+                                                            static_cast<int>(140.0F * lightFactor),
+                                                            static_cast<int>(210.0F * lightFactor),
+                                                            235);
+                                                    } else {
+                                                        triColor = IM_COL32(
+                                                            static_cast<int>(80.0F * lightFactor),
+                                                            static_cast<int>(95.0F * lightFactor),
+                                                            static_cast<int>(125.0F * lightFactor),
+                                                            220);
+                                                    }
+                                                    drawList->AddTriangleFilled(p0, p1, p2, triColor);
                                                 }
-                                                drawList->AddTriangleFilled(p0, p1, p2, triColor);
-                                            }
 
-                                            // Wireframe edges
-                                            const ImU32 edgeColor =
-                                                isSelected ? IM_COL32(56, 189, 248, 255)
-                                                           : IM_COL32(140, 160, 190, 160);
-                                            drawList->AddTriangle(p0, p1, p2, edgeColor,
-                                                                  isSelected ? 1.4F : 0.8F);
+                                                // Wireframe edges
+                                                const ImU32 edgeColor =
+                                                    isSelected ? IM_COL32(56, 189, 248, 255)
+                                                               : IM_COL32(140, 160, 190, 160);
+                                                drawList->AddTriangle(p0, p1, p2, edgeColor,
+                                                                      isSelected ? 1.4F : 0.8F);
+                                            }
                                         }
                                     }
                                 }
@@ -1015,6 +1040,15 @@ void ViewportPanel::draw(EditorContext& ctx) {
             }
         }
 
+        ImGui::SameLine();
+        ImGui::TextDisabled("|");
+        ImGui::SameLine();
+        const char* rendererLabel =
+            (isGpuAvailable && s_useGpuRenderer) ? "Renderer: GPU" : "Renderer: CPU";
+        if (ImGui::Button(rendererLabel)) {
+            s_useGpuRenderer = !s_useGpuRenderer;
+        }
+
         // ---------------------------------------------------------------------
         // 8. 3D Viewport Orientation Tripod (Top-Right)
         // ---------------------------------------------------------------------
@@ -1058,14 +1092,17 @@ void ViewportPanel::draw(EditorContext& ctx) {
                               IM_COL32(45, 55, 75, 180), 4.0F);
 
             ImGui::SetCursorScreenPos(ImVec2(cardPos.x + 10.0F, cardPos.y + 7.0F));
+            const char* rendererTag =
+                (isGpuAvailable && s_useGpuRenderer) ? " [GPU VIEWPORT]" : " [CPU RASTER]";
             ImGui::TextColored(
                 ImVec4(0.38F, 0.74F, 0.98F, 1.0F),
-                "3D Viewport: %.0fx%.0f (%.2f:1) | Cam: (%.1f, %.1f, %.1f)",
+                "3D Viewport: %.0fx%.0f (%.2f:1) | Cam: (%.1f, %.1f, %.1f)%s",
                 static_cast<double>(canvasSize.x), static_cast<double>(canvasSize.y),
                 canvasSize.y > 0.0F ? static_cast<double>(canvasSize.x / canvasSize.y) : 1.0,
                 static_cast<double>(camera_.getPosition().x),
                 static_cast<double>(camera_.getPosition().y),
-                static_cast<double>(camera_.getPosition().z));
+                static_cast<double>(camera_.getPosition().z),
+                rendererTag);
 
             const char* simBadge = "[EDIT MODE]";
             ImVec4 badgeColor(0.2F, 0.8F, 0.4F, 1.0F);

@@ -267,14 +267,34 @@ static int testVulkanSceneRendererHardwareRenderingAndPixelReadback() {
 
     auto loadRes = assetManager.loadMesh("assets/models/cube.obj");
     TEST_CHECK(loadRes.hasValue());
-    AssetId cubeId = loadRes.value();
+    AssetId baseCubeId = loadRes.value();
+    const MeshData* baseMesh = assetManager.getMeshData(baseCubeId);
+    TEST_CHECK(baseMesh != nullptr);
+
+    // Create distinguishable Front Red Cube
+    MeshData redMesh = *baseMesh;
+    for (auto& v : redMesh.vertices) {
+        v.color = Vec4(1.0F, 0.0F, 0.0F, 1.0F); // Pure Red
+    }
+    auto redRegRes = assetManager.registerMesh("procedural/red_cube", redMesh);
+    TEST_CHECK(redRegRes.hasValue());
+    AssetId redCubeId = redRegRes.value();
+
+    // Create distinguishable Rear Green Cube
+    MeshData greenMesh = *baseMesh;
+    for (auto& v : greenMesh.vertices) {
+        v.color = Vec4(0.0F, 1.0F, 0.0F, 1.0F); // Pure Green
+    }
+    auto greenRegRes = assetManager.registerMesh("procedural/green_cube", greenMesh);
+    TEST_CHECK(greenRegRes.hasValue());
+    AssetId greenCubeId = greenRegRes.value();
 
     auto& ecs = world.getRawWorld();
 
-    // Create a cube entity at the origin
+    // Create a red cube entity at origin (z = 0.0, front)
     auto cubeEntity = ecs.entity("CenterCube");
     cubeEntity.set<MeshComponent>(MeshComponent{
-        .meshAsset = cubeId,
+        .meshAsset = redCubeId,
         .visible = true,
     });
     cubeEntity.set<physics::PhysicsTransformComponent>(physics::PhysicsTransformComponent{
@@ -348,11 +368,11 @@ static int testVulkanSceneRendererHardwareRenderingAndPixelReadback() {
         (std::abs(static_cast<int>(centerB) - static_cast<int>(cornerB)) > 15);
     TEST_CHECK(isCenterDifferentFromClear);
 
-    // 3. Test Depth Occlusion
-    // Add a second cube behind the first one at z = -2.0
+    // 3. Test Depth Occlusion with Distinguishable Colors (Finding 8B.2-01)
+    // Add a second cube behind the first one at z = -2.0 with distinct Green color
     auto rearCube = ecs.entity("RearCube");
     rearCube.set<MeshComponent>(MeshComponent{
-        .meshAsset = cubeId,
+        .meshAsset = greenCubeId,
         .visible = true,
     });
     rearCube.set<physics::PhysicsTransformComponent>(physics::PhysicsTransformComponent{
@@ -373,19 +393,63 @@ static int testVulkanSceneRendererHardwareRenderingAndPixelReadback() {
     std::vector<uint8_t> pixelsOccluded(byteSize, 0);
     TEST_CHECK(device->readBuffer(readbackBuf, 0, pixelsOccluded.data(), byteSize).hasValue());
 
-    // Center pixel must remain identical or consistent with the front cube
+    // Center pixel must show Front Red Cube, occluding the Rear Green Cube
     uint8_t occludedCenterR = pixelsOccluded[centerIdx + 0];
     uint8_t occludedCenterG = pixelsOccluded[centerIdx + 1];
     uint8_t occludedCenterB = pixelsOccluded[centerIdx + 2];
 
-    TEST_CHECK(std::abs(static_cast<int>(occludedCenterR) - static_cast<int>(centerR)) <= 2);
-    TEST_CHECK(std::abs(static_cast<int>(occludedCenterG) - static_cast<int>(centerG)) <= 2);
-    TEST_CHECK(std::abs(static_cast<int>(occludedCenterB) - static_cast<int>(centerB)) <= 2);
+    // Front cube is Red, so R must dominate and match front cube, G and B must be low
+    TEST_CHECK(occludedCenterR >= 80);
+    TEST_CHECK(occludedCenterG <= 40);
+    TEST_CHECK(occludedCenterB <= 40);
+    TEST_CHECK(std::abs(static_cast<int>(occludedCenterR) - static_cast<int>(centerR)) <= 4);
 
-    // 4. Test Vulkan resize
+    // Now hide front Red cube and verify Rear Green Cube is revealed
+    cubeEntity.set<MeshComponent>(MeshComponent{
+        .meshAsset = redCubeId,
+        .visible = false,
+    });
+
+    cmd->begin();
+    stats = renderer.renderScene(world, assetManager, *device, *cmd, viewProj);
+    cmd->copyTextureToBuffer(renderer.getColorTarget(), readbackBuf);
+    cmd->end();
+
+    TEST_CHECK(stats.drawCalls >= 1);
+    TEST_CHECK(device->submit(cmd.get()).hasValue());
+    device->waitIdle();
+
+    std::vector<uint8_t> pixelsRevealed(byteSize, 0);
+    TEST_CHECK(device->readBuffer(readbackBuf, 0, pixelsRevealed.data(), byteSize).hasValue());
+
+    uint8_t revealedCenterR = pixelsRevealed[centerIdx + 0];
+    uint8_t revealedCenterG = pixelsRevealed[centerIdx + 1];
+    uint8_t revealedCenterB = pixelsRevealed[centerIdx + 2];
+
+    // Rear Green cube is now visible: G must dominate, R and B must be low
+    TEST_CHECK(revealedCenterG >= 80);
+    TEST_CHECK(revealedCenterR <= 40);
+    TEST_CHECK(revealedCenterB <= 40);
+
+    // 4. Test Vulkan Zero-Size Handling & Repeated Resize (Finding 8B.2-03)
+    TEST_CHECK(!renderer.resize(0, 128).hasValue());
+    TEST_CHECK(!renderer.resize(128, 0).hasValue());
+    TEST_CHECK(!renderer.resize(0, 0).hasValue());
+    TEST_CHECK(renderer.getWidth() == vpWidth);
+    TEST_CHECK(renderer.getHeight() == vpHeight);
+
+    // Repeated valid resizing
     TEST_CHECK(renderer.resize(128, 128).hasValue());
     TEST_CHECK(renderer.getWidth() == 128);
     TEST_CHECK(renderer.getHeight() == 128);
+
+    TEST_CHECK(renderer.resize(256, 128).hasValue());
+    TEST_CHECK(renderer.getWidth() == 256);
+    TEST_CHECK(renderer.getHeight() == 128);
+
+    TEST_CHECK(renderer.resize(64, 64).hasValue());
+    TEST_CHECK(renderer.getWidth() == 64);
+    TEST_CHECK(renderer.getHeight() == 64);
 
     renderer.shutdown();
     device->destroyBuffer(readbackBuf);

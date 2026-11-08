@@ -15,6 +15,7 @@
 
 #pragma once
 
+#include "core/math.h"
 #include "framework/simulation_state.h"
 
 #include <cstdint>
@@ -35,6 +36,7 @@ class RhiDevice;
 
 namespace eng::render {
 class AssetManager;
+class SceneRenderer;
 } // namespace eng::render
 
 namespace eng::editor {
@@ -50,8 +52,18 @@ struct EditorContext {
     framework::RuntimeSession* runtimeSession{nullptr};
     rhi::RhiDevice* rhiDevice{nullptr};
     render::AssetManager* assetManager{nullptr};
+    render::SceneRenderer* sceneRenderer{nullptr};
     SelectionModel* selection{nullptr};
     EditorCamera* editorCamera{nullptr};
+
+    void* viewportTextureId{nullptr};
+    uint32_t sceneRenderWidth{0};
+    uint32_t sceneRenderHeight{0};
+    bool gpuRenderingActive{false};
+    bool requestViewportResize{false};
+    uint32_t requestedViewportWidth{0};
+    uint32_t requestedViewportHeight{0};
+    Mat4 viewportCameraViewProj{Mat4::identity()};
 
     uint64_t selectedEntityId{0};
     framework::SimulationState simulationState{framework::SimulationState::Edit};

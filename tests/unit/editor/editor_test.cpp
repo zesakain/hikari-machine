@@ -14,6 +14,7 @@
 #include "platform/input_snapshot.h"
 #include "render/asset_manager.h"
 #include "render/mesh_component.h"
+#include "render/scene_renderer.h"
 #include "rhi/command_list.h"
 #include "rhi/rhi_device.h"
 #include "script/script_components.h"
@@ -1656,6 +1657,163 @@ static void testEditorMeshAssetPipelineAndRendering() {
     std::cout << "[PASS] testEditorMeshAssetPipelineAndRendering\n";
 }
 
+static void testEditorGpuViewportIntegrationLifecycle() {
+    auto devRes = rhi::createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto nullDevice = std::move(devRes.value());
+
+    EditorEngine editor;
+    TEST_CHECK(!editor.isInitialized());
+
+    bool initOk = editor.initialize(*nullDevice);
+    TEST_CHECK(initOk);
+    TEST_CHECK(editor.isInitialized());
+
+    // 1. SceneRenderer initialization within EditorEngine
+    auto& renderer = editor.getSceneRenderer();
+    TEST_CHECK(renderer.isInitialized());
+    TEST_CHECK(renderer.getColorTarget().isValid());
+    TEST_CHECK(renderer.getDepthTarget().isValid());
+    TEST_CHECK(renderer.getWidth() == 1280);
+    TEST_CHECK(renderer.getHeight() == 720);
+
+    // 2. Viewport zero-size handling and collapse regression (Finding 8B.2-03)
+    world::World editWorld;
+    editor.bindWorld(&editWorld);
+
+    // Simulate collapsed viewport canvas (0x0)
+    editor.beginFrame(Duration::fromMilliseconds(16), 1280, 720);
+    editor.drawPanels();
+
+    auto cmdRes = nullDevice->createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto nullCmd = std::move(cmdRes.value());
+
+    nullCmd->begin();
+    editor.renderScene(*nullCmd);
+    editor.endFrame(*nullCmd);
+    nullCmd->end();
+
+    // 3. Repeated resize behavior
+    auto resizeRes1 = renderer.resize(960, 540);
+    TEST_CHECK(resizeRes1.hasValue());
+    TEST_CHECK(renderer.getWidth() == 960);
+    TEST_CHECK(renderer.getHeight() == 540);
+
+    auto resizeRes2 = renderer.resize(1920, 1080);
+    TEST_CHECK(resizeRes2.hasValue());
+    TEST_CHECK(renderer.getWidth() == 1920);
+    TEST_CHECK(renderer.getHeight() == 1080);
+
+    // 4. Runtime session transition safety (Edit -> Simulating -> Edit)
+    auto playRes = editor.getRuntimeSession().play();
+    TEST_CHECK(playRes.hasValue());
+    TEST_CHECK(editor.getRuntimeSession().isSimulating());
+
+    nullCmd->begin();
+    editor.renderScene(*nullCmd);
+    editor.endFrame(*nullCmd);
+    nullCmd->end();
+
+    auto stopRes = editor.getRuntimeSession().stop();
+    TEST_CHECK(stopRes.hasValue());
+    TEST_CHECK(!editor.getRuntimeSession().isSimulating());
+
+    editor.shutdown();
+    TEST_CHECK(!editor.isInitialized());
+    std::cout << "[PASS] testEditorGpuViewportIntegrationLifecycle\n";
+}
+
+static void testEditorGpuViewportVulkanHardware() {
+    rhi::VulkanDeviceDesc vkDesc{.windowHandle = nullptr, .enableValidation = false};
+    auto devRes = rhi::createVulkanDevice(vkDesc);
+    if (!devRes.hasValue()) {
+        std::cout << "[SKIP] testEditorGpuViewportVulkanHardware (no Vulkan device)\n";
+        return;
+    }
+    auto vkDevice = std::move(devRes.value());
+
+    EditorEngine editor;
+    bool initOk = editor.initialize(*vkDevice);
+    TEST_CHECK(initOk);
+    TEST_CHECK(editor.isInitialized());
+
+    // 1. GPU Viewport active state and texture registration
+    TEST_CHECK(editor.isGpuViewportActive());
+
+    auto& renderer = editor.getSceneRenderer();
+    TEST_CHECK(renderer.isInitialized());
+    TEST_CHECK(renderer.getColorTarget().isValid());
+    TEST_CHECK(renderer.getDepthTarget().isValid());
+
+    // Verify native handle resolution for ImGui Vulkan backend
+    void* nativeView = vkDevice->getNativeTextureView(renderer.getColorTarget());
+    TEST_CHECK(nativeView != nullptr);
+
+    // 2. Viewport resize and descriptor replacement on GPU
+    auto resizeRes = renderer.resize(1024, 768);
+    TEST_CHECK(resizeRes.hasValue());
+    TEST_CHECK(renderer.getWidth() == 1024);
+    TEST_CHECK(renderer.getHeight() == 768);
+
+    void* newNativeView = vkDevice->getNativeTextureView(renderer.getColorTarget());
+    TEST_CHECK(newNativeView != nullptr);
+
+    // 3. World Mesh rendering and command list execution
+    world::World world;
+    physics::registerPhysicsComponents(world);
+    editor.bindWorld(&world);
+
+    auto loadRes = editor.getAssetManager().loadMesh("assets/models/cube.obj");
+    TEST_CHECK(loadRes.hasValue());
+    render::AssetId cubeId = loadRes.value();
+
+    auto& ecs = world.getRawWorld();
+    auto entity = ecs.entity("ViewportGpuCube");
+    entity.set<render::MeshComponent>(render::MeshComponent{
+        .meshAsset = cubeId,
+        .visible = true,
+    });
+    entity.set<physics::PhysicsTransformComponent>(physics::PhysicsTransformComponent{
+        .transform = Transform(Vec3(0.0F, 0.0F, 0.0F)),
+    });
+
+    editor.beginFrame(Duration::fromMilliseconds(16), 1280, 720);
+    editor.drawPanels();
+
+    auto cmdRes = vkDevice->createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto vkCmd = std::move(cmdRes.value());
+
+    vkCmd->begin();
+    editor.renderScene(*vkCmd);
+    vkCmd->end();
+
+    auto subRes = vkDevice->submit(vkCmd.get());
+    TEST_CHECK(subRes.hasValue());
+    vkDevice->waitIdle();
+
+    // 4. Runtime / Edit World transition safety on GPU
+    auto playRes = editor.getRuntimeSession().play();
+    TEST_CHECK(playRes.hasValue());
+    TEST_CHECK(editor.isGpuViewportActive());
+
+    vkCmd->begin();
+    editor.renderScene(*vkCmd);
+    vkCmd->end();
+
+    TEST_CHECK(vkDevice->submit(vkCmd.get()).hasValue());
+    vkDevice->waitIdle();
+
+    auto stopRes = editor.getRuntimeSession().stop();
+    TEST_CHECK(stopRes.hasValue());
+    TEST_CHECK(editor.isGpuViewportActive());
+
+    editor.shutdown();
+    TEST_CHECK(!editor.isInitialized());
+    std::cout << "[PASS] testEditorGpuViewportVulkanHardware\n";
+}
+
 int main() {
     std::cout << "Running Editor subsystem unit tests...\n";
     testThemeTokens();
@@ -1683,6 +1841,8 @@ int main() {
     testViewportTransformGizmoManipulation();
     testViewportRuntimeWorldPreviewAndSelectionSafety();
     testEditorMeshAssetPipelineAndRendering();
+    testEditorGpuViewportIntegrationLifecycle();
+    testEditorGpuViewportVulkanHardware();
     std::cout << "All Editor subsystem tests PASSED!\n";
     return 0;
 }

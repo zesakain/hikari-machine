@@ -365,6 +365,12 @@ body {
         // 4. Record Frame Rendering Commands
         mainCmd->begin();
 
+#if defined(HIKARI_BUILD_EDITOR)
+        if (editorEngine.isInitialized()) {
+            editorEngine.renderScene(*mainCmd);
+        }
+#endif
+
         rhi::RenderPassBeginInfo passInfo{
             .clearColor = {0.08F, 0.12F, 0.20F, 1.0F}, // Deep Hikari Blue background baseline
             .clearTarget = true,

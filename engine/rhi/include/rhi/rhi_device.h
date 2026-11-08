@@ -185,6 +185,18 @@ public:
     /// Returns opaque pointers to underlying backend device handles (or null in headless/null
     /// mode).
     [[nodiscard]] virtual NativeDeviceHandles getNativeDeviceHandles() const noexcept { return {}; }
+
+    /// Returns the native image view pointer (e.g. VkImageView) for a texture, or nullptr.
+    [[nodiscard]] virtual void* getNativeTextureView(TextureHandle handle) const noexcept {
+        (void)handle;
+        return nullptr;
+    }
+
+    /// Returns the native sampler pointer (e.g. VkSampler) for a sampler, or nullptr.
+    [[nodiscard]] virtual void* getNativeSampler(SamplerHandle handle) const noexcept {
+        (void)handle;
+        return nullptr;
+    }
 };
 
 /// Instantiates the in-memory headless Null RHI device.

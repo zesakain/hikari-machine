@@ -18,8 +18,10 @@
 #include "panels/viewport_panel.h"
 #include "platform/input_snapshot.h"
 #include "render/asset_manager.h"
+#include "render/scene_renderer.h"
 #include "rhi/command_list.h"
 #include "rhi/rhi_device.h"
+#include "rhi/sampler.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -40,12 +42,95 @@ struct EditorEngine::Impl {
     SelectionModel selectionModel{};
     render::AssetManager assetManager{};
 
+    render::SceneRenderer sceneRenderer{};
+    rhi::SamplerHandle viewportSampler{};
+    VkDescriptorSet viewportDescriptorSet{VK_NULL_HANDLE};
+    uint32_t viewportWidth{0};
+    uint32_t viewportHeight{0};
+    Mat4 viewportCameraViewProj{Mat4::identity()};
+
     framework::RuntimeSession internalRuntimeSession{};
     framework::RuntimeSession* runtimeSession{&internalRuntimeSession};
 
     bool initialized{false};
     bool vulkanBackendInitialized{false};
     framework::SimulationState lastSimulationState{framework::SimulationState::Edit};
+
+    void updateViewportTextureRegistration() {
+        if (!vulkanBackendInitialized || rhiDevice == nullptr) {
+            return;
+        }
+
+        if (viewportDescriptorSet != VK_NULL_HANDLE) {
+            ImGui_ImplVulkan_RemoveTexture(viewportDescriptorSet);
+            viewportDescriptorSet = VK_NULL_HANDLE;
+            context.viewportTextureId = nullptr;
+            context.gpuRenderingActive = false;
+        }
+
+        if (!sceneRenderer.isInitialized() || viewportWidth == 0 || viewportHeight == 0) {
+            return;
+        }
+
+        auto colorTarget = sceneRenderer.getColorTarget();
+        if (!colorTarget.isValid()) {
+            return;
+        }
+
+        void* nativeView = rhiDevice->getNativeTextureView(colorTarget);
+        void* nativeSampler = rhiDevice->getNativeSampler(viewportSampler);
+        if (nativeView != nullptr && nativeSampler != nullptr) {
+            viewportDescriptorSet = ImGui_ImplVulkan_AddTexture(
+                static_cast<VkSampler>(nativeSampler),
+                static_cast<VkImageView>(nativeView),
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            context.viewportTextureId = static_cast<void*>(viewportDescriptorSet);
+            context.gpuRenderingActive = (viewportDescriptorSet != VK_NULL_HANDLE);
+        }
+    }
+
+    bool resizeViewport(uint32_t width, uint32_t height) {
+        if (width == 0 || height == 0) {
+            return false;
+        }
+        if (width == viewportWidth && height == viewportHeight && sceneRenderer.isInitialized()) {
+            return true;
+        }
+
+        if (rhiDevice == nullptr) {
+            return false;
+        }
+
+        // Remove previous descriptor before recreating render targets to prevent use-after-free
+        if (vulkanBackendInitialized && viewportDescriptorSet != VK_NULL_HANDLE) {
+            ImGui_ImplVulkan_RemoveTexture(viewportDescriptorSet);
+            viewportDescriptorSet = VK_NULL_HANDLE;
+            context.viewportTextureId = nullptr;
+            context.gpuRenderingActive = false;
+        }
+
+        viewportWidth = width;
+        viewportHeight = height;
+
+        if (!sceneRenderer.isInitialized()) {
+            auto initRes = sceneRenderer.init(*rhiDevice, viewportWidth, viewportHeight);
+            if (!initRes.hasValue()) {
+                ENG_LOG_ERROR("Editor", "Failed to initialize SceneRenderer for viewport");
+                return false;
+            }
+        } else {
+            auto resizeRes = sceneRenderer.resize(viewportWidth, viewportHeight);
+            if (!resizeRes.hasValue()) {
+                ENG_LOG_ERROR("Editor", "Failed to resize SceneRenderer for viewport");
+                return false;
+            }
+        }
+
+        updateViewportTextureRegistration();
+        context.sceneRenderWidth = viewportWidth;
+        context.sceneRenderHeight = viewportHeight;
+        return true;
+    }
 };
 
 EditorEngine::EditorEngine() : impl_(std::make_unique<Impl>()) {}
@@ -104,6 +189,9 @@ bool EditorEngine::initialize(rhi::RhiDevice& rhiDevice, const EditorConfig& con
     auto nativeHandles = rhiDevice.getNativeDeviceHandles();
     if (nativeHandles.device != nullptr) {
         auto colorFormat = static_cast<VkFormat>(nativeHandles.colorAttachmentFormat);
+        if (colorFormat == VK_FORMAT_UNDEFINED) {
+            colorFormat = VK_FORMAT_B8G8R8A8_UNORM;
+        }
         VkPipelineRenderingCreateInfoKHR renderingInfo{
             .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR,
             .pNext = nullptr,
@@ -142,6 +230,27 @@ bool EditorEngine::initialize(rhi::RhiDevice& rhiDevice, const EditorConfig& con
     // Attempt to restore layout from persistence file
     (void)impl_->workspaceManager.loadLayout();
 
+    impl_->context.sceneRenderer = &impl_->sceneRenderer;
+
+    // Create linear clamp-to-edge sampler for the editor viewport
+    rhi::SamplerDesc samplerDesc{
+        .minFilter = rhi::Filter::Linear,
+        .magFilter = rhi::Filter::Linear,
+        .mipmapMode = rhi::Filter::Linear,
+        .addressU = rhi::SamplerAddressMode::ClampToEdge,
+        .addressV = rhi::SamplerAddressMode::ClampToEdge,
+        .addressW = rhi::SamplerAddressMode::ClampToEdge,
+        .compareEnable = false,
+        .debugName = "EditorViewportSampler",
+    };
+    auto sRes = rhiDevice.createSampler(samplerDesc);
+    if (sRes.hasValue()) {
+        impl_->viewportSampler = sRes.value();
+    }
+
+    // Initialize viewport renderer with initial baseline dimensions
+    (void)impl_->resizeViewport(1280, 720);
+
     impl_->initialized = true;
     ENG_LOG_INFO("Editor", "Hikari Editor Workspace initialized successfully");
     return true;
@@ -153,10 +262,26 @@ void EditorEngine::shutdown() {
             (void)impl_->workspaceManager.saveLayout();
         }
 
+        if (impl_->rhiDevice != nullptr) {
+            impl_->rhiDevice->waitIdle();
+        }
+
         if (impl_->vulkanBackendInitialized) {
+            if (impl_->viewportDescriptorSet != VK_NULL_HANDLE) {
+                ImGui_ImplVulkan_RemoveTexture(impl_->viewportDescriptorSet);
+                impl_->viewportDescriptorSet = VK_NULL_HANDLE;
+            }
             ImGui_ImplVulkan_Shutdown();
             impl_->vulkanBackendInitialized = false;
         }
+
+        impl_->sceneRenderer.shutdown();
+
+        if (impl_->rhiDevice != nullptr && impl_->viewportSampler.isValid()) {
+            impl_->rhiDevice->destroySampler(impl_->viewportSampler);
+            impl_->viewportSampler = {};
+        }
+
         if (impl_->imguiContext != nullptr) {
             ImGui::DestroyContext(impl_->imguiContext);
             impl_->imguiContext = nullptr;
@@ -165,6 +290,9 @@ void EditorEngine::shutdown() {
         impl_->context.world = nullptr;
         impl_->context.conductor = nullptr;
         impl_->context.rhiDevice = nullptr;
+        impl_->context.sceneRenderer = nullptr;
+        impl_->context.viewportTextureId = nullptr;
+        impl_->context.gpuRenderingActive = false;
         impl_->initialized = false;
         ENG_LOG_INFO("Editor", "Hikari Editor Workspace shut down cleanly");
     }
@@ -216,6 +344,13 @@ void EditorEngine::beginFrame(Duration dt, uint32_t width, uint32_t height) {
     }
     impl_->context.selectedEntityId = impl_->selectionModel.getPrimarySelected().id;
 
+    impl_->context.sceneRenderer = &impl_->sceneRenderer;
+    impl_->context.viewportTextureId = static_cast<void*>(impl_->viewportDescriptorSet);
+    impl_->context.sceneRenderWidth = impl_->viewportWidth;
+    impl_->context.sceneRenderHeight = impl_->viewportHeight;
+    impl_->context.gpuRenderingActive = (impl_->viewportDescriptorSet != VK_NULL_HANDLE);
+    impl_->context.requestViewportResize = false;
+
     if (impl_->vulkanBackendInitialized) {
         ImGui_ImplVulkan_NewFrame();
     }
@@ -228,11 +363,35 @@ void EditorEngine::drawPanels() {
     }
 
     ImGui::SetCurrentContext(impl_->imguiContext);
+    impl_->context.requestViewportResize = false;
     impl_->workspaceManager.drawWorkspace(impl_->context);
+
+    if (impl_->context.requestViewportResize && impl_->context.requestedViewportWidth > 0 &&
+        impl_->context.requestedViewportHeight > 0) {
+        (void)impl_->resizeViewport(impl_->context.requestedViewportWidth,
+                                    impl_->context.requestedViewportHeight);
+    }
+    impl_->viewportCameraViewProj = impl_->context.viewportCameraViewProj;
 
     if (impl_->config.showDemoWindow) {
         ImGui::ShowDemoWindow(&impl_->config.showDemoWindow);
     }
+}
+
+void EditorEngine::renderScene(rhi::RhiCommandList& cmdList) {
+    if (!impl_->initialized || impl_->rhiDevice == nullptr || !impl_->sceneRenderer.isInitialized()) {
+        return;
+    }
+    if (impl_->viewportWidth == 0 || impl_->viewportHeight == 0) {
+        return;
+    }
+    world::World* targetWorld = impl_->context.world;
+    if (targetWorld == nullptr) {
+        return;
+    }
+
+    (void)impl_->sceneRenderer.renderScene(*targetWorld, impl_->assetManager, *impl_->rhiDevice,
+                                           cmdList, impl_->viewportCameraViewProj);
 }
 
 void EditorEngine::endFrame(rhi::RhiCommandList& cmdList) {
@@ -367,6 +526,18 @@ uint32_t EditorEngine::lastIndexCount() const noexcept {
 
 uint64_t EditorEngine::executedEditorPasses() const noexcept {
     return impl_->context.executedPasses;
+}
+
+render::SceneRenderer& EditorEngine::getSceneRenderer() noexcept {
+    return impl_->sceneRenderer;
+}
+
+const render::SceneRenderer& EditorEngine::getSceneRenderer() const noexcept {
+    return impl_->sceneRenderer;
+}
+
+bool EditorEngine::isGpuViewportActive() const noexcept {
+    return impl_->context.gpuRenderingActive && (impl_->viewportDescriptorSet != VK_NULL_HANDLE);
 }
 
 } // namespace eng::editor
