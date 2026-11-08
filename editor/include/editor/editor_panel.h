@@ -36,6 +36,7 @@ class RhiDevice;
 namespace eng::editor {
 
 class SelectionModel;
+class EditorCamera;
 
 /// @struct EditorContext
 /// @brief Non-owning execution context passed to editor panels each frame.
@@ -45,6 +46,7 @@ struct EditorContext {
     framework::RuntimeSession* runtimeSession{nullptr};
     rhi::RhiDevice* rhiDevice{nullptr};
     SelectionModel* selection{nullptr};
+    EditorCamera* editorCamera{nullptr};
 
     uint64_t selectedEntityId{0};
     framework::SimulationState simulationState{framework::SimulationState::Edit};

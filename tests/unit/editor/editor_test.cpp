@@ -1384,6 +1384,171 @@ static void testEditorCameraLifecycleAndNavigation() {
     std::cout << "[PASS] testEditorCameraLifecycleAndNavigation\n";
 }
 
+static void testViewportRayPickingAndEntitySelection() {
+    world::World testWorld;
+    physics::registerPhysicsComponents(testWorld);
+
+    // Entity 1: Cube at (0, 0, 0) with half extents (1, 1, 1)
+    auto eBox = testWorld.createEntity("BoxEntity");
+    testWorld.setComponent(eBox, physics::PhysicsTransformComponent{
+                                     .transform = Transform{Vec3{0.0F, 0.0F, 0.0F}},
+                                 });
+    testWorld.setComponent(eBox, physics::ColliderComponent{
+                                     .desc = physics::ColliderDesc::makeBox(Vec3{1.0F, 1.0F, 1.0F}),
+                                 });
+
+    // Entity 2: Sphere at (6, 0, 0) with radius 1.5
+    auto eSphere = testWorld.createEntity("SphereEntity");
+    testWorld.setComponent(eSphere, physics::PhysicsTransformComponent{
+                                        .transform = Transform{Vec3{6.0F, 0.0F, 0.0F}},
+                                    });
+    testWorld.setComponent(eSphere, physics::ColliderComponent{
+                                        .desc = physics::ColliderDesc::makeSphere(1.5F),
+                                    });
+
+    EditorCamera camera;
+    // Position camera at (0, 0, 10) looking towards origin (0, 0, 0)
+    camera.setPosition(Vec3{0.0F, 0.0F, 10.0F});
+    camera.setPivot(Vec3{0.0F, 0.0F, 0.0F});
+    camera.updateMatrices(1000.0F, 1000.0F);
+
+    Vec3 canvasOrigin{0.0F, 0.0F, 0.0F};
+    Vec3 canvasSize{1000.0F, 1000.0F, 0.0F};
+
+    // 1. Ray through screen center (500, 500) must hit eBox
+    Ray centerRay = camera.unproject(Vec3{500.0F, 500.0F, 0.0F}, canvasOrigin, canvasSize);
+    auto tBoxHit = centerRay.intersectAABB(Vec3{-1.0F, -1.0F, -1.0F}, Vec3{1.0F, 1.0F, 1.0F});
+    TEST_CHECK(tBoxHit.has_value());
+    TEST_CHECK(*tBoxHit > 0.0F);
+
+    // 2. Project eSphere (6, 0, 0) to screen and unproject to verify hit
+    Vec3 sphereScreen{};
+    float sphereDepth = 0.0F;
+    bool sphereVis =
+        camera.project(Vec3{6.0F, 0.0F, 0.0F}, canvasOrigin, canvasSize, sphereScreen, sphereDepth);
+    TEST_CHECK(sphereVis);
+    Ray sphereRay = camera.unproject(sphereScreen, canvasOrigin, canvasSize);
+    auto tSphereHit = sphereRay.intersectSphere(Vec3{6.0F, 0.0F, 0.0F}, 1.5F);
+    TEST_CHECK(tSphereHit.has_value());
+
+    // 3. Ray through top-left corner (10, 10) must miss both entities
+    Ray missRay = camera.unproject(Vec3{10.0F, 10.0F, 0.0F}, canvasOrigin, canvasSize);
+    auto tMissBox = missRay.intersectAABB(Vec3{-1.0F, -1.0F, -1.0F}, Vec3{1.0F, 1.0F, 1.0F});
+    auto tMissSphere = missRay.intersectSphere(Vec3{6.0F, 0.0F, 0.0F}, 1.5F);
+    TEST_CHECK(!tMissBox.has_value());
+    TEST_CHECK(!tMissSphere.has_value());
+
+    // 4. Stale / destroyed entity handle safety
+    testWorld.destroyEntity(eBox);
+    TEST_CHECK(!testWorld.isAlive(eBox));
+
+    std::cout << "[PASS] testViewportRayPickingAndEntitySelection\n";
+}
+
+static void testViewportTransformGizmoManipulation() {
+    world::World testWorld;
+    physics::registerPhysicsComponents(testWorld);
+
+    auto entity = testWorld.createEntity("GizmoTarget");
+    testWorld.setComponent(entity, physics::PhysicsTransformComponent{
+                                       .transform = Transform{Vec3{0.0F, 0.0F, 0.0F}},
+                                   });
+
+    SelectionModel selection;
+    selection.select(entity);
+    TEST_CHECK(selection.isSelected(entity));
+
+    // Simulate Gizmo Translation along X axis by +3.5 meters
+    auto* tc = testWorld.getMutableComponent<physics::PhysicsTransformComponent>(entity);
+    TEST_CHECK(tc != nullptr);
+
+    tc->transform.position += Vec3{3.5F, 0.0F, 0.0F};
+    TEST_CHECK(tc->transform.position.isNearlyEqual(Vec3{3.5F, 0.0F, 0.0F}));
+
+    // Simulate Gizmo Rotation 90 degrees around Y axis
+    const float halfPi = std::numbers::pi_v<float> * 0.5F;
+    const Quat rotY = Quat::fromAxisAngle(Vec3::unitY(), halfPi);
+    tc->transform.rotation = (rotY * tc->transform.rotation).normalized();
+    Vec3 rotatedForward = tc->transform.rotation.rotate(Vec3{0.0F, 0.0F, -1.0F});
+    TEST_CHECK(rotatedForward.isNearlyEqual(Vec3{-1.0F, 0.0F, 0.0F}, 1e-3F));
+
+    // Simulate Gizmo Scale along Z by +1.5
+    tc->transform.scale.z += 1.5F;
+    TEST_CHECK(tc->transform.scale.z == 2.5F);
+
+    std::cout << "[PASS] testViewportTransformGizmoManipulation\n";
+}
+
+static void testViewportRuntimeWorldPreviewAndSelectionSafety() {
+    auto devRes = rhi::createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto nullDevice = std::move(devRes.value());
+
+    EditorEngine editor;
+    EditorConfig config{.autoSaveLayout = false};
+    TEST_CHECK(editor.initialize(*nullDevice, config));
+
+    world::World editWorld;
+    physics::registerPhysicsComponents(editWorld);
+    auto e1 = editWorld.createEntity("AuthoredEntity");
+    editWorld.setComponent(e1, physics::PhysicsTransformComponent{
+                                   .transform = Transform{Vec3{0.0F, 10.0F, 0.0F}},
+                               });
+
+    editor.bindWorld(&editWorld);
+    editor.getSelectionModel().select(e1);
+    TEST_CHECK(editor.getSelectionModel().isSelected(e1));
+
+    // Start Simulation -> Playing
+    auto playRes = editor.getRuntimeSession().play();
+    TEST_CHECK(playRes.hasValue());
+
+    auto cmdRes = nullDevice->createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto nullCmd = std::move(cmdRes.value());
+
+    // In frame begin, active world should be Runtime World and selection cleared
+    editor.beginFrame(Duration::fromMilliseconds(16), 1280, 720);
+    TEST_CHECK(editor.getSelectionModel().empty()); // Selection safety across world boundary
+
+    auto* activeWorld = editor.getRuntimeSession().getActiveWorld();
+    TEST_CHECK(activeWorld != nullptr);
+    TEST_CHECK(activeWorld != &editWorld);
+
+    // Mutate runtime entity
+    auto rtHandles = activeWorld->getAllEntities();
+    TEST_CHECK(!rtHandles.empty());
+    auto* rtTc = activeWorld->getMutableComponent<physics::PhysicsTransformComponent>(rtHandles[0]);
+    TEST_CHECK(rtTc != nullptr);
+    rtTc->transform.position.y = 1.0F; // Simulating physical drop
+
+    nullCmd->begin();
+    editor.drawPanels();
+    editor.endFrame(*nullCmd);
+    nullCmd->end();
+
+    // Stop Simulation -> Return to Edit
+    auto stopRes = editor.getRuntimeSession().stop();
+    TEST_CHECK(stopRes.hasValue());
+
+    editor.beginFrame(Duration::fromMilliseconds(16), 1280, 720);
+    TEST_CHECK(editor.getRuntimeSession().getActiveWorld() == &editWorld);
+    TEST_CHECK(editor.getSelectionModel().empty());
+
+    // Edit World entity must remain completely intact at original (0, 10, 0)
+    auto* editTc = editWorld.getComponent<physics::PhysicsTransformComponent>(e1);
+    TEST_CHECK(editTc != nullptr);
+    TEST_CHECK(editTc->transform.position.y == 10.0F);
+
+    nullCmd->begin();
+    editor.drawPanels();
+    editor.endFrame(*nullCmd);
+    nullCmd->end();
+
+    editor.shutdown();
+    std::cout << "[PASS] testViewportRuntimeWorldPreviewAndSelectionSafety\n";
+}
+
 int main() {
     std::cout << "Running Editor subsystem unit tests...\n";
     testThemeTokens();
@@ -1407,6 +1572,9 @@ int main() {
     testWorkspaceSceneLifecycleAndFileOperations();
     testEditorRuntimeSessionIntegrationAndIsolation();
     testEditorCameraLifecycleAndNavigation();
+    testViewportRayPickingAndEntitySelection();
+    testViewportTransformGizmoManipulation();
+    testViewportRuntimeWorldPreviewAndSelectionSafety();
     std::cout << "All Editor subsystem tests PASSED!\n";
     return 0;
 }

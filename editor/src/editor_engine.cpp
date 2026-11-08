@@ -43,6 +43,7 @@ struct EditorEngine::Impl {
 
     bool initialized{false};
     bool vulkanBackendInitialized{false};
+    framework::SimulationState lastSimulationState{framework::SimulationState::Edit};
 };
 
 EditorEngine::EditorEngine() : impl_(std::make_unique<Impl>()) {}
@@ -192,11 +193,16 @@ void EditorEngine::beginFrame(Duration dt, uint32_t width, uint32_t height) {
 
     impl_->context.runtimeSession = impl_->runtimeSession;
     if (impl_->runtimeSession != nullptr) {
-        impl_->context.simulationState = impl_->runtimeSession->getSimulationState();
+        auto currentSimState = impl_->runtimeSession->getSimulationState();
+        if (currentSimState != impl_->lastSimulationState) {
+            impl_->selectionModel.clear();
+            impl_->lastSimulationState = currentSimState;
+        }
+
+        impl_->context.simulationState = currentSimState;
         impl_->context.isRuntimeActive = impl_->runtimeSession->isSimulating();
         impl_->context.isSimulating = impl_->runtimeSession->isSimulating();
-        impl_->context.isPaused =
-            (impl_->runtimeSession->getSimulationState() == framework::SimulationState::Paused);
+        impl_->context.isPaused = (currentSimState == framework::SimulationState::Paused);
         impl_->context.world = impl_->runtimeSession->getActiveWorld();
         impl_->context.conductor = impl_->runtimeSession->getActiveConductor();
     }
