@@ -6,6 +6,7 @@
 #include "editor/editor_theme.h"
 #include "editor/hierarchy_panel.h"
 #include "editor/selection_model.h"
+#include "editor/ui_helpers.h"
 #include "editor/workspace_manager.h"
 #include "framework/conductor.h"
 #include "framework/mode.h"
@@ -260,16 +261,64 @@ static void testWorkspacePersistenceAndRecovery() {
 }
 
 static void testThemeTokens() {
-    ThemeColors dark = ThemeColors::defaultDark();
+    // 1. Test Dark Theme
+    ThemeColors dark = ThemeColors::hikariDark();
     TEST_CHECK(dark.backgroundApp.a == 1.0F);
     TEST_CHECK(dark.accentPrimary.r > 0.0F);
     TEST_CHECK(dark.colorAxisX.r > 0.9F);
     TEST_CHECK(dark.colorAxisY.g > 0.7F);
     TEST_CHECK(dark.colorAxisZ.b > 0.9F);
+    TEST_CHECK(!dark.backgroundPanel.isLight());
+    TEST_CHECK(dark.textPrimary.isLight());
+    TEST_CHECK(dark.textPrimary.luminance() > 0.8F);
 
+    // 2. Test Midnight Theme
+    ThemeColors midnight = ThemeColors::hikariMidnight();
+    TEST_CHECK(midnight.backgroundDarkest.r < dark.backgroundDarkest.r);
+    TEST_CHECK(midnight.accentPrimary.b > 0.9F);
+    TEST_CHECK(!midnight.backgroundPanel.isLight());
+    TEST_CHECK(midnight.textPrimary.isLight());
+
+    // 3. Test Light Theme
+    ThemeColors light = ThemeColors::hikariLight();
+    TEST_CHECK(light.backgroundPanel.isLight());
+    TEST_CHECK(!light.textPrimary.isLight());
+    TEST_CHECK(light.textPrimary.luminance() < 0.2F);
+    TEST_CHECK(light.accentPrimary.b > 0.8F);
+
+    // 4. Test Color4f utilities
     Color4f testColor(1.0F, 0.0F, 0.0F, 1.0F);
     uint32_t packed = testColor.toRgba32();
     TEST_CHECK((packed & 0xFFU) == 255U); // Red component
+
+    Color4f alphaMod = testColor.withAlpha(0.5F);
+    TEST_CHECK(alphaMod.a == 0.5F);
+    TEST_CHECK(alphaMod.r == 1.0F);
+
+    // 5. Test Theme Switching API
+    applyEditorTheme(ThemeType::Midnight);
+    TEST_CHECK(getActiveThemeType() == ThemeType::Midnight);
+    TEST_CHECK(std::strcmp(getThemeName(getActiveThemeType()), "Hikari Midnight") == 0);
+
+    applyEditorTheme(ThemeType::Light);
+    TEST_CHECK(getActiveThemeType() == ThemeType::Light);
+    TEST_CHECK(std::strcmp(getThemeName(getActiveThemeType()), "Hikari Light") == 0);
+
+    applyEditorTheme(ThemeType::Dark);
+    TEST_CHECK(getActiveThemeType() == ThemeType::Dark);
+    TEST_CHECK(std::strcmp(getThemeName(getActiveThemeType()), "Hikari Dark") == 0);
+
+    // 6. Test Editor Icons
+    TEST_CHECK(EditorIcons::kPlay != nullptr && EditorIcons::kPlay[0] != '\0');
+    TEST_CHECK(EditorIcons::kPause != nullptr && EditorIcons::kPause[0] != '\0');
+    TEST_CHECK(EditorIcons::kStop != nullptr && EditorIcons::kStop[0] != '\0');
+    TEST_CHECK(EditorIcons::kCamera != nullptr && EditorIcons::kCamera[0] != '\0');
+    TEST_CHECK(EditorIcons::kMesh != nullptr && EditorIcons::kMesh[0] != '\0');
+
+    // 7. Test Theme Metrics
+    TEST_CHECK(ThemeMetrics::kToolbarHeight >= 40.0F);
+    TEST_CHECK(ThemeMetrics::kStatusBarHeight >= 24.0F);
+    TEST_CHECK(ThemeMetrics::kSpacingM == 8.0F);
 
     std::cout << "[PASS] testThemeTokens\n";
 }
