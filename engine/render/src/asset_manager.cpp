@@ -4,9 +4,11 @@
 #include "render/asset_manager.h"
 
 #include "core/log.h"
+#include "render/gltf_importer.h"
 #include "render/obj_importer.h"
 
 #include <algorithm>
+#include <cctype>
 
 namespace eng::render {
 
@@ -39,7 +41,29 @@ Result<AssetId> AssetManager::loadMesh(std::string_view path) {
         }
     }
 
-    auto importRes = ObjImporter::importFromFile(normPath);
+    std::string ext{};
+    const auto dotPos = normPath.rfind('.');
+    if (dotPos != std::string::npos) {
+        ext = normPath.substr(dotPos);
+        std::transform(ext.begin(), ext.end(), ext.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    }
+
+    Result<MeshData> importRes = Result<MeshData>::failure(
+        Error(ErrorCode::InvalidArgument, "Unsupported 3D asset file extension"));
+
+    if (ext == ".gltf" || ext == ".glb") {
+        importRes = GltfImporter::importFromFile(normPath);
+    } else if (ext == ".obj") {
+        importRes = ObjImporter::importFromFile(normPath);
+    } else {
+        // Fallback: try glTF then OBJ
+        importRes = GltfImporter::importFromFile(normPath);
+        if (!importRes.hasValue()) {
+            importRes = ObjImporter::importFromFile(normPath);
+        }
+    }
+
     if (!importRes.hasValue()) {
         ENG_LOG_WARN("AssetManager", "Failed to load mesh from path");
         return importRes.error();
@@ -136,6 +160,14 @@ const MeshData* AssetManager::getMeshData(std::string_view path) const noexcept 
     auto it = pathToId_.find(normPath);
     if (it != pathToId_.end()) {
         return getMeshData(it->second);
+    }
+    return nullptr;
+}
+
+const std::vector<Material>* AssetManager::getMaterials(AssetId id) const noexcept {
+    auto it = meshEntries_.find(id);
+    if (it != meshEntries_.end() && it->second.metadata.loadState == AssetLoadState::Loaded) {
+        return &it->second.cpuMesh.materials;
     }
     return nullptr;
 }

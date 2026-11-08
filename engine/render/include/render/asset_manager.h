@@ -73,6 +73,9 @@ public:
     [[nodiscard]] const MeshData* getMeshData(AssetId id) const noexcept;
     [[nodiscard]] const MeshData* getMeshData(std::string_view path) const noexcept;
 
+    /// @brief Retrieves materials associated with a loaded mesh, or nullptr if not loaded.
+    [[nodiscard]] const std::vector<Material>* getMaterials(AssetId id) const noexcept;
+
     /// @brief Retrieves metadata for an asset by ID, or nullptr if not registered.
     [[nodiscard]] const AssetMetadata* getMetadata(AssetId id) const noexcept;
 
