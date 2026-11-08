@@ -5,6 +5,7 @@
 
 #include "core/log.h"
 #include "editor/editor_theme.h"
+#include "editor/selection_model.h"
 #include "framework/conductor.h"
 #include "physics/physics_components.h"
 #include "rhi/rhi_device.h"
@@ -146,6 +147,9 @@ struct WorkspaceManager::Impl {
                 if (ImGui::MenuItem("Create Empty Entity")) {
                     if (ctx.world != nullptr) {
                         auto h = ctx.world->createEntity("EmptyEntity");
+                        if (ctx.selection != nullptr) {
+                            ctx.selection->select(h, false);
+                        }
                         ctx.selectedEntityId = h.id;
                     }
                 }
@@ -163,6 +167,9 @@ struct WorkspaceManager::Impl {
                                        .motionType = physics::MotionType::Dynamic,
                                        .collisionLayer = physics::CollisionLayer::kMoving,
                                    });
+                            if (ctx.selection != nullptr) {
+                                ctx.selection->select(h, false);
+                            }
                             ctx.selectedEntityId = h.id;
                         }
                     }
@@ -179,17 +186,32 @@ struct WorkspaceManager::Impl {
                                        .motionType = physics::MotionType::Dynamic,
                                        .collisionLayer = physics::CollisionLayer::kMoving,
                                    });
+                            if (ctx.selection != nullptr) {
+                                ctx.selection->select(h, false);
+                            }
                             ctx.selectedEntityId = h.id;
                         }
                     }
                     ImGui::EndMenu();
                 }
                 ImGui::Separator();
-                if (ImGui::MenuItem("Delete Selected Entity", "Del", false,
-                                    ctx.selectedEntityId != 0)) {
-                    if (ctx.world != nullptr && ctx.selectedEntityId != 0) {
-                        ctx.world->destroyEntity(world::EntityHandle(ctx.selectedEntityId));
-                        ctx.selectedEntityId = 0;
+                bool canDelete = (ctx.selectedEntityId != 0) ||
+                                 (ctx.selection != nullptr && !ctx.selection->empty());
+                if (ImGui::MenuItem("Delete Selected Entity", "Del", false, canDelete)) {
+                    if (ctx.world != nullptr) {
+                        if (ctx.selection != nullptr && !ctx.selection->empty()) {
+                            auto selectedEntities = ctx.selection->getSelectedEntities();
+                            std::vector<world::EntityHandle> toDelete(selectedEntities.begin(),
+                                                                      selectedEntities.end());
+                            for (auto h : toDelete) {
+                                ctx.world->destroyEntity(h);
+                            }
+                            ctx.selection->clear();
+                            ctx.selectedEntityId = 0;
+                        } else if (ctx.selectedEntityId != 0) {
+                            ctx.world->destroyEntity(world::EntityHandle(ctx.selectedEntityId));
+                            ctx.selectedEntityId = 0;
+                        }
                     }
                 }
                 ImGui::EndMenu();
@@ -441,9 +463,28 @@ struct WorkspaceManager::Impl {
 
             // Selected entity badge
             ImGui::SameLine();
-            if (ctx.selectedEntityId != 0) {
-                ImGui::Text("Selected: Entity #%llu",
-                            static_cast<unsigned long long>(ctx.selectedEntityId));
+            if (ctx.selection != nullptr && ctx.selection->count() > 1) {
+                ImGui::Text("Selected: %zu Entities", ctx.selection->count());
+            } else if (ctx.selectedEntityId != 0) {
+                if (ctx.world != nullptr) {
+                    flecs::world& ecs = ctx.world->getRawWorld();
+                    flecs::entity e = ecs.entity(ctx.selectedEntityId);
+                    if (e.is_alive()) {
+                        const char* name = e.name().c_str();
+                        if (name != nullptr && name[0] != '\0') {
+                            ImGui::Text("Selected: %s (#%llu)", name,
+                                        static_cast<unsigned long long>(ctx.selectedEntityId));
+                        } else {
+                            ImGui::Text("Selected: Entity #%llu",
+                                        static_cast<unsigned long long>(ctx.selectedEntityId));
+                        }
+                    } else {
+                        ImGui::TextDisabled("No Entity Selected");
+                    }
+                } else {
+                    ImGui::Text("Selected: Entity #%llu",
+                                static_cast<unsigned long long>(ctx.selectedEntityId));
+                }
             } else {
                 ImGui::TextDisabled("No Entity Selected");
             }

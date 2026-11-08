@@ -86,7 +86,62 @@ void InspectorPanel::draw(EditorContext& ctx) {
     }
 
     if (ImGui::Begin(getDisplayName().data(), &isOpen_)) {
-        if (ctx.world != nullptr && ctx.selectedEntityId != 0) {
+        if (ctx.world != nullptr && ctx.selection != nullptr && ctx.selection->count() > 1) {
+            // Multi-selection UI
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6.0F, 4.0F));
+            ImGui::TextDisabled("Selection");
+            ImGui::SameLine();
+            ImGui::Text("%zu Entities Selected", ctx.selection->count());
+            ImGui::PopStyleVar();
+
+            ImGui::Separator();
+            ImGui::Spacing();
+            ImGui::TextWrapped("Multiple entities are currently selected in the scene hierarchy.");
+            ImGui::Spacing();
+
+            // List selected entities
+            ImGui::BeginChild("MultiSelectionList", ImVec2(0.0F, 180.0F), true);
+            flecs::world& ecs = ctx.world->getRawWorld();
+            for (auto h : ctx.selection->getSelectedEntities()) {
+                flecs::entity e = ecs.entity(h.id);
+                if (e.is_alive()) {
+                    const char* entityName = e.name().c_str();
+                    char fallbackName[32];
+                    if (entityName == nullptr || entityName[0] == '\0') {
+                        std::snprintf(fallbackName, sizeof(fallbackName), "Entity #%llu",
+                                      static_cast<unsigned long long>(h.id));
+                        entityName = fallbackName;
+                    }
+                    ImGui::BulletText("%s (#%llu)", entityName,
+                                      static_cast<unsigned long long>(h.id));
+                }
+            }
+            ImGui::EndChild();
+
+            ImGui::Spacing();
+            if (ImGui::Button("Clear Selection", ImVec2(-1.0F, 24.0F))) {
+                ctx.selection->clear();
+                ctx.selectedEntityId = 0;
+            }
+
+            ImGui::Spacing();
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.55F, 0.15F, 0.15F, 1.0F));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.75F, 0.20F, 0.20F, 1.0F));
+            char deleteBtnBuf[64];
+            std::snprintf(deleteBtnBuf, sizeof(deleteBtnBuf), "Delete Selected Entities (%zu)",
+                          ctx.selection->count());
+            if (ImGui::Button(deleteBtnBuf, ImVec2(-1.0F, 26.0F))) {
+                auto selectedEntities = ctx.selection->getSelectedEntities();
+                std::vector<world::EntityHandle> toDelete(selectedEntities.begin(),
+                                                          selectedEntities.end());
+                for (auto h : toDelete) {
+                    ctx.world->destroyEntity(h);
+                }
+                ctx.selection->clear();
+                ctx.selectedEntityId = 0;
+            }
+            ImGui::PopStyleColor(2);
+        } else if (ctx.world != nullptr && ctx.selectedEntityId != 0) {
             flecs::world& ecs = ctx.world->getRawWorld();
             flecs::entity e = ecs.entity(ctx.selectedEntityId);
 
