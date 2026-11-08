@@ -3,7 +3,7 @@
 
 **Date:** 2026-11-08  
 **Auditor:** Senior Graphics & Vulkan 1.3 Rendering Systems Engineer (Independent Audit)  
-**Repository:** `/home/user/hikari-machine`  
+**Repository:** Repository root  
 **Milestone:** 8B.1 (Offscreen Rendering Infrastructure)  
 **Scope:** Audit-Only (Zero production code or test modifications)  
 

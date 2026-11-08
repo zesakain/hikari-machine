@@ -1,7 +1,7 @@
 # Independent Manual Acceptance Audit: Milestone 8A
 ## RHI Graphics Pipeline & Shader Foundation
 
-**Repository:** `/home/user/hikari-machine`  
+**Repository:** Repository root  
 **Branch:** `main`  
 **Audit Date:** 2026-11-08  
 **Audit Scope:** Verification of RHI graphics pipeline and shader infrastructure implemented in Milestone 8A.

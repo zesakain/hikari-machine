@@ -2,7 +2,7 @@
 ## Rendering Pipeline Reality Check & GPU Rendering Audit
 
 **Date:** 2026-11-08  
-**Repository:** `/home/user/hikari-machine`  
+**Repository:** Repository root  
 **Milestone:** 7.5 — Rendering Pipeline Reality Check  
 **Author:** Antigravity (Advanced Agentic Coding Assistant)  
 **Status:** Complete — Audit Only (No production modifications, no commits)  

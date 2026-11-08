@@ -2,7 +2,7 @@
 ## Viewport GPU Scene Rendering Integration
 
 **Auditor:** Independent Senior Graphics Engineer (Vulkan 1.3 / C++20 / Real-Time Rendering)  
-**Repository:** `/home/user/hikari-machine`  
+**Repository:** Repository root  
 **Date:** 2026-11-08  
 **Audit Scope:** Milestone 8B.2 (Commits `112a4d0` through `57ed907`)  
 
