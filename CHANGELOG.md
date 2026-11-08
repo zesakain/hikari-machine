@@ -8,7 +8,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Editor Milestone 7: Asset Pipeline & Mesh Rendering System**:
+- **Milestone 8A: RHI Graphics Pipeline & Shader Foundation**:
+  - **Shader Module Abstraction & Validation**:
+    - Introduced `ShaderHandle = ResourceHandle<ShaderTag>` and `ShaderDesc` (`engine/rhi/include/rhi/shader.h`) encapsulating SPIR-V bytecode.
+    - Implemented strict SPIR-V header validation (`validateShaderDesc`) verifying magic number `0x07230203U`, minimum 5-word header, stage bits, and entry point strings.
+    - Added stage bitmasks `ShaderStageFlags` (`Vertex`, `Fragment`, `Compute`).
+  - **Pipeline Layout & Resource Binding**:
+    - Introduced `PipelineLayoutHandle = ResourceHandle<PipelineLayoutTag>` and `PipelineLayoutDesc` (`engine/rhi/include/rhi/pipeline.h`).
+    - Added `PushConstantRange` supporting stage visibility, byte offset, and size.
+    - Added `DescriptorSetLayoutDesc` and `DescriptorSetLayoutBinding` for descriptor binding sets.
+  - **Backend-Independent Graphics Pipeline State**:
+    - Added `PipelineHandle = ResourceHandle<PipelineTag>` and `GraphicsPipelineDesc` with full configuration for vertex input layout, primitive topology, rasterization state, depth/stencil state, color blending, dynamic rendering color attachment formats, and depth attachment format.
+    - Added `validateGraphicsPipelineDesc()` helper.
+  - **RHI Device & Command List Interfaces**:
+    - Added `createShader`, `destroyShader`, `createPipelineLayout`, `destroyPipelineLayout`, `createGraphicsPipeline`, `destroyGraphicsPipeline` to `RhiDevice`.
+    - Added `bindPipeline(PipelineHandle)` and `pushConstants(...)` to `RhiCommandList`.
+    - Guarded indexed and non-indexed draw commands against unbound pipeline invocations.
+  - **Vulkan 1.3 Implementation**:
+    - Implemented shader module creation (`VkShaderModule`), descriptor set layout and pipeline layout creation (`VkPipelineLayout`).
+    - Implemented graphics pipeline compilation (`VkPipeline`) with Vulkan 1.3 Dynamic Rendering (`VkPipelineRenderingCreateInfo`) and dynamic viewport/scissor states (`VK_DYNAMIC_STATE_VIEWPORT`, `VK_DYNAMIC_STATE_SCISSOR`).
+    - Implemented pipeline binding (`vkCmdBindPipeline`) and push constants (`vkCmdPushConstants`) in `VulkanCommandList`.
+  - **Null RHI Backend**:
+    - Added deterministic slot-mapped generational handle tracking for shaders, pipeline layouts, and pipelines in `NullDevice`.
+    - Implemented active pipeline tracking and unbound draw detection in `NullCommandList`.
+  - **Hermetic Testing & Multi-Preset Verification**:
+    - Added embedded precompiled test SPIR-V bytecodes in `tests/unit/rhi/test_shaders.h`.
+    - Added comprehensive unit tests in `null_rhi_test` and `vulkan_rhi_test` verifying capabilities, lifecycle, validation failure paths, pipeline layout compilation, graphics pipeline compilation, and command list binding.
+    - Verified 100% test pass rate across all 6 presets: `editor`, `debug`, `release`, `profile`, `asan`, and `tsan`.
+  - **Architectural Documentation**:
+    - Documented rendering pipeline reality audit findings in `docs/architecture/rendering_pipeline_audit.md`.
+    - Documented GPU graphics pipeline architecture and Vulkan dynamic rendering design in `docs/architecture/rendering_pipeline.md`.
   - **Asset Architecture & Identification**:
     - Introduced strongly typed `AssetId` (`eng::StrongId<AssetTag, uint64_t>`) generated deterministically via 64-bit FNV-1a path hashing (`engine/render/include/render/asset_types.h`).
     - Standardized project-relative asset paths (e.g. `assets/models/cube.obj`) across engine, scene serialization, and editor UI.
