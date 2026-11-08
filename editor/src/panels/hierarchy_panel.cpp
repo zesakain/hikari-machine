@@ -96,6 +96,21 @@ void deleteSelectedEntities(world::World& world, SelectionModel* selection, uint
     }
 }
 
+bool caseInsensitiveContains(std::string_view haystack, std::string_view needle) {
+    if (needle.empty()) {
+        return true;
+    }
+    if (haystack.size() < needle.size()) {
+        return false;
+    }
+    auto it = std::search(haystack.begin(), haystack.end(), needle.begin(), needle.end(),
+                          [](char ch1, char ch2) {
+                              return std::tolower(static_cast<unsigned char>(ch1)) ==
+                                     std::tolower(static_cast<unsigned char>(ch2));
+                          });
+    return it != haystack.end();
+}
+
 } // namespace
 
 void HierarchyPanel::startRenaming(world::EntityHandle entity, std::string_view currentName) {
@@ -147,14 +162,49 @@ void HierarchyPanel::draw(EditorContext& ctx) {
 
     if (ImGui::Begin(getDisplayName().data(), &isOpen_)) {
         if (ctx.world != nullptr) {
-            // Search Bar & Filter
-            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 70.0F);
+            // Search Bar & Filter Controls
+            float availW = ImGui::GetContentRegionAvail().x;
+            float addBtnW = 60.0F;
+            float clearBtnW = (searchFilter_[0] != '\0') ? 22.0F : 0.0F;
+            float searchInputW = availW - addBtnW - clearBtnW - (clearBtnW > 0.0F ? 12.0F : 8.0F);
+
+            ImGui::SetNextItemWidth(searchInputW);
             ImGui::InputTextWithHint("##HierarchySearch", "Search entities...",
                                      searchFilter_.data(), searchFilter_.size());
+            if (clearBtnW > 0.0F) {
+                ImGui::SameLine();
+                if (ImGui::Button("X", ImVec2(clearBtnW, 0.0F))) {
+                    searchFilter_.fill('\0');
+                }
+            }
             ImGui::SameLine();
-            if (ImGui::Button("+ Add", ImVec2(60.0F, 0.0F))) {
+            if (ImGui::Button("+ Add", ImVec2(addBtnW, 0.0F))) {
                 ImGui::OpenPopup("AddEntityPopup");
             }
+
+            // Component filter chips
+            auto drawFilterChip = [&](const char* label, ComponentFilter filter) {
+                bool active = (componentFilter_ == filter);
+                if (active) {
+                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.23F, 0.51F, 0.96F, 1.0F));
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0F, 1.0F, 1.0F, 1.0F));
+                } else {
+                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.15F, 0.17F, 0.22F, 1.0F));
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65F, 0.65F, 0.65F, 1.0F));
+                }
+                if (ImGui::SmallButton(label)) {
+                    componentFilter_ = filter;
+                }
+                ImGui::PopStyleColor(2);
+            };
+
+            drawFilterChip("All", ComponentFilter::All);
+            ImGui::SameLine();
+            drawFilterChip("[Tr]", ComponentFilter::Transform);
+            ImGui::SameLine();
+            drawFilterChip("[RB]", ComponentFilter::Physics);
+            ImGui::SameLine();
+            drawFilterChip("[Script]", ComponentFilter::Script);
 
             if (ImGui::BeginPopup("AddEntityPopup")) {
                 flecs::world& ecs = ctx.world->getRawWorld();
@@ -237,6 +287,8 @@ void HierarchyPanel::draw(EditorContext& ctx) {
                 entities.begin(), entities.end(),
                 [](const flecs::entity& a, const flecs::entity& b) { return a.id() < b.id(); });
 
+            std::vector<world::EntityHandle> displayedHandles;
+            displayedHandles.reserve(entities.size());
             int entityCount = 0;
 
             for (const auto& e : entities) {
@@ -248,9 +300,29 @@ void HierarchyPanel::draw(EditorContext& ctx) {
                                   static_cast<unsigned long long>(e.id()));
                     name = fallbackName;
                 }
-                if (searchFilter_[0] != '\0' && strstr(name, searchFilter_.data()) == nullptr) {
+
+                // Component filter
+                if (componentFilter_ == ComponentFilter::Transform &&
+                    !e.has<physics::PhysicsTransformComponent>()) {
                     continue;
                 }
+                if (componentFilter_ == ComponentFilter::Physics &&
+                    !e.has<physics::RigidBodyComponent>()) {
+                    continue;
+                }
+                if (componentFilter_ == ComponentFilter::Script &&
+                    !e.has<script::ScriptComponent>()) {
+                    continue;
+                }
+
+                // Case-insensitive name filter
+                if (searchFilter_[0] != '\0' &&
+                    !caseInsensitiveContains(name, searchFilter_.data())) {
+                    continue;
+                }
+
+                world::EntityHandle handle(e.id());
+                displayedHandles.push_back(handle);
                 entityCount++;
 
                 // Entity icon based on components
@@ -261,7 +333,6 @@ void HierarchyPanel::draw(EditorContext& ctx) {
                     icon = "[JS]";
                 }
 
-                world::EntityHandle handle(e.id());
                 bool isRenamingThis = (renamingEntity_ == handle);
 
                 if (isRenamingThis) {
@@ -309,10 +380,16 @@ void HierarchyPanel::draw(EditorContext& ctx) {
                     if (ImGui::IsItemClicked()) {
                         if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                             startRenaming(handle, name);
-                        } else {
-                            if (ctx.selection != nullptr) {
+                        } else if (ctx.selection != nullptr) {
+                            if (ImGui::GetIO().KeyCtrl) {
+                                ctx.selection->toggle(handle);
+                            } else if (ImGui::GetIO().KeyShift) {
+                                ctx.selection->selectRange(displayedHandles, handle);
+                            } else {
                                 ctx.selection->select(handle, false);
                             }
+                            ctx.selectedEntityId = ctx.selection->getPrimarySelected().id;
+                        } else {
                             ctx.selectedEntityId = e.id();
                         }
                     }
@@ -385,9 +462,13 @@ void HierarchyPanel::draw(EditorContext& ctx) {
                 }
             }
 
-            if (entityCount == 0) {
+            if (entities.empty()) {
                 ImGui::Spacing();
-                ImGui::TextDisabled("No entities match search query.");
+                ImGui::TextDisabled("No entities in scene.");
+                ImGui::TextDisabled("Click '+ Add' above to create an entity.");
+            } else if (entityCount == 0) {
+                ImGui::Spacing();
+                ImGui::TextDisabled("No entities match search or filter.");
             }
 
             // Context menu on empty background
@@ -429,6 +510,19 @@ void HierarchyPanel::draw(EditorContext& ctx) {
                         ctx.selection->select(h, false);
                     }
                     ctx.selectedEntityId = h.id;
+                }
+                ImGui::Separator();
+                if (ImGui::MenuItem("Select All", "Ctrl+A")) {
+                    if (ctx.selection != nullptr) {
+                        ctx.selection->selectAll(displayedHandles);
+                        ctx.selectedEntityId = ctx.selection->getPrimarySelected().id;
+                    }
+                }
+                if (ImGui::MenuItem("Clear Selection", "Esc")) {
+                    if (ctx.selection != nullptr) {
+                        ctx.selection->clear();
+                        ctx.selectedEntityId = 0;
+                    }
                 }
                 ImGui::EndPopup();
             }
@@ -473,6 +567,22 @@ void HierarchyPanel::draw(EditorContext& ctx) {
             if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows) &&
                 ImGui::IsKeyPressed(ImGuiKey_Delete) && !renamingEntity_.isValid()) {
                 deleteSelectedEntities(*ctx.world, ctx.selection, ctx.selectedEntityId);
+            }
+
+            // Keyboard shortcut Ctrl+A to select all displayed entities
+            if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows) && ImGui::GetIO().KeyCtrl &&
+                ImGui::IsKeyPressed(ImGuiKey_A) && !renamingEntity_.isValid() &&
+                ctx.selection != nullptr) {
+                ctx.selection->selectAll(displayedHandles);
+                ctx.selectedEntityId = ctx.selection->getPrimarySelected().id;
+            }
+
+            // Keyboard shortcut Escape to clear selection
+            if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows) &&
+                ImGui::IsKeyPressed(ImGuiKey_Escape) && !renamingEntity_.isValid() &&
+                ctx.selection != nullptr) {
+                ctx.selection->clear();
+                ctx.selectedEntityId = 0;
             }
         } else {
             ImGui::TextDisabled("No Shared World bound");

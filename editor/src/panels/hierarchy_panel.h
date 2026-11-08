@@ -11,6 +11,8 @@
 
 namespace eng::editor {
 
+enum class ComponentFilter : uint8_t { All = 0, Transform = 1, Physics = 2, Script = 3 };
+
 class HierarchyPanel final : public EditorPanel {
 public:
     HierarchyPanel() = default;
@@ -37,6 +39,7 @@ public:
 
 private:
     std::array<char, 64> searchFilter_{};
+    ComponentFilter componentFilter_{ComponentFilter::All};
     world::EntityHandle renamingEntity_{};
     std::array<char, 64> renameBuffer_{};
     bool focusRenameInput_{false};
