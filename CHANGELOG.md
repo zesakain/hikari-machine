@@ -8,6 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Milestone 8B.1: Offscreen Rendering Infrastructure**:
+  - **Generalized Dynamic Render Pass Parameters**:
+    - Expanded `RenderPassBeginInfo` (`engine/rhi/include/rhi/command_list.h`) to support arbitrary offscreen `colorTarget` and optional `depthTarget` handles, configurable `clearDepth`, `clearDepthTarget`, `renderWidth`, and `renderHeight`.
+    - Maintained 100% backward compatibility for swapchain presentation when `colorTarget` is an invalid/default handle.
+  - **RHI Texture Query & Format Utilities**:
+    - Added `isColorFormat(TextureFormat)` and `isDepthFormat(TextureFormat)` constexpr utilities (`engine/rhi/include/rhi/rhi_types.h`).
+    - Added `getTextureDesc(TextureHandle)` query method to `RhiDevice` (`engine/rhi/include/rhi/rhi_device.h`).
+  - **Vulkan 1.3 Dynamic Rendering & Image Layout State Machine**:
+    - Implemented automatic layout transitions via `VkImageMemoryBarrier2` in `VulkanCommandList`:
+      - `beginRenderPass`: transitions offscreen color target to `VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL` and depth target to `VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL`.
+      - `endRenderPass`: transitions offscreen color target to `VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL` (safe for ImGui and shader sampling) and depth target to `VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL`.
+    - Implemented pipeline color and depth format compatibility verification in `draw` and `drawIndexed`.
+    - Added texture slot layout tracking in `VulkanDevice` (`resolveTextureImage`, `resolveTextureView`, `getTextureLayout`, `setTextureLayout`, `getTextureDesc`).
+  - **Null Headless RHI Backend Parity**:
+    - Implemented texture creation validation (`Undefined` format rejection, dimension limits) and descriptor querying in `NullDevice`.
+    - Implemented comprehensive dynamic render pass tracking, format validation, dimension matching, nested pass detection, and orphan end pass detection in `NullCommandList`.
+  - **Comprehensive Test Coverage & Multi-Preset Verification**:
+    - Added unit tests in `tests/unit/rhi/null_rhi_test.cpp`: `testOffscreenTextureLifecycleAndValidation`, `testOffscreenDynamicRendering`, and `testOffscreenPipelineCompatibility`.
+    - Added integration tests on physical GPU in `tests/unit/rhi/vulkan_rhi_test.cpp`: `testVulkanOffscreenTextureLifecycle`, `testVulkanOffscreenDynamicRendering`, and `testVulkanOffscreenPipelineCompatibility`.
+    - Verified 100% test pass rate across all 6 presets: `editor`, `debug`, `release`, `profile`, `asan`, and `tsan`.
+  - **Architectural Documentation**:
+    - Updated `docs/architecture/rendering_pipeline.md` detailing offscreen render target architecture, layout state transitions, and attachment validation.
 - **Milestone 8A: RHI Graphics Pipeline & Shader Foundation**:
   - **Shader Module Abstraction & Validation**:
     - Introduced `ShaderHandle = ResourceHandle<ShaderTag>` and `ShaderDesc` (`engine/rhi/include/rhi/shader.h`) encapsulating SPIR-V bytecode.

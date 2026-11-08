@@ -87,10 +87,63 @@ The graphics pipeline foundation is covered by:
 
 ---
 
-## 5. Next Steps: Milestone 8B
+## 5. Milestone 8B.1: Offscreen Rendering Infrastructure
 
-Milestone 8B will consume this foundation to implement true GPU-driven offscreen viewport rendering:
-1. Creating an offscreen color texture and depth attachment at viewport resolution.
-2. Building an offscreen render target framebuffer/dynamic rendering pass.
-3. Updating `SceneRenderer` to bind pipelines, upload camera matrices via push constants, and draw meshes on the GPU.
-4. Exposing the offscreen color texture to Dear ImGui via `ImGui_ImplVulkan_AddTexture` for display in `ViewportPanel`.
+Milestone 8B.1 establishes the offscreen render target and dynamic rendering attachment infrastructure required for GPU scene rendering into non-swapchain textures.
+
+### 5.1 Generalized Dynamic Render Pass Begin Info (`engine/rhi/include/rhi/command_list.h`)
+The `RenderPassBeginInfo` structure is generalized to accept arbitrary GPU-owned texture handles while maintaining seamless backward compatibility for swapchain presentation:
+```cpp
+struct RenderPassBeginInfo {
+    TextureHandle colorTarget{};            // Invalid handle = default swapchain presentation
+    TextureHandle depthTarget{};            // Optional depth texture handle
+    float clearColor[4]{0.08F, 0.12F, 0.20F, 1.0F};
+    float clearDepth{1.0F};
+    bool clearTarget{true};
+    bool clearDepthTarget{true};
+    uint32_t renderWidth{0};                // 0 = infer from target dimensions
+    uint32_t renderHeight{0};               // 0 = infer from target dimensions
+};
+```
+
+### 5.2 Vulkan 1.3 Image Layout Lifecycle & Transitions (`engine/rhi/src/vulkan/`)
+- **Render Pass Entry (`beginRenderPass`)**:
+  - Validates attachment handles, usage flags (`ColorAttachment`, `DepthStencilAttachment`), and formats (`isColorFormat`, `isDepthFormat`).
+  - Ensures dimensions of color and depth targets match.
+  - Inserts dynamic pipeline barriers (`VkImageMemoryBarrier2`) transitioning the offscreen color image from its current layout (`UNDEFINED` or previous layout) to `VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL` (`COLOR_ATTACHMENT_WRITE` access).
+  - Transitions the offscreen depth image to `VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL` (`DEPTH_STENCIL_ATTACHMENT_WRITE` access).
+  - Configures `VkRenderingAttachmentInfo` for color and depth, specifying clear/load/store ops.
+  - Begins dynamic rendering via `vkCmdBeginRendering` and configures dynamic viewport and scissor.
+- **Render Pass Exit (`endRenderPass`)**:
+  - Invokes `vkCmdEndRendering`.
+  - Inserts dynamic pipeline barrier transitioning the offscreen color target to `VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL` (`SHADER_READ` access). This guarantees that downstream consumers (e.g. Dear ImGui viewport panel or post-processing passes) can safely sample the texture without hazard.
+  - Transitions the offscreen depth target to `VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL`.
+  - Updates the tracked layout in `VulkanTextureSlot`.
+- **Swapchain Fallback Preservation**:
+  - When `colorTarget` is default-initialized (`{}`), the command list seamlessly selects the existing swapchain presentation path, maintaining 100% backward compatibility.
+
+### 5.3 Format Compatibility Validation
+- During `draw` and `drawIndexed`, both `NullCommandList` and `VulkanCommandList` validate that the formats declared in the bound `GraphicsPipelineDesc` match the active attachments:
+  - Pipeline color attachment format matches active render pass color attachment format.
+  - Pipeline depth attachment format matches active render pass depth attachment format.
+- Mismatches log diagnostic warnings and safely suppress execution to prevent GPU driver faults.
+
+### 5.4 Null Backend Parity & Negative Testing (`engine/rhi/src/null/`)
+- `NullDevice` validates texture descriptors (`TextureFormat::Undefined` rejection, dimension limit checks) and implements `getTextureDesc(TextureHandle)`.
+- `NullCommandList` implements comprehensive state validation:
+  - Tracks active color and depth targets and formats.
+  - Detects orphan `endRenderPass()` calls outside an active pass.
+  - Detects nested `beginRenderPass()` calls.
+  - Validates matching dimensions between color and depth attachments.
+  - Flags invalid handles and format mismatches.
+
+---
+
+## 6. Next Steps: Milestone 8B.2
+
+Milestone 8B.2 will connect this offscreen rendering infrastructure to the editor scene viewport:
+1. Update `SceneRenderer` to manage viewport-resolution color and depth targets.
+2. Bind graphics pipelines and upload scene camera/view-projection uniform buffers or push constants.
+3. Draw meshes using GPU vertex/index buffers.
+4. Expose the offscreen color texture to Dear ImGui via descriptor set / `ImGui_ImplVulkan_AddTexture` for presentation in `ViewportPanel`.
+5. Verify end-to-end rendering before retiring the fallback CPU rasterizer.
