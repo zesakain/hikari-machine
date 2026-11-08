@@ -172,8 +172,22 @@ void InspectorPanel::draw(EditorContext& ctx) {
                 ImGui::Spacing();
 
                 // 1. Transform Component Card
+                bool removeTransform = false;
                 if (e.has<physics::PhysicsTransformComponent>()) {
-                    if (ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    bool headerOpen =
+                        ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen);
+                    if (ImGui::BeginPopupContextItem("TransformHeaderCtx")) {
+                        if (ImGui::MenuItem("Reset Transform")) {
+                            e.set<physics::PhysicsTransformComponent>({});
+                        }
+                        ImGui::Separator();
+                        if (ImGui::MenuItem("Remove Component")) {
+                            removeTransform = true;
+                        }
+                        ImGui::EndPopup();
+                    }
+
+                    if (headerOpen) {
                         auto* tc = e.get_mut<physics::PhysicsTransformComponent>();
 
                         float pos[3] = {tc->transform.position.x, tc->transform.position.y,
@@ -195,12 +209,37 @@ void InspectorPanel::draw(EditorContext& ctx) {
                                         tc->transform.scale.z};
                         drawVec3Property("Scale", scl, 1.0F, 0.05F);
                         tc->transform.scale = Vec3(scl[0], scl[1], scl[2]);
+
+                        ImGui::Spacing();
+                        if (ImGui::SmallButton("Remove Transform")) {
+                            removeTransform = true;
+                        }
                     }
+                }
+                if (removeTransform) {
+                    e.remove<physics::PhysicsTransformComponent>();
                 }
 
                 // 2. Rigid Body Component Card
+                bool removeRigidBody = false;
                 if (e.has<physics::RigidBodyComponent>()) {
-                    if (ImGui::CollapsingHeader("Rigid Body", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    bool headerOpen =
+                        ImGui::CollapsingHeader("Rigid Body", ImGuiTreeNodeFlags_DefaultOpen);
+                    if (ImGui::BeginPopupContextItem("RigidBodyHeaderCtx")) {
+                        if (ImGui::MenuItem("Reset to Dynamic")) {
+                            e.set<physics::RigidBodyComponent>({
+                                .motionType = physics::MotionType::Dynamic,
+                                .collisionLayer = physics::CollisionLayer::kMoving,
+                            });
+                        }
+                        ImGui::Separator();
+                        if (ImGui::MenuItem("Remove Component")) {
+                            removeRigidBody = true;
+                        }
+                        ImGui::EndPopup();
+                    }
+
+                    if (headerOpen) {
                         auto* rb = e.get_mut<physics::RigidBodyComponent>();
 
                         ImGui::Columns(2, nullptr, false);
@@ -233,13 +272,36 @@ void InspectorPanel::draw(EditorContext& ctx) {
                             rb->collisionLayer = static_cast<uint16_t>(layerIdx);
                         }
                         ImGui::Columns(1);
+
+                        ImGui::Spacing();
+                        if (ImGui::SmallButton("Remove Rigid Body")) {
+                            removeRigidBody = true;
+                        }
                     }
+                }
+                if (removeRigidBody) {
+                    e.remove<physics::RigidBodyComponent>();
                 }
 
                 // 3. Script Component Card
+                bool removeScript = false;
                 if (e.has<script::ScriptComponent>()) {
-                    if (ImGui::CollapsingHeader("Script Component",
-                                                ImGuiTreeNodeFlags_DefaultOpen)) {
+                    bool headerOpen =
+                        ImGui::CollapsingHeader("Script Component", ImGuiTreeNodeFlags_DefaultOpen);
+                    if (ImGui::BeginPopupContextItem("ScriptHeaderCtx")) {
+                        if (ImGui::MenuItem("Clear Routine")) {
+                            auto* sc = e.get_mut<script::ScriptComponent>();
+                            sc->scriptName[0] = '\0';
+                            e.modified<script::ScriptComponent>();
+                        }
+                        ImGui::Separator();
+                        if (ImGui::MenuItem("Remove Component")) {
+                            removeScript = true;
+                        }
+                        ImGui::EndPopup();
+                    }
+
+                    if (headerOpen) {
                         auto* sc = e.get_mut<script::ScriptComponent>();
 
                         // Script Routine Name Input
@@ -296,7 +358,15 @@ void InspectorPanel::draw(EditorContext& ctx) {
                             e.modified<script::ScriptComponent>();
                         }
                         ImGui::Columns(1);
+
+                        ImGui::Spacing();
+                        if (ImGui::SmallButton("Remove Script Component")) {
+                            removeScript = true;
+                        }
                     }
+                }
+                if (removeScript) {
+                    e.remove<script::ScriptComponent>();
                 }
 
                 ImGui::Spacing();
@@ -308,17 +378,30 @@ void InspectorPanel::draw(EditorContext& ctx) {
                     ImGui::OpenPopup("AddComponentPopup");
                 }
                 if (ImGui::BeginPopup("AddComponentPopup")) {
-                    if (!e.has<physics::PhysicsTransformComponent>() &&
-                        ImGui::MenuItem("Transform")) {
+                    bool hasTransform = e.has<physics::PhysicsTransformComponent>();
+                    bool hasRigidBody = e.has<physics::RigidBodyComponent>();
+                    bool hasCollider = e.has<physics::ColliderComponent>();
+                    bool hasScript = e.has<script::ScriptComponent>();
+
+                    ImGui::TextDisabled("Physics");
+                    if (ImGui::MenuItem("Transform", nullptr, false, !hasTransform)) {
                         e.set<physics::PhysicsTransformComponent>({});
                     }
-                    if (!e.has<physics::RigidBodyComponent>() && ImGui::MenuItem("Rigid Body")) {
+                    if (ImGui::MenuItem("Rigid Body", nullptr, false, !hasRigidBody)) {
                         e.set<physics::RigidBodyComponent>({
                             .motionType = physics::MotionType::Dynamic,
                             .collisionLayer = physics::CollisionLayer::kMoving,
                         });
                     }
-                    if (!e.has<script::ScriptComponent>() && ImGui::MenuItem("Script Component")) {
+                    if (ImGui::MenuItem("Collider", nullptr, false, !hasCollider)) {
+                        e.set<physics::ColliderComponent>({
+                            .desc = physics::ColliderDesc::makeBox(Vec3(0.5F, 0.5F, 0.5F)),
+                        });
+                    }
+
+                    ImGui::Separator();
+                    ImGui::TextDisabled("Scripting");
+                    if (ImGui::MenuItem("Script Component", nullptr, false, !hasScript)) {
                         e.set<script::ScriptComponent>({
                             .scriptName = "",
                             .enabled = true,

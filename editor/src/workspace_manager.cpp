@@ -250,6 +250,17 @@ struct WorkspaceManager::Impl {
                         }
                     }
                 }
+                if (ImGui::MenuItem("Collider", nullptr, false, hasEntity)) {
+                    if (hasEntity) {
+                        flecs::world& ecs = ctx.world->getRawWorld();
+                        flecs::entity e = ecs.entity(ctx.selectedEntityId);
+                        if (!e.has<physics::ColliderComponent>()) {
+                            e.set<physics::ColliderComponent>({
+                                .desc = physics::ColliderDesc::makeBox(Vec3(0.5F, 0.5F, 0.5F)),
+                            });
+                        }
+                    }
+                }
                 if (ImGui::MenuItem("Script Component", nullptr, false, hasEntity)) {
                     if (hasEntity) {
                         flecs::world& ecs = ctx.world->getRawWorld();
