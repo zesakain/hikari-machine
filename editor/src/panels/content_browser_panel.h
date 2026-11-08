@@ -50,6 +50,14 @@ private:
     std::array<char, 128> fileNameBuffer_{};
     ContentFileTemplate pendingFileTemplate_{ContentFileTemplate::TextFile};
 
+    bool showRenameModal_{false};
+    std::array<char, 128> renameBuffer_{};
+    std::filesystem::path targetRenamePath_{};
+
+    bool showDeleteModal_{false};
+    std::filesystem::path targetDeletePath_{};
+    bool isDeleteNonEmptyDir_{false};
+
     bool showErrorModal_{false};
     std::string errorMessage_{};
 };

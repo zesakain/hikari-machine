@@ -361,6 +361,30 @@ void ContentBrowserPanel::drawAssetItems(EditorContext& ctx) {
                         ImGui::Separator();
                     }
 
+                    if (ImGui::MenuItem("Rename...")) {
+                        renameBuffer_.fill('\0');
+                        std::snprintf(renameBuffer_.data(), renameBuffer_.size(), "%s",
+                                      item.name.c_str());
+                        targetRenamePath_ = item.fullPath;
+                        showRenameModal_ = true;
+                    }
+
+                    if (!item.isDirectory && ImGui::MenuItem("Duplicate")) {
+                        auto dupRes = controller_.duplicateFile(item.fullPath);
+                        if (!dupRes.hasValue()) {
+                            errorMessage_ = dupRes.error().message;
+                            showErrorModal_ = true;
+                        }
+                    }
+
+                    if (ImGui::MenuItem("Delete...")) {
+                        targetDeletePath_ = item.fullPath;
+                        isDeleteNonEmptyDir_ =
+                            (item.isDirectory && !controller_.isDirectoryEmpty(item.fullPath));
+                        showDeleteModal_ = true;
+                    }
+
+                    ImGui::Separator();
                     if (ImGui::MenuItem("Copy Asset Path")) {
                         ImGui::SetClipboardText(item.relativePath.c_str());
                     }
@@ -563,7 +587,69 @@ void ContentBrowserPanel::drawModals() {
         ImGui::EndPopup();
     }
 
-    // 3. Error Modal
+    // 3. Rename Modal
+    if (showRenameModal_) {
+        ImGui::OpenPopup("Rename##Modal");
+        showRenameModal_ = false;
+    }
+
+    if (ImGui::BeginPopupModal("Rename##Modal", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Enter new name for '%s':", targetRenamePath_.filename().string().c_str());
+        ImGui::InputText("##RenameInput", renameBuffer_.data(), renameBuffer_.size());
+
+        ImGui::Spacing();
+        if (ImGui::Button("Rename", ImVec2(80.0F, 0.0F))) {
+            auto res = controller_.renameItem(targetRenamePath_, renameBuffer_.data());
+            if (!res.hasValue()) {
+                errorMessage_ = res.error().message;
+                showErrorModal_ = true;
+            }
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(80.0F, 0.0F))) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    // 4. Delete Confirmation Modal
+    if (showDeleteModal_) {
+        ImGui::OpenPopup("Confirm Delete##Modal");
+        showDeleteModal_ = false;
+    }
+
+    if (ImGui::BeginPopupModal("Confirm Delete##Modal", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        std::string itemName = targetRenamePath_.filename().string();
+        if (itemName.empty()) {
+            itemName = targetDeletePath_.filename().string();
+        }
+
+        if (isDeleteNonEmptyDir_) {
+            ImGui::TextColored(ImVec4(1.0F, 0.4F, 0.4F, 1.0F), "WARNING: Non-empty folder!");
+            ImGui::Text("'%s' contains files or subfolders.", itemName.c_str());
+            ImGui::Text("Are you sure you want to permanently delete it and all its contents?");
+        } else {
+            ImGui::Text("Are you sure you want to delete '%s'?", itemName.c_str());
+        }
+
+        ImGui::Spacing();
+        if (ImGui::Button("Delete", ImVec2(80.0F, 0.0F))) {
+            auto res = controller_.deleteItem(targetDeletePath_, isDeleteNonEmptyDir_);
+            if (!res.hasValue()) {
+                errorMessage_ = res.error().message;
+                showErrorModal_ = true;
+            }
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(80.0F, 0.0F))) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    // 5. Error Modal
     if (showErrorModal_) {
         ImGui::OpenPopup("Filesystem Error##Modal");
         showErrorModal_ = false;
