@@ -10,6 +10,7 @@
 #include "framework/conductor.h"
 #include "physics/physics_components.h"
 #include "rhi/rhi_device.h"
+#include "script/script_components.h"
 #include "world/world.h"
 
 #include <cstdio>
@@ -245,6 +246,20 @@ struct WorkspaceManager::Impl {
                             e.set<physics::RigidBodyComponent>({
                                 .motionType = physics::MotionType::Dynamic,
                                 .collisionLayer = physics::CollisionLayer::kMoving,
+                            });
+                        }
+                    }
+                }
+                if (ImGui::MenuItem("Script Component", nullptr, false, hasEntity)) {
+                    if (hasEntity) {
+                        flecs::world& ecs = ctx.world->getRawWorld();
+                        flecs::entity e = ecs.entity(ctx.selectedEntityId);
+                        if (!e.has<script::ScriptComponent>()) {
+                            e.set<script::ScriptComponent>({
+                                .scriptName = "",
+                                .enabled = true,
+                                .updateInterval = 0.0f,
+                                .timeSinceLastUpdate = 0.0f,
                             });
                         }
                     }

@@ -242,18 +242,59 @@ void InspectorPanel::draw(EditorContext& ctx) {
                                                 ImGuiTreeNodeFlags_DefaultOpen)) {
                         auto* sc = e.get_mut<script::ScriptComponent>();
 
-                        ImGui::Columns(2, nullptr, false);
-                        ImGui::SetColumnWidth(0, ThemeMetrics::kPropertyLabelWidth);
-                        ImGui::TextDisabled("Script File");
-                        ImGui::NextColumn();
-                        ImGui::Text("%s", sc->scriptName);
-                        ImGui::Columns(1);
+                        // Script Routine Name Input
+                        char scriptBuf[64];
+                        std::strncpy(scriptBuf, sc->scriptName, sizeof(scriptBuf) - 1);
+                        scriptBuf[sizeof(scriptBuf) - 1] = '\0';
 
                         ImGui::Columns(2, nullptr, false);
                         ImGui::SetColumnWidth(0, ThemeMetrics::kPropertyLabelWidth);
-                        ImGui::TextDisabled("Active");
+                        ImGui::TextDisabled("Routine");
                         ImGui::NextColumn();
-                        ImGui::Checkbox("Enabled##ScriptActive", &sc->enabled);
+                        ImGui::SetNextItemWidth(-1.0F);
+                        if (ImGui::InputTextWithHint("##ScriptRoutineInput", "e.g. on_update",
+                                                     scriptBuf, sizeof(scriptBuf))) {
+                            std::strncpy(sc->scriptName, scriptBuf, sizeof(sc->scriptName) - 1);
+                            sc->scriptName[sizeof(sc->scriptName) - 1] = '\0';
+                            e.modified<script::ScriptComponent>();
+                        }
+                        ImGui::Columns(1);
+
+                        // Script Enabled Checkbox and State Badge
+                        ImGui::Columns(2, nullptr, false);
+                        ImGui::SetColumnWidth(0, ThemeMetrics::kPropertyLabelWidth);
+                        ImGui::TextDisabled("Status");
+                        ImGui::NextColumn();
+                        bool enabled = sc->enabled;
+                        if (ImGui::Checkbox("Enabled##ScriptActive", &enabled)) {
+                            sc->enabled = enabled;
+                            e.modified<script::ScriptComponent>();
+                        }
+                        ImGui::SameLine();
+                        if (!sc->enabled) {
+                            ImGui::TextColored(ImVec4(0.85F, 0.40F, 0.20F, 1.0F), "[Disabled]");
+                        } else if (sc->scriptName[0] == '\0') {
+                            ImGui::TextColored(ImVec4(0.85F, 0.75F, 0.25F, 1.0F), "[Unassigned]");
+                        } else {
+                            ImGui::TextColored(ImVec4(0.30F, 0.85F, 0.35F, 1.0F), "[Active]");
+                        }
+                        ImGui::Columns(1);
+
+                        // Update Interval
+                        ImGui::Columns(2, nullptr, false);
+                        ImGui::SetColumnWidth(0, ThemeMetrics::kPropertyLabelWidth);
+                        ImGui::TextDisabled("Interval");
+                        ImGui::NextColumn();
+                        ImGui::SetNextItemWidth(-1.0F);
+                        float interval = sc->updateInterval;
+                        if (ImGui::DragFloat("##ScriptInterval", &interval, 0.01F, 0.0F, 10.0F,
+                                             "%.3f s")) {
+                            if (interval < 0.0F) {
+                                interval = 0.0F;
+                            }
+                            sc->updateInterval = interval;
+                            e.modified<script::ScriptComponent>();
+                        }
                         ImGui::Columns(1);
                     }
                 }
@@ -279,8 +320,10 @@ void InspectorPanel::draw(EditorContext& ctx) {
                     }
                     if (!e.has<script::ScriptComponent>() && ImGui::MenuItem("Script Component")) {
                         e.set<script::ScriptComponent>({
-                            .scriptName = "scripts/main.lua",
+                            .scriptName = "",
                             .enabled = true,
+                            .updateInterval = 0.0f,
+                            .timeSinceLastUpdate = 0.0f,
                         });
                     }
                     ImGui::EndPopup();

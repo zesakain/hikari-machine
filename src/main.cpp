@@ -217,6 +217,12 @@ int main(int argc, char* argv[]) {
     script::ScriptEngine scriptEngine;
     (void)scriptEngine.initialize();
     scriptEngine.bindWorld(&world);
+    // Standard entity update hook for editor / game scripts
+    (void)scriptEngine.executeString(R"(
+function on_update(entity, dt)
+    -- Default Lua entity tick handler
+end
+)");
     script::registerScriptComponents(world);
     script::registerScriptSystems(world, scriptEngine);
 
