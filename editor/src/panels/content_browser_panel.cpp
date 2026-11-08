@@ -61,6 +61,9 @@ void ContentBrowserPanel::draw(EditorContext& ctx) {
 
         // Bottom Footer: Inspection and Actions
         drawFooter(ctx);
+
+        // Modals
+        drawModals();
     }
     ImGui::End();
 }
@@ -106,6 +109,50 @@ void ContentBrowserPanel::drawToolbar(EditorContext& ctx) {
     ImGui::SameLine();
     if (ImGui::Button("R##Refresh", ImVec2(24.0F, 0.0F))) {
         controller_.refresh();
+    }
+
+    ImGui::SameLine();
+    ImGui::TextDisabled("|");
+    ImGui::SameLine();
+
+    // Creation Buttons
+    if (ImGui::Button("+ Folder")) {
+        folderNameBuffer_.fill('\0');
+        std::snprintf(folderNameBuffer_.data(), folderNameBuffer_.size(), "NewFolder");
+        showCreateFolderModal_ = true;
+    }
+
+    ImGui::SameLine();
+    if (ImGui::Button("+ File...")) {
+        ImGui::OpenPopup("CreateFileMenuPopup");
+    }
+
+    if (ImGui::BeginPopup("CreateFileMenuPopup")) {
+        if (ImGui::MenuItem("Empty File")) {
+            fileNameBuffer_.fill('\0');
+            std::snprintf(fileNameBuffer_.data(), fileNameBuffer_.size(), "NewFile");
+            pendingFileTemplate_ = ContentFileTemplate::EmptyFile;
+            showCreateFileModal_ = true;
+        }
+        if (ImGui::MenuItem("Text Document (.txt)")) {
+            fileNameBuffer_.fill('\0');
+            std::snprintf(fileNameBuffer_.data(), fileNameBuffer_.size(), "NewDocument.txt");
+            pendingFileTemplate_ = ContentFileTemplate::TextFile;
+            showCreateFileModal_ = true;
+        }
+        if (ImGui::MenuItem("Lua Script (.lua)")) {
+            fileNameBuffer_.fill('\0');
+            std::snprintf(fileNameBuffer_.data(), fileNameBuffer_.size(), "NewScript.lua");
+            pendingFileTemplate_ = ContentFileTemplate::LuaScript;
+            showCreateFileModal_ = true;
+        }
+        if (ImGui::MenuItem("Hikari Scene (.hikari)")) {
+            fileNameBuffer_.fill('\0');
+            std::snprintf(fileNameBuffer_.data(), fileNameBuffer_.size(), "NewScene.hikari");
+            pendingFileTemplate_ = ContentFileTemplate::HikariScene;
+            showCreateFileModal_ = true;
+        }
+        ImGui::EndPopup();
     }
 
     ImGui::SameLine();
@@ -223,6 +270,7 @@ void ContentBrowserPanel::drawAssetItems(EditorContext& ctx) {
         ImGui::Spacing();
         ImGui::Spacing();
         ImGui::TextDisabled("   This directory is empty.");
+        ImGui::TextDisabled("   Use the toolbar or right-click to create new files or folders.");
     } else {
         if (ImGui::BeginTable("AssetItemsTable", 4,
                               ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
@@ -332,6 +380,49 @@ void ContentBrowserPanel::drawAssetItems(EditorContext& ctx) {
         }
     }
 
+    // Context menu on empty area
+    if (ImGui::BeginPopupContextWindow("ContentBrowserWindowCtx",
+                                       ImGuiPopupFlags_MouseButtonRight |
+                                           ImGuiPopupFlags_NoOpenOverItems)) {
+        if (ImGui::MenuItem("Create Folder")) {
+            folderNameBuffer_.fill('\0');
+            std::snprintf(folderNameBuffer_.data(), folderNameBuffer_.size(), "NewFolder");
+            showCreateFolderModal_ = true;
+        }
+        if (ImGui::BeginMenu("Create File")) {
+            if (ImGui::MenuItem("Empty File")) {
+                fileNameBuffer_.fill('\0');
+                std::snprintf(fileNameBuffer_.data(), fileNameBuffer_.size(), "NewFile");
+                pendingFileTemplate_ = ContentFileTemplate::EmptyFile;
+                showCreateFileModal_ = true;
+            }
+            if (ImGui::MenuItem("Text Document (.txt)")) {
+                fileNameBuffer_.fill('\0');
+                std::snprintf(fileNameBuffer_.data(), fileNameBuffer_.size(), "NewDocument.txt");
+                pendingFileTemplate_ = ContentFileTemplate::TextFile;
+                showCreateFileModal_ = true;
+            }
+            if (ImGui::MenuItem("Lua Script (.lua)")) {
+                fileNameBuffer_.fill('\0');
+                std::snprintf(fileNameBuffer_.data(), fileNameBuffer_.size(), "NewScript.lua");
+                pendingFileTemplate_ = ContentFileTemplate::LuaScript;
+                showCreateFileModal_ = true;
+            }
+            if (ImGui::MenuItem("Hikari Scene (.hikari)")) {
+                fileNameBuffer_.fill('\0');
+                std::snprintf(fileNameBuffer_.data(), fileNameBuffer_.size(), "NewScene.hikari");
+                pendingFileTemplate_ = ContentFileTemplate::HikariScene;
+                showCreateFileModal_ = true;
+            }
+            ImGui::EndMenu();
+        }
+        ImGui::Separator();
+        if (ImGui::MenuItem("Refresh")) {
+            controller_.refresh();
+        }
+        ImGui::EndPopup();
+    }
+
     ImGui::EndChild();
 }
 
@@ -416,6 +507,77 @@ void ContentBrowserPanel::drawFooter(EditorContext& ctx) {
         }
     } else {
         ImGui::TextDisabled("No item selected.");
+    }
+}
+
+void ContentBrowserPanel::drawModals() {
+    // 1. Create Folder Modal
+    if (showCreateFolderModal_) {
+        ImGui::OpenPopup("Create Folder##Modal");
+        showCreateFolderModal_ = false;
+    }
+
+    if (ImGui::BeginPopupModal("Create Folder##Modal", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Enter folder name:");
+        ImGui::InputText("##FolderNameInput", folderNameBuffer_.data(), folderNameBuffer_.size());
+
+        ImGui::Spacing();
+        if (ImGui::Button("Create", ImVec2(80.0F, 0.0F))) {
+            auto res = controller_.createFolder(folderNameBuffer_.data());
+            if (!res.hasValue()) {
+                errorMessage_ = res.error().message;
+                showErrorModal_ = true;
+            }
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(80.0F, 0.0F))) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    // 2. Create File Modal
+    if (showCreateFileModal_) {
+        ImGui::OpenPopup("Create File##Modal");
+        showCreateFileModal_ = false;
+    }
+
+    if (ImGui::BeginPopupModal("Create File##Modal", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Enter file name:");
+        ImGui::InputText("##FileNameInput", fileNameBuffer_.data(), fileNameBuffer_.size());
+
+        ImGui::Spacing();
+        if (ImGui::Button("Create", ImVec2(80.0F, 0.0F))) {
+            auto res = controller_.createFile(fileNameBuffer_.data(), pendingFileTemplate_);
+            if (!res.hasValue()) {
+                errorMessage_ = res.error().message;
+                showErrorModal_ = true;
+            }
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(80.0F, 0.0F))) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    // 3. Error Modal
+    if (showErrorModal_) {
+        ImGui::OpenPopup("Filesystem Error##Modal");
+        showErrorModal_ = false;
+    }
+
+    if (ImGui::BeginPopupModal("Filesystem Error##Modal", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextColored(ImVec4(1.0F, 0.35F, 0.35F, 1.0F), "Operation Failed:");
+        ImGui::TextWrapped("%s", errorMessage_.c_str());
+
+        ImGui::Spacing();
+        if (ImGui::Button("OK", ImVec2(80.0F, 0.0F))) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
     }
 }
 

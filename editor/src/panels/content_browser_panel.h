@@ -6,6 +6,9 @@
 #include "editor/content_browser_controller.h"
 #include "editor/editor_panel.h"
 
+#include <array>
+#include <string>
+
 namespace eng::editor {
 
 class ContentBrowserPanel final : public EditorPanel {
@@ -35,8 +38,20 @@ private:
     void drawDirectoryTree();
     void drawAssetItems(EditorContext& ctx);
     void drawFooter(EditorContext& ctx);
+    void drawModals();
 
     ContentBrowserController controller_{"assets"};
+
+    // Creation modals state
+    bool showCreateFolderModal_{false};
+    std::array<char, 128> folderNameBuffer_{};
+
+    bool showCreateFileModal_{false};
+    std::array<char, 128> fileNameBuffer_{};
+    ContentFileTemplate pendingFileTemplate_{ContentFileTemplate::TextFile};
+
+    bool showErrorModal_{false};
+    std::string errorMessage_{};
 };
 
 } // namespace eng::editor
