@@ -15,6 +15,29 @@
 #include <iostream>
 #include <vector>
 
+#if defined(__has_feature)
+#if __has_feature(address_sanitizer)
+#define HIKARI_HAS_ASAN 1
+#endif
+#if __has_feature(thread_sanitizer)
+#define HIKARI_HAS_TSAN 1
+#endif
+#endif
+#if defined(__SANITIZE_ADDRESS__)
+#define HIKARI_HAS_ASAN 1
+#endif
+#if defined(__SANITIZE_THREAD__)
+#define HIKARI_HAS_TSAN 1
+#endif
+
+#if defined(HIKARI_HAS_ASAN)
+// Suppress known one-time process-lifetime allocations within OS graphics driver / dbus / wayland
+// stacks
+extern "C" const char* __lsan_default_suppressions() {
+    return "leak:libdbus-1\nleak:libvulkan\nleak:nvidia\nleak:libwayland\n";
+}
+#endif
+
 #define TEST_CHECK(cond)                                                                           \
     do {                                                                                           \
         if (!(cond)) {                                                                             \
