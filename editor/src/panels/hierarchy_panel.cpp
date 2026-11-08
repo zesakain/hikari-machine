@@ -287,16 +287,11 @@ void HierarchyPanel::draw(EditorContext& ctx) {
 
             flecs::world& ecs = ctx.world->getRawWorld();
             std::vector<flecs::entity> entities;
-            ecs.each([&](flecs::entity e) {
-                if (e.id() == 0 || !e.is_valid()) {
-                    return;
-                }
-                if (e.id() < EcsFirstUserEntityId || e.has(flecs::Module) ||
-                    e.has<flecs::Component>()) {
-                    return;
-                }
-                entities.push_back(e);
-            });
+            auto aliveHandles = ctx.world->getAllEntities();
+            entities.reserve(aliveHandles.size());
+            for (auto h : aliveHandles) {
+                entities.push_back(ecs.entity(h.id));
+            }
 
             std::sort(
                 entities.begin(), entities.end(),
