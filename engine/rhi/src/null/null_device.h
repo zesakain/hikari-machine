@@ -59,6 +59,8 @@ public:
 
     [[nodiscard]] Result<BufferHandle> createBuffer(const BufferDesc& desc) override;
     void destroyBuffer(BufferHandle handle) override;
+    Result<void> writeBuffer(BufferHandle handle, size_t offset, const void* data,
+                             size_t size) override;
 
     [[nodiscard]] Result<TextureHandle> createTexture(const TextureDesc& desc) override;
     void destroyTexture(TextureHandle handle) override;

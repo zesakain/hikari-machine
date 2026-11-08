@@ -82,6 +82,27 @@ void NullDevice::destroyBuffer(BufferHandle handle) {
     }
 }
 
+Result<void> NullDevice::writeBuffer(BufferHandle handle, size_t offset, const void* data,
+                                     size_t size) {
+    if (data == nullptr && size > 0) {
+        return Error{.code = ErrorCode::InvalidArgument,
+                     .message = "Null data pointer in writeBuffer"};
+    }
+    auto* slot = resolveBuffer(handle);
+    if (slot == nullptr) {
+        return Error{.code = ErrorCode::HandleResolutionFailed,
+                     .message = "Invalid buffer handle in writeBuffer"};
+    }
+    if (offset + size > slot->storage.size()) {
+        return Error{.code = ErrorCode::OutOfBounds,
+                     .message = "Buffer write exceeds allocated storage bounds"};
+    }
+    if (size > 0) {
+        std::memcpy(slot->storage.data() + offset, data, size);
+    }
+    return Result<void>::success();
+}
+
 Result<TextureHandle> NullDevice::createTexture(const TextureDesc& desc) {
     if (desc.width == 0 || desc.height == 0 || desc.depth == 0 || desc.mipLevels == 0 ||
         desc.arrayLayers == 0) {

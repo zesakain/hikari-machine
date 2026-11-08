@@ -60,6 +60,22 @@ public:
     /// Releases a GPU buffer resource and invalidates its generational handle.
     virtual void destroyBuffer(BufferHandle handle) = 0;
 
+    /// Updates host-visible GPU buffer contents directly from CPU memory.
+    ///
+    /// @param handle Generational handle referencing the allocated buffer.
+    /// @param offset Byte offset within the destination buffer.
+    /// @param data Pointer to source host memory.
+    /// @param size Number of bytes to transfer.
+    /// @return Result indicating success or buffer access failure.
+    virtual Result<void> writeBuffer(BufferHandle handle, size_t offset, const void* data,
+                                     size_t size) {
+        (void)handle;
+        (void)offset;
+        (void)data;
+        (void)size;
+        return Error{.code = ErrorCode::NotSupported, .message = "writeBuffer not implemented"};
+    }
+
     /// Allocates a new GPU texture resource.
     ///
     /// @param desc Texture dimensions, format, and usage flags.

@@ -363,6 +363,31 @@ void VulkanDevice::destroyBuffer(BufferHandle handle) {
     ++slot.generation;
 }
 
+Result<void> VulkanDevice::writeBuffer(BufferHandle handle, size_t offset, const void* data,
+                                       size_t size) {
+    if (data == nullptr && size > 0) {
+        return Error{.code = ErrorCode::InvalidArgument,
+                     .message = "Null data pointer in writeBuffer"};
+    }
+    if (!isBufferValid(handle)) {
+        return Error{.code = ErrorCode::HandleResolutionFailed,
+                     .message = "Invalid buffer handle in writeBuffer"};
+    }
+    const auto& slot = buffers_[handle.index()];
+    if (offset + size > slot.sizeInBytes) {
+        return Error{.code = ErrorCode::OutOfBounds,
+                     .message = "Buffer write exceeds allocated storage bounds"};
+    }
+    if (slot.mappedData == nullptr) {
+        return Error{.code = ErrorCode::NotSupported,
+                     .message = "Buffer is not host-visible or mapped"};
+    }
+    if (size > 0) {
+        std::memcpy(static_cast<uint8_t*>(slot.mappedData) + offset, data, size);
+    }
+    return Result<void>::success();
+}
+
 Result<TextureHandle> VulkanDevice::createTexture(const TextureDesc& desc) {
     if (desc.width == 0 || desc.height == 0 || desc.depth == 0) {
         return Error{.code = ErrorCode::InvalidArgument,
