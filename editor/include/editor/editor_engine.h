@@ -108,6 +108,11 @@ public:
     /// Finalizes the ImGui frame and records draw commands to the command list.
     void endFrame(rhi::RhiCommandList& cmdList);
 
+    /// Resizes the offscreen GPU viewport render targets and updates ImGui texture registration.
+    ///
+    /// Synchronizes the GPU device queue, frees previous descriptor sets, and allocates new targets.
+    bool resizeViewport(uint32_t width, uint32_t height);
+
     /// Translates platform input snapshot states into ImGui mouse and keyboard events.
     void processInput(const platform::InputSnapshot& input);
 

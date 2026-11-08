@@ -62,6 +62,7 @@ struct EditorEngine::Impl {
         }
 
         if (viewportDescriptorSet != VK_NULL_HANDLE) {
+            rhiDevice->waitIdle();
             ImGui_ImplVulkan_RemoveTexture(viewportDescriptorSet);
             viewportDescriptorSet = VK_NULL_HANDLE;
             context.viewportTextureId = nullptr;
@@ -101,8 +102,9 @@ struct EditorEngine::Impl {
             return false;
         }
 
-        // Remove previous descriptor before recreating render targets to prevent use-after-free
+        // Wait for GPU idle and remove previous descriptor before recreating render targets
         if (vulkanBackendInitialized && viewportDescriptorSet != VK_NULL_HANDLE) {
+            rhiDevice->waitIdle();
             ImGui_ImplVulkan_RemoveTexture(viewportDescriptorSet);
             viewportDescriptorSet = VK_NULL_HANDLE;
             context.viewportTextureId = nullptr;
@@ -152,6 +154,7 @@ bool EditorEngine::initialize(rhi::RhiDevice& rhiDevice, const EditorConfig& con
     impl_->context.rhiDevice = &rhiDevice;
     impl_->context.assetManager = &impl_->assetManager;
     impl_->context.selection = &impl_->selectionModel;
+    impl_->context.editorEngine = this;
 
     IMGUI_CHECKVERSION();
     impl_->imguiContext = ImGui::CreateContext();
@@ -344,6 +347,7 @@ void EditorEngine::beginFrame(Duration dt, uint32_t width, uint32_t height) {
     }
     impl_->context.selectedEntityId = impl_->selectionModel.getPrimarySelected().id;
 
+    impl_->context.editorEngine = this;
     impl_->context.sceneRenderer = &impl_->sceneRenderer;
     impl_->context.viewportTextureId = static_cast<void*>(impl_->viewportDescriptorSet);
     impl_->context.sceneRenderWidth = impl_->viewportWidth;
@@ -365,17 +369,18 @@ void EditorEngine::drawPanels() {
     ImGui::SetCurrentContext(impl_->imguiContext);
     impl_->context.requestViewportResize = false;
     impl_->workspaceManager.drawWorkspace(impl_->context);
-
-    if (impl_->context.requestViewportResize && impl_->context.requestedViewportWidth > 0 &&
-        impl_->context.requestedViewportHeight > 0) {
-        (void)impl_->resizeViewport(impl_->context.requestedViewportWidth,
-                                    impl_->context.requestedViewportHeight);
-    }
     impl_->viewportCameraViewProj = impl_->context.viewportCameraViewProj;
 
     if (impl_->config.showDemoWindow) {
         ImGui::ShowDemoWindow(&impl_->config.showDemoWindow);
     }
+}
+
+bool EditorEngine::resizeViewport(uint32_t width, uint32_t height) {
+    if (!impl_->initialized) {
+        return false;
+    }
+    return impl_->resizeViewport(width, height);
 }
 
 void EditorEngine::renderScene(rhi::RhiCommandList& cmdList) {

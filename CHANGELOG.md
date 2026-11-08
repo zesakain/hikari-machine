@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Added abstract native handle accessors `RhiDevice::getNativeTextureView()` and `RhiDevice::getNativeSampler()`, implemented for `VulkanDevice`.
     - Added dedicated linear clamp-to-edge sampler in `EditorEngine` for viewport texture sampling.
     - Added automatic dynamic viewport resizing with device synchronization (`waitIdle()`), zero-size/collapse safety handling, and descriptor set replacement.
+    - Resolved first-frame startup segmentation fault in `ImGui_ImplVulkan_RenderDrawData()`: moved dynamic viewport resizing to execute before `ImDrawList::AddImage()`, preventing descriptor sets recorded by `AddImage` from being freed prior to swapchain render pass submission.
     - Preserved CPU software wireframe rasterizer in `ViewportPanel` intact as fallback, with user toggle (`[Renderer: GPU]` / `[Renderer: CPU]`).
     - Preserved all editor overlays (3D world grid, tripod, selection cages, collider outlines, gizmos, ray picking) rendering cleanly over the GPU viewport image.
   - **Audit Findings Resolution (8B.2)**:

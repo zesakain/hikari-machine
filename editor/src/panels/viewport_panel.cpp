@@ -5,6 +5,7 @@
 #include "panels/viewport_panel.h"
 
 #include "core/log.h"
+#include "editor/editor_engine.h"
 #include "editor/editor_theme.h"
 #include "editor/selection_model.h"
 #include "framework/conductor.h"
@@ -107,13 +108,13 @@ void ViewportPanel::draw(EditorContext& ctx) {
             return;
         }
 
-        // Request offscreen viewport resize when canvas dimensions change
+        // Ensure offscreen render targets match current canvas dimensions BEFORE AddImage
         const uint32_t targetWidth = static_cast<uint32_t>(canvasSize.x);
         const uint32_t targetHeight = static_cast<uint32_t>(canvasSize.y);
         if (targetWidth != ctx.sceneRenderWidth || targetHeight != ctx.sceneRenderHeight) {
-            ctx.requestViewportResize = true;
-            ctx.requestedViewportWidth = targetWidth;
-            ctx.requestedViewportHeight = targetHeight;
+            if (ctx.editorEngine != nullptr) {
+                ctx.editorEngine->resizeViewport(targetWidth, targetHeight);
+            }
         }
 
         // Synchronize camera matrices with active viewport dimensions

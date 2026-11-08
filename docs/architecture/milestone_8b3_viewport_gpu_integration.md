@@ -116,15 +116,15 @@ Linear filtering with clamp-to-edge sampling ensures clean pixel sampling when t
 
 ### 4.1 Dynamic Resizing Pipeline
 
-When the user resizes the Dear ImGui Viewport panel:
-1. `ViewportPanel::render()` detects that canvas width/height differs from `ctx.sceneRenderWidth` and `ctx.sceneRenderHeight`.
-2. It requests a resize via `ctx.requestViewportResize(newWidth, newHeight)`.
-3. In `EditorEngine::beginFrame()`, the resize request is dispatched:
-   - GPU queue is synchronized with `rhiDevice->waitIdle()`.
-   - Previous `VkDescriptorSet` is removed via `ImGui_ImplVulkan_RemoveTexture()`.
-   - `SceneRenderer::resize(w, h)` destroys old offscreen color/depth textures and allocates new targets matching the canvas dimensions.
+When the user resizes the Dear ImGui Viewport panel (or during startup when docking synthesizes the viewport canvas geometry):
+1. `ViewportPanel::draw()` evaluates `canvasSize` and detects that canvas width/height differs from `ctx.sceneRenderWidth` and `ctx.sceneRenderHeight`.
+2. **BEFORE** calling `drawList->AddImage()`, it immediately invokes `ctx.editorEngine->resizeViewport(targetWidth, targetHeight)`:
+   - GPU queue is synchronized with `rhiDevice->waitIdle()` to ensure no pending presentation frames access the old descriptor set.
+   - Previous `VkDescriptorSet` is safely removed via `ImGui_ImplVulkan_RemoveTexture()`.
+   - `SceneRenderer::resize(w, h)` recreates offscreen color/depth textures matching the new canvas dimensions.
    - New `VkImageView` is obtained and registered with `ImGui_ImplVulkan_AddTexture()`.
-   - New descriptor set handle is stored in `EditorContext::viewportTextureId`.
+   - `EditorContext::viewportTextureId` is updated to the new descriptor set.
+3. `drawList->AddImage()` records the freshly allocated, valid descriptor set into the Dear ImGui draw list. Performing the resize before `AddImage` guarantees that no draw command in the current ImGui frame references a freed descriptor set, preventing `vkCmdBindDescriptorSets` segmentation faults.
 
 ### 4.2 Zero-Size and Collapse Safety
 

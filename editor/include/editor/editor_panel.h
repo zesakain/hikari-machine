@@ -43,6 +43,7 @@ namespace eng::editor {
 
 class SelectionModel;
 class EditorCamera;
+class EditorEngine;
 
 /// @struct EditorContext
 /// @brief Non-owning execution context passed to editor panels each frame.
@@ -53,6 +54,7 @@ struct EditorContext {
     rhi::RhiDevice* rhiDevice{nullptr};
     render::AssetManager* assetManager{nullptr};
     render::SceneRenderer* sceneRenderer{nullptr};
+    EditorEngine* editorEngine{nullptr};
     SelectionModel* selection{nullptr};
     EditorCamera* editorCamera{nullptr};
 

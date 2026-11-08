@@ -1778,8 +1778,16 @@ static void testEditorGpuViewportVulkanHardware() {
         .transform = Transform(Vec3(0.0F, 0.0F, 0.0F)),
     });
 
+    auto nullDevRes = rhi::createNullDevice();
+    TEST_CHECK(nullDevRes.hasValue());
+    auto nullDev = std::move(nullDevRes.value());
+    auto nullCmdRes = nullDev->createCommandList();
+    TEST_CHECK(nullCmdRes.hasValue());
+    auto nullCmd = std::move(nullCmdRes.value());
+
     editor.beginFrame(Duration::fromMilliseconds(16), 1280, 720);
     editor.drawPanels();
+    editor.endFrame(*nullCmd);
 
     auto cmdRes = vkDevice->createCommandList();
     TEST_CHECK(cmdRes.hasValue());
@@ -1808,6 +1816,38 @@ static void testEditorGpuViewportVulkanHardware() {
     auto stopRes = editor.getRuntimeSession().stop();
     TEST_CHECK(stopRes.hasValue());
     TEST_CHECK(editor.isGpuViewportActive());
+
+    // 5. Dynamic viewport resizing regression test (first-frame / in-flight safety)
+    TEST_CHECK(editor.resizeViewport(960, 540));
+    TEST_CHECK(renderer.getWidth() == 960);
+    TEST_CHECK(renderer.getHeight() == 540);
+    TEST_CHECK(editor.isGpuViewportActive());
+
+    editor.beginFrame(Duration::fromMilliseconds(16), 1280, 720);
+    editor.drawPanels();
+    editor.endFrame(*nullCmd);
+
+    vkCmd->begin();
+    editor.renderScene(*vkCmd);
+    vkCmd->end();
+    TEST_CHECK(vkDevice->submit(vkCmd.get()).hasValue());
+    vkDevice->waitIdle();
+
+    // Consecutive resize to non-standard dimensions
+    TEST_CHECK(editor.resizeViewport(765, 364));
+    TEST_CHECK(renderer.getWidth() == 765);
+    TEST_CHECK(renderer.getHeight() == 364);
+    TEST_CHECK(editor.isGpuViewportActive());
+
+    editor.beginFrame(Duration::fromMilliseconds(16), 1280, 720);
+    editor.drawPanels();
+    editor.endFrame(*nullCmd);
+
+    vkCmd->begin();
+    editor.renderScene(*vkCmd);
+    vkCmd->end();
+    TEST_CHECK(vkDevice->submit(vkCmd.get()).hasValue());
+    vkDevice->waitIdle();
 
     editor.shutdown();
     TEST_CHECK(!editor.isInitialized());
