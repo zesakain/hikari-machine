@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Physics Object & Entity Creation Crash in Scene Hierarchy**:
+  - Fixed fatal assertion `flecs.c: 9695: assert: entity != 0 INVALID_PARAMETER` triggered when adding Physics Objects, Empty Entities, or duplicated entities in the Scene Hierarchy.
+  - **Root Cause**: `generateUniqueEntityName` polled candidate names using `while (ecs.lookup(candidate).is_alive())`. When an entity name did not yet exist, Flecs returned an entity handle with ID `0`. Invoking `.is_alive()` on entity ID `0` asserted in `ecs_is_alive()`.
+  - **Remedy**: Refactored `HierarchyPanel::generateUniqueEntityName` to inspect `existing.id() == 0 || !existing.is_valid()` before checking liveness, enabling safe and clean loop termination.
+  - Hardened entity rendering queries and inspection panels against stale/invalid handles (`isAlive()` and `is_valid()` checks).
+  - Promoted `hierarchy_panel.h` to public editor include `editor/hierarchy_panel.h` and unified GameObject menu creation to use collision-free unique name generation.
+  - Added regression test suite (`testInvalidEntityLookupSafety`, `testPhysicsObjectCreationAndUniqueNamingRegression`, `testRepeatedPhysicsObjectCreationAndHierarchyRendering`) in `tests/unit/editor/editor_test.cpp`.
+
 ### Added
 - **Editor Milestone 2: Production-Quality Scene Hierarchy & Entity Management**:
   - **Centralized Entity Selection Service (`SelectionModel`)**:
