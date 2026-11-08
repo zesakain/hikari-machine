@@ -17,6 +17,7 @@
 #include "world/world.h"
 
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <iostream>
 
@@ -856,6 +857,98 @@ static void testScriptComponentEnableToggleBehavior() {
     std::cout << "[PASS] testScriptComponentEnableToggleBehavior\n";
 }
 
+static void testInspectorComponentManagementLifecycle() {
+    world::World world;
+    physics::registerPhysicsComponents(world);
+    script::registerScriptComponents(world);
+
+    auto& ecs = world.getRawWorld();
+    auto handle = world.createEntity("TestTarget");
+    auto e = ecs.entity(handle.id);
+
+    // 1. Initially entity has no custom components
+    TEST_CHECK(!e.has<physics::PhysicsTransformComponent>());
+    TEST_CHECK(!e.has<physics::RigidBodyComponent>());
+    TEST_CHECK(!e.has<physics::ColliderComponent>());
+    TEST_CHECK(!e.has<script::ScriptComponent>());
+
+    // 2. Add PhysicsTransformComponent
+    e.set<physics::PhysicsTransformComponent>({
+        .transform = Transform(Vec3(1.0F, 2.0F, 3.0F)),
+    });
+    TEST_CHECK(e.has<physics::PhysicsTransformComponent>());
+    TEST_CHECK(e.get<physics::PhysicsTransformComponent>()->transform.position.y == 2.0F);
+
+    // 3. Add RigidBodyComponent
+    e.set<physics::RigidBodyComponent>({
+        .motionType = physics::MotionType::Kinematic,
+        .collisionLayer = physics::CollisionLayer::kMoving,
+    });
+    TEST_CHECK(e.has<physics::RigidBodyComponent>());
+    TEST_CHECK(e.get<physics::RigidBodyComponent>()->motionType == physics::MotionType::Kinematic);
+
+    // 4. Add ColliderComponent
+    e.set<physics::ColliderComponent>({
+        .desc = physics::ColliderDesc::makeBox(Vec3(0.5F, 1.0F, 1.5F)),
+    });
+    TEST_CHECK(e.has<physics::ColliderComponent>());
+    TEST_CHECK(e.get<physics::ColliderComponent>()->desc.type == physics::ColliderType::Box);
+    TEST_CHECK(e.get<physics::ColliderComponent>()->desc.halfExtents.z == 1.5F);
+
+    // 5. Add ScriptComponent
+    e.set<script::ScriptComponent>({
+        .scriptName = "on_update",
+        .enabled = true,
+        .updateInterval = 0.05F,
+        .timeSinceLastUpdate = 0.0F,
+    });
+    TEST_CHECK(e.has<script::ScriptComponent>());
+    TEST_CHECK(e.get<script::ScriptComponent>()->enabled == true);
+    TEST_CHECK(std::strcmp(e.get<script::ScriptComponent>()->scriptName, "on_update") == 0);
+
+    // All 4 components exist simultaneously
+    TEST_CHECK(e.has<physics::PhysicsTransformComponent>());
+    TEST_CHECK(e.has<physics::RigidBodyComponent>());
+    TEST_CHECK(e.has<physics::ColliderComponent>());
+    TEST_CHECK(e.has<script::ScriptComponent>());
+
+    // 6. Removing ColliderComponent leaves other 3 intact
+    e.remove<physics::ColliderComponent>();
+    TEST_CHECK(!e.has<physics::ColliderComponent>());
+    TEST_CHECK(e.has<physics::PhysicsTransformComponent>());
+    TEST_CHECK(e.has<physics::RigidBodyComponent>());
+    TEST_CHECK(e.has<script::ScriptComponent>());
+
+    // 7. Removing RigidBodyComponent leaves Transform and Script intact
+    e.remove<physics::RigidBodyComponent>();
+    TEST_CHECK(!e.has<physics::RigidBodyComponent>());
+    TEST_CHECK(e.has<physics::PhysicsTransformComponent>());
+    TEST_CHECK(e.has<script::ScriptComponent>());
+
+    // 8. Removing ScriptComponent leaves Transform intact
+    e.remove<script::ScriptComponent>();
+    TEST_CHECK(!e.has<script::ScriptComponent>());
+    TEST_CHECK(e.has<physics::PhysicsTransformComponent>());
+
+    // 9. Removing Transform leaves empty entity
+    e.remove<physics::PhysicsTransformComponent>();
+    TEST_CHECK(!e.has<physics::PhysicsTransformComponent>());
+
+    // 10. Re-adding components restores them cleanly
+    e.set<physics::ColliderComponent>({
+        .desc = physics::ColliderDesc::makeSphere(2.5F),
+    });
+    TEST_CHECK(e.has<physics::ColliderComponent>());
+    TEST_CHECK(e.get<physics::ColliderComponent>()->desc.type == physics::ColliderType::Sphere);
+    TEST_CHECK(e.get<physics::ColliderComponent>()->desc.radius == 2.5F);
+
+    // 11. Stale / destroyed entity check
+    world.destroyEntity(handle);
+    TEST_CHECK(!world.isAlive(handle));
+
+    std::cout << "[PASS] testInspectorComponentManagementLifecycle\n";
+}
+
 int main() {
     std::cout << "Running Editor subsystem unit tests...\n";
     testThemeTokens();
@@ -873,6 +966,7 @@ int main() {
     testPhysicsObjectCreationAndUniqueNamingRegression();
     testRepeatedPhysicsObjectCreationAndHierarchyRendering();
     testScriptComponentEnableToggleBehavior();
+    testInspectorComponentManagementLifecycle();
     std::cout << "All Editor subsystem tests PASSED!\n";
     return 0;
 }
