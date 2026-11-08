@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <optional>
 
 namespace eng {
 
@@ -385,6 +386,206 @@ struct Mat4 {
 
     [[nodiscard]] constexpr float at(size_t row, size_t col) const noexcept {
         return m[(col * 4) + row];
+    }
+
+    /// Creates a perspective projection matrix (Vulkan [0, 1] depth range).
+    [[nodiscard]] static Mat4 perspective(float fovYRadians, float aspect, float zNear,
+                                          float zFar) noexcept {
+        const float tanHalfFov = std::tan(fovYRadians * 0.5F);
+        const float f = (tanHalfFov > 1e-6F) ? (1.0F / tanHalfFov) : 1.0F;
+        Mat4 res{};
+        std::fill(std::begin(res.m), std::end(res.m), 0.0F);
+
+        res.m[0] = f / (aspect > 1e-6F ? aspect : 1.0F);
+        res.m[5] = f;
+        res.m[10] = zFar / (zNear - zFar);
+        res.m[11] = -1.0F;
+        res.m[14] = (zNear * zFar) / (zNear - zFar);
+        return res;
+    }
+
+    /// Creates an orthographic projection matrix (Vulkan [0, 1] depth range).
+    [[nodiscard]] static Mat4 orthographic(float left, float right, float bottom, float top,
+                                           float zNear, float zFar) noexcept {
+        Mat4 res{};
+        std::fill(std::begin(res.m), std::end(res.m), 0.0F);
+
+        res.m[0] = 2.0F / (right - left);
+        res.m[5] = 2.0F / (top - bottom);
+        res.m[10] = 1.0F / (zNear - zFar);
+        res.m[12] = -(right + left) / (right - left);
+        res.m[13] = -(top + bottom) / (top - bottom);
+        res.m[14] = zNear / (zNear - zFar);
+        res.m[15] = 1.0F;
+        return res;
+    }
+
+    /// Creates a right-handed view matrix looking from eye towards target.
+    [[nodiscard]] static Mat4 lookAt(const Vec3& eye, const Vec3& target,
+                                     const Vec3& up = Vec3::unitY()) noexcept {
+        const Vec3 f = (target - eye).normalized();
+        const Vec3 r = Vec3::cross(f, up).normalized();
+        const Vec3 u = Vec3::cross(r, f);
+
+        Mat4 res{};
+        res.m[0] = r.x;
+        res.m[1] = u.x;
+        res.m[2] = -f.x;
+        res.m[3] = 0.0F;
+
+        res.m[4] = r.y;
+        res.m[5] = u.y;
+        res.m[6] = -f.y;
+        res.m[7] = 0.0F;
+
+        res.m[8] = r.z;
+        res.m[9] = u.z;
+        res.m[10] = -f.z;
+        res.m[11] = 0.0F;
+
+        res.m[12] = -Vec3::dot(r, eye);
+        res.m[13] = -Vec3::dot(u, eye);
+        res.m[14] = Vec3::dot(f, eye);
+        res.m[15] = 1.0F;
+        return res;
+    }
+
+    /// Transforms a 3D point and returns the projected homogeneous w coordinate.
+    [[nodiscard]] Vec3 transformPointWithW(const Vec3& p, float& outW) const noexcept {
+        outW = (m[3] * p.x) + (m[7] * p.y) + (m[11] * p.z) + m[15];
+        return Vec3{(m[0] * p.x) + (m[4] * p.y) + (m[8] * p.z) + m[12],
+                    (m[1] * p.x) + (m[5] * p.y) + (m[9] * p.z) + m[13],
+                    (m[2] * p.x) + (m[6] * p.y) + (m[10] * p.z) + m[14]};
+    }
+
+    /// Full general 4x4 matrix inversion. Returns std::nullopt if matrix is singular.
+    [[nodiscard]] std::optional<Mat4> inverse() const noexcept {
+        const float s0 = (m[0] * m[5]) - (m[4] * m[1]);
+        const float s1 = (m[0] * m[6]) - (m[4] * m[2]);
+        const float s2 = (m[0] * m[7]) - (m[4] * m[3]);
+        const float s3 = (m[1] * m[6]) - (m[5] * m[2]);
+        const float s4 = (m[1] * m[7]) - (m[5] * m[3]);
+        const float s5 = (m[2] * m[7]) - (m[6] * m[3]);
+
+        const float c5 = (m[10] * m[15]) - (m[14] * m[11]);
+        const float c4 = (m[9] * m[15]) - (m[13] * m[11]);
+        const float c3 = (m[9] * m[14]) - (m[13] * m[10]);
+        const float c2 = (m[8] * m[15]) - (m[12] * m[11]);
+        const float c1 = (m[8] * m[14]) - (m[12] * m[10]);
+        const float c0 = (m[8] * m[13]) - (m[12] * m[9]);
+
+        const float det = (s0 * c5) - (s1 * c4) + (s2 * c3) + (s3 * c2) - (s4 * c1) + (s5 * c0);
+        if (std::abs(det) < 1e-12F) {
+            return std::nullopt;
+        }
+
+        const float invDet = 1.0F / det;
+        Mat4 res{};
+
+        res.m[0] = ((m[5] * c5) - (m[6] * c4) + (m[7] * c3)) * invDet;
+        res.m[1] = ((-m[1] * c5) + (m[2] * c4) - (m[3] * c3)) * invDet;
+        res.m[2] = ((m[13] * s5) - (m[14] * s4) + (m[15] * s3)) * invDet;
+        res.m[3] = ((-m[9] * s5) + (m[10] * s4) - (m[11] * s3)) * invDet;
+
+        res.m[4] = ((-m[4] * c5) + (m[6] * c2) - (m[7] * c1)) * invDet;
+        res.m[5] = ((m[0] * c5) - (m[2] * c2) + (m[3] * c1)) * invDet;
+        res.m[6] = ((-m[12] * s5) + (m[14] * s2) - (m[15] * s1)) * invDet;
+        res.m[7] = ((m[8] * s5) - (m[10] * s2) + (m[11] * s1)) * invDet;
+
+        res.m[8] = ((m[4] * c4) - (m[5] * c2) + (m[7] * c0)) * invDet;
+        res.m[9] = ((-m[0] * c4) + (m[1] * c2) - (m[3] * c0)) * invDet;
+        res.m[10] = ((m[12] * s4) - (m[13] * s2) + (m[15] * s0)) * invDet;
+        res.m[11] = ((-m[8] * s4) + (m[9] * s2) - (m[11] * s0)) * invDet;
+
+        res.m[12] = ((-m[4] * c3) + (m[5] * c1) - (m[6] * c0)) * invDet;
+        res.m[13] = ((m[0] * c3) - (m[1] * c1) + (m[2] * c0)) * invDet;
+        res.m[14] = ((-m[12] * s3) + (m[13] * s1) - (m[14] * s0)) * invDet;
+        res.m[15] = ((m[8] * s3) - (m[9] * s1) + (m[10] * s0)) * invDet;
+
+        return res;
+    }
+};
+
+/// @struct Ray
+/// @brief 3D mathematical ray with origin and normalized direction.
+struct Ray {
+    Vec3 origin{Vec3::zero()};
+    Vec3 direction{Vec3::unitZ()};
+
+    constexpr Ray() noexcept = default;
+    constexpr Ray(const Vec3& o, const Vec3& d) noexcept : origin(o), direction(d) {}
+
+    [[nodiscard]] Vec3 getPoint(float t) const noexcept { return origin + (direction * t); }
+
+    /// Tests intersection with a plane defined by a point and normal.
+    [[nodiscard]] std::optional<float> intersectPlane(const Vec3& planePoint,
+                                                      const Vec3& planeNormal) const noexcept {
+        const float denom = Vec3::dot(direction, planeNormal);
+        if (std::abs(denom) < 1e-6F) {
+            return std::nullopt; // Parallel
+        }
+        const float t = Vec3::dot(planePoint - origin, planeNormal) / denom;
+        if (t < 0.0F) {
+            return std::nullopt; // Behind ray origin
+        }
+        return t;
+    }
+
+    /// Tests intersection with a sphere (center, radius).
+    [[nodiscard]] std::optional<float> intersectSphere(const Vec3& center,
+                                                       float radius) const noexcept {
+        const Vec3 oc = origin - center;
+        const float b = Vec3::dot(oc, direction);
+        const float c = Vec3::dot(oc, oc) - (radius * radius);
+        const float discriminant = (b * b) - c;
+
+        if (discriminant < 0.0F) {
+            return std::nullopt;
+        }
+
+        const float sqrtDisc = std::sqrt(discriminant);
+        const float t0 = -b - sqrtDisc;
+        if (t0 >= 0.0F) {
+            return t0;
+        }
+        const float t1 = -b + sqrtDisc;
+        if (t1 >= 0.0F) {
+            return t1;
+        }
+        return std::nullopt;
+    }
+
+    /// Tests intersection with an Axis-Aligned Bounding Box (AABB) [minBound, maxBound].
+    [[nodiscard]] std::optional<float> intersectAABB(const Vec3& minBound,
+                                                     const Vec3& maxBound) const noexcept {
+        float tMin = 0.0F;
+        float tMax = 1e30F;
+
+        const float origins[3] = {origin.x, origin.y, origin.z};
+        const float dirs[3] = {direction.x, direction.y, direction.z};
+        const float mins[3] = {minBound.x, minBound.y, minBound.z};
+        const float maxs[3] = {maxBound.x, maxBound.y, maxBound.z};
+
+        for (int i = 0; i < 3; ++i) {
+            if (std::abs(dirs[i]) < 1e-6F) {
+                if (origins[i] < mins[i] || origins[i] > maxs[i]) {
+                    return std::nullopt;
+                }
+            } else {
+                const float invD = 1.0F / dirs[i];
+                float t0 = (mins[i] - origins[i]) * invD;
+                float t1 = (maxs[i] - origins[i]) * invD;
+                if (t0 > t1) {
+                    std::swap(t0, t1);
+                }
+                tMin = std::max(tMin, t0);
+                tMax = std::min(tMax, t1);
+                if (tMax < tMin) {
+                    return std::nullopt;
+                }
+            }
+        }
+        return tMin;
     }
 };
 

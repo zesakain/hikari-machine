@@ -115,6 +115,79 @@ static int testMat4AndTransform() {
     return 0;
 }
 
+static int testPerspectiveLookAtInverseAndRay() {
+    // 1. Perspective Matrix projection
+    const float fovY = std::numbers::pi_v<float> / 3.0F; // 60 degrees
+    const float aspect = 16.0F / 9.0F;
+    const float zNear = 0.1F;
+    const float zFar = 100.0F;
+    Mat4 proj = Mat4::perspective(fovY, aspect, zNear, zFar);
+
+    // 2. View Matrix lookAt
+    Vec3 eye{0.0F, 5.0F, 10.0F};
+    Vec3 target{0.0F, 0.0F, 0.0F};
+    Mat4 view = Mat4::lookAt(eye, target, Vec3::unitY());
+
+    Mat4 vp = proj * view;
+
+    // Center target (0,0,0) projected should have NDC x = 0, y close to center
+    float wTarget = 0.0F;
+    Vec3 pNdc = vp.transformPointWithW(target, wTarget);
+    TEST_CHECK(wTarget > 0.0F);
+    float ndcX = pNdc.x / wTarget;
+    float ndcY = pNdc.y / wTarget;
+    TEST_CHECK(std::abs(ndcX) < 1e-4F);
+    TEST_CHECK(std::abs(ndcY) < 0.8F);
+
+    // 3. Matrix Inverse
+    auto invOpt = vp.inverse();
+    TEST_CHECK(invOpt.has_value());
+    Mat4 invVp = *invOpt;
+    Mat4 ident = vp * invVp;
+    for (size_t r = 0; r < 4; ++r) {
+        for (size_t c = 0; c < 4; ++c) {
+            float expected = (r == c) ? 1.0F : 0.0F;
+            TEST_CHECK(std::abs(ident.at(r, c) - expected) < 1e-3F);
+        }
+    }
+
+    // Unproject NDC center back to 3D line
+    float wNear = 0.0F;
+    float wFar = 0.0F;
+    Vec3 ptNearWorld = invVp.transformPointWithW(Vec3{0.0F, 0.0F, 0.0F}, wNear);
+    ptNearWorld = ptNearWorld / wNear;
+    Vec3 ptFarWorld = invVp.transformPointWithW(Vec3{0.0F, 0.0F, 1.0F}, wFar);
+    ptFarWorld = ptFarWorld / wFar;
+    Vec3 rayDir = (ptFarWorld - ptNearWorld).normalized();
+    Vec3 expectedDir = (target - eye).normalized();
+    TEST_CHECK(rayDir.isNearlyEqual(expectedDir, 1e-3F));
+
+    // 4. Ray Intersection Tests
+    Ray ray(eye, (target - eye).normalized());
+
+    // Plane intersection (Y = 0)
+    auto tPlane = ray.intersectPlane(Vec3::zero(), Vec3::unitY());
+    TEST_CHECK(tPlane.has_value());
+    Vec3 hitPlane = ray.getPoint(*tPlane);
+    TEST_CHECK(hitPlane.isNearlyEqual(target, 1e-3F));
+
+    // Sphere intersection at target with radius 1.5
+    auto tSphere = ray.intersectSphere(target, 1.5F);
+    TEST_CHECK(tSphere.has_value());
+    TEST_CHECK(*tSphere < (target - eye).length());
+
+    // AABB intersection [-1, -1, -1] to [1, 1, 1]
+    auto tAABB = ray.intersectAABB(Vec3{-1.0F, -1.0F, -1.0F}, Vec3{1.0F, 1.0F, 1.0F});
+    TEST_CHECK(tAABB.has_value());
+    TEST_CHECK(*tAABB > 0.0F);
+
+    // Miss AABB test
+    auto tMiss = ray.intersectAABB(Vec3{10.0F, 10.0F, 10.0F}, Vec3{12.0F, 12.0F, 12.0F});
+    TEST_CHECK(!tMiss.has_value());
+
+    return 0;
+}
+
 int main() {
     std::cout << "Running Math Tests...\n";
 
@@ -125,6 +198,9 @@ int main() {
         return 1;
     }
     if (testMat4AndTransform() != 0) {
+        return 1;
+    }
+    if (testPerspectiveLookAtInverseAndRay() != 0) {
         return 1;
     }
 
