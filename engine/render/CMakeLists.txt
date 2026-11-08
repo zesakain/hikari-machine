@@ -4,6 +4,7 @@
 
 add_library(engine_render STATIC
     src/asset_manager.cpp
+    src/gltf_importer.cpp
     src/gpu_mesh.cpp
     src/mesh.cpp
     src/mesh_component.cpp
