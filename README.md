@@ -126,15 +126,24 @@ Hikari-Machine is organized into strict hierarchical layers. Dependencies flow s
 
 ## 5. Visual Editor & IDE Development Status
 
-The engine includes a functional developer visual editor (`editor/`) built with Dear ImGui and rendered through Vulkan 1.3 dynamic rendering:
+The engine includes a functional developer visual editor (`editor/`) built with Dear ImGui (docking branch) and rendered through Vulkan 1.3 dynamic rendering:
 
 ### Implemented & Verified Capabilities
 - **Vulkan Dynamic Pipeline:** Real vertex (`ImDrawVert`) and index (`ImDrawIdx`) uploads drawn directly into the swapchain dynamic render pass with alpha blending and font texture descriptor sets.
-- **Main Menu Bar:** Menus for File, Edit, View, Window (panel toggles), Entity creation, Assets, Tools, and Help.
+- **Docking Workspace Architecture:** Full multi-panel docking system (`ImGuiDockNodeFlags_DockSpace`), customizable workspace layout presets (Default Studio, Wide Viewport, Inspector Focus), and layout persistence to disk (`hikari_editor_layout.ini`).
+- **Main Menu Bar:** Menus for File, Edit, View, GameObject, Component, Window (panel toggles & layouts), Tools, and Help.
 - **Main Toolbar:** Simulation controls (Play, Pause, Step), live Conductor State A/B dynamic badges, one-click state transition triggers, and real-time FPS readout.
-- **Entity Hierarchy:** Queries live Flecs entities, provides real-time search filtering, selection tracking, and buttons for empty, physics cube, and physics sphere entity creation.
+- **Scene Hierarchy & Entity Management (Milestone 2):**
+  - **Centralized Selection Service (`SelectionModel`):** Single-click selection, additive Ctrl+Click multi-selection, contiguous Shift+Click range selection, Ctrl+A Select All, and Escape Deselect.
+  - **Generational Validation:** Automatically purges destroyed or stale entity handles with safe primary selection fallback.
+  - **Entity Creation & Listing:** Creates Empty Entities, Entities with Transform, 3D Physics Cubes, and 3D Physics Spheres with collision-free unique name generation.
+  - **Inline Rename:** Double-click or F2 inline renaming with validation and whitespace trimming.
+  - **Safe Entity Duplication:** Ctrl+D duplication with component cloning and spatial offset.
+  - **Entity Deletion:** Single and multi-entity deletion with immediate selection cache invalidation.
+  - **Search & Filtering:** Real-time case-insensitive search and component filter chips (`[All]`, `[Tr]`, `[RB]`, `[Script]`).
 - **Entity Inspector:** Interactive live inspection and editing of entity components:
-  - `PhysicsTransformComponent`: 3D position (`DragFloat3`), quaternion rotation (`DragFloat4`), and scale (`DragFloat3`).
+  - Multi-selection inspection card with entity list and batch deletion.
+  - `PhysicsTransformComponent`: 3D position (`DragFloat3`), Euler rotation (`DragFloat3`), and scale (`DragFloat3`).
   - `RigidBodyComponent`: Motion type selection (`Static`, `Kinematic`, `Dynamic`) and collision layer editing.
   - `ScriptComponent`: Displays attached Lua script routine and execution state.
 - **Scene Viewport Panel:** Viewport resolution and aspect ratio calculation, dark slate canvas, coordinate grid lines, center crosshairs, and honest empty-scene baseline indicators.
@@ -145,7 +154,6 @@ The engine includes a functional developer visual editor (`editor/`) built with 
 
 ### Current Limitations & Incomplete Features
 - **Empty-Scene Viewport Canvas:** The viewport panel currently displays an empty-scene canvas with coordinate grid and crosshairs. Offscreen 3D scene rasterization targeting a viewport render texture is planned for when the mesh scene renderer is complete.
-- **Docking Branch Support:** Dear ImGui is compiled on the stable master branch (`v1.91.8`). Docking and multi-viewport floating OS windows require upgrading to the ImGui docking branch.
 - **Disk-Backed Scene Serialization:** Scene save/load currently outputs log notifications; disk serialization of Flecs entity archetypes will be integrated with the upcoming asset cooker.
 
 ---

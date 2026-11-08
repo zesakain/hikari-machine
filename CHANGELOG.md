@@ -8,6 +8,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Editor Milestone 2: Production-Quality Scene Hierarchy & Entity Management**:
+  - **Centralized Entity Selection Service (`SelectionModel`)**:
+    - Generational entity selection service (`editor/selection_model.h`) managing single, multi, and range selection across all editor panels.
+    - Single-click selection, additive Ctrl+Click selection, contiguous Shift+Click range selection, Ctrl+A Select All, and Escape Deselect.
+    - Automatic generational validation against the Shared World (`validate(world)`), purging destroyed or stale entity handles with safe primary selection fallback.
+  - **Shared World Entity Listing & Creation**:
+    - Real-time querying of user simulation entities from the unified Flecs ECS world, strictly filtering internal modules, components, and builtins.
+    - Stable, deterministic sorting by entity ID.
+    - Contextual and main-menu entity creation: Empty Entity, Entity with Transform, 3D Physics Cube, and 3D Physics Sphere.
+    - Collision-free deterministic unique name generation (`generateUniqueEntityName`) via Flecs registry lookups.
+  - **Entity Naming & Inline Rename**:
+    - Added `getEntityName(EntityHandle)` and `setEntityName(EntityHandle, std::string_view)` to `world::World`.
+    - Inline hierarchy rename with auto-focused input buffer, Enter confirmation, Escape cancellation, whitespace trimming, and F2 keyboard shortcut.
+    - Bidirectional name synchronization between Scene Hierarchy, Entity Inspector, and Status Bar.
+  - **Safe Entity Duplication**:
+    - Deep component copying for `PhysicsTransformComponent` (with spatial offset), `RigidBodyComponent` (with unassigned body handle for physics recreation), and `ScriptComponent`.
+    - Auto-generation of unique suffix names (e.g., `Entity_Copy`, `Entity_Copy_1`).
+    - Context menu item and `Ctrl+D` keyboard shortcut.
+  - **Entity Deletion & Stale Selection Invalidation**:
+    - Single and multi-entity batch deletion (`deleteSelectedEntities`) with `Delete` key shortcut and context menus.
+    - Immediate invalidation in `SelectionModel`, preventing dangling references in the Inspector or Viewport.
+  - **Hierarchy Search & Component Filter Chips**:
+    - Real-time case-insensitive entity name searching with instant clear ("X") button.
+    - Dedicated component filter chips: `[All]`, `[Tr]` (Transform), `[RB]` (RigidBody), and `[Script]`.
+    - Visual feedback for empty scenes and zero-search-result queries.
+  - **Editor Panel & Status Bar Synchronization**:
+    - Multi-selection card in `InspectorPanel` with itemized entity badges and batch deletion.
+    - Status bar live entity telemetry showing single selected entity name/ID or multi-selection count.
+  - **Automated Regression Test Suite**:
+    - `testSelectionModelBasicOperations`: single, multi, range, toggle, select all, deselect, clear.
+    - `testSelectionModelValidationAndStaleHandles`: stale handle elimination, primary fallback, and empty world validation.
+    - `testEditorEntityLifecycleAndConductorGating`: verifies entity persistence and selection validity across Two-State Conductor mode switches.
+    - `testEntityNaming`: verifies entity name creation, update, and invalid handle handling in `World`.
 - **Functional Visual Editor & IDE Development (Phase 6.11)**:
   - **Vulkan Dynamic Rendering Integration for Dear ImGui**:
     - Created `NativeDeviceHandles` and `NativeCommandListHandles` opaque POD bridges in `RhiDevice` and `RhiCommandList`.
