@@ -30,6 +30,9 @@ Testing/
 *.dll
 *.exe
 
+# Except 3D models in assets/
+!assets/**/*.obj
+
 # Sanitizer and profiling outputs
 asan.log*
 tsan.log*
