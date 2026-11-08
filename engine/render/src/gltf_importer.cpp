@@ -121,7 +121,69 @@ Error mapCgltfResult(cgltf_result res) {
     }
 }
 
-Result<MeshData> processGltfData(cgltf_data* data, std::string_view /*baseDir*/,
+TextureSamplerDesc parseSampler(const cgltf_texture_view& view) {
+    TextureSamplerDesc desc{};
+    if (view.texture != nullptr && view.texture->sampler != nullptr) {
+        const auto* s = view.texture->sampler;
+        if (s->min_filter == 9728) { // GL_NEAREST
+            desc.minFilter = TextureSamplerDesc::Filter::Nearest;
+        } else {
+            desc.minFilter = TextureSamplerDesc::Filter::Linear;
+        }
+
+        if (s->mag_filter == 9728) { // GL_NEAREST
+            desc.magFilter = TextureSamplerDesc::Filter::Nearest;
+        } else {
+            desc.magFilter = TextureSamplerDesc::Filter::Linear;
+        }
+
+        auto convertWrap = [](cgltf_int wrap) {
+            if (wrap == 33071) { // GL_CLAMP_TO_EDGE
+                return TextureSamplerDesc::WrapMode::ClampToEdge;
+            }
+            if (wrap == 33648) { // GL_MIRRORED_REPEAT
+                return TextureSamplerDesc::WrapMode::MirroredRepeat;
+            }
+            return TextureSamplerDesc::WrapMode::Repeat;
+        };
+        desc.wrapS = convertWrap(s->wrap_s);
+        desc.wrapT = convertWrap(s->wrap_t);
+    }
+    return desc;
+}
+
+TextureInfo parseTextureInfo(const cgltf_texture_view& view, std::string_view baseDir,
+                             TextureColorSpace colorSpace) {
+    TextureInfo info{};
+    if (view.texture == nullptr || view.texture->image == nullptr) {
+        return info;
+    }
+
+    info.isPresent = true;
+    info.colorSpace = colorSpace;
+    info.texCoordIndex = view.texcoord;
+    info.sampler = parseSampler(view);
+
+    if (view.texture->image->uri != nullptr) {
+        std::string rawUri = view.texture->image->uri;
+        if (!baseDir.empty() && rawUri.rfind("data:", 0) != 0) {
+            std::filesystem::path fullP = std::filesystem::path(baseDir) / rawUri;
+            info.uri = fullP.lexically_normal().string();
+        } else {
+            info.uri = std::move(rawUri);
+        }
+        std::replace(info.uri.begin(), info.uri.end(), '\\', '/');
+        info.textureAsset = makeAssetIdFromPath(info.uri);
+    } else if (view.texture->image->buffer_view != nullptr) {
+        // Embedded buffer
+        info.uri = "embedded://image";
+        info.textureAsset = AssetId{1};
+    }
+
+    return info;
+}
+
+Result<MeshData> processGltfData(cgltf_data* data, std::string_view baseDir,
                                  std::string_view name) {
     if (data == nullptr) {
         return Error(ErrorCode::InvalidArgument, "Null glTF data pointer");
@@ -129,7 +191,53 @@ Result<MeshData> processGltfData(cgltf_data* data, std::string_view /*baseDir*/,
 
     MeshData meshData{std::string(name)};
 
-    // Discover Mesh Nodes and Transforms
+    // 1. Extract Materials
+    meshData.materials.reserve(data->materials_count);
+    for (size_t i = 0; i < data->materials_count; ++i) {
+        const auto& cgMat = data->materials[i];
+        Material mat{};
+        mat.name = (cgMat.name != nullptr) ? cgMat.name : ("Material_" + std::to_string(i));
+
+        if (cgMat.has_pbr_metallic_roughness) {
+            const auto& pbr = cgMat.pbr_metallic_roughness;
+            mat.baseColor = Vec4{pbr.base_color_factor[0], pbr.base_color_factor[1],
+                                 pbr.base_color_factor[2], pbr.base_color_factor[3]};
+            mat.roughness = pbr.roughness_factor;
+            mat.metallic = pbr.metallic_factor;
+
+            mat.baseColorTexture =
+                parseTextureInfo(pbr.base_color_texture, baseDir, TextureColorSpace::sRGB);
+            mat.textureAsset = mat.baseColorTexture.textureAsset;
+            mat.metallicRoughnessTexture = parseTextureInfo(pbr.metallic_roughness_texture, baseDir,
+                                                            TextureColorSpace::Linear);
+        }
+
+        mat.normalTexture =
+            parseTextureInfo(cgMat.normal_texture, baseDir, TextureColorSpace::Linear);
+        mat.occlusionTexture =
+            parseTextureInfo(cgMat.occlusion_texture, baseDir, TextureColorSpace::Linear);
+        mat.emissiveTexture =
+            parseTextureInfo(cgMat.emissive_texture, baseDir, TextureColorSpace::sRGB);
+        mat.emissiveFactor = Vec3{cgMat.emissive_factor[0], cgMat.emissive_factor[1],
+                                  cgMat.emissive_factor[2]};
+
+        if (cgMat.alpha_mode == cgltf_alpha_mode_mask) {
+            mat.alphaMode = AlphaMode::Mask;
+            mat.alphaCutoff = cgMat.alpha_cutoff;
+        } else if (cgMat.alpha_mode == cgltf_alpha_mode_blend) {
+            mat.alphaMode = AlphaMode::Blend;
+        } else {
+            mat.alphaMode = AlphaMode::Opaque;
+        }
+
+        meshData.materials.push_back(std::move(mat));
+    }
+
+    if (meshData.materials.empty()) {
+        meshData.materials.push_back(Material::createDefault());
+    }
+
+    // 2. Discover Mesh Nodes and Transforms
     struct NodeMeshPair {
         const cgltf_mesh* mesh{nullptr};
         Mat4 worldTransform{Mat4::identity()};
@@ -162,7 +270,7 @@ Result<MeshData> processGltfData(cgltf_data* data, std::string_view /*baseDir*/,
         return Error(ErrorCode::InvalidArgument, "glTF asset contains no meshes or geometry");
     }
 
-    // Process Primitives and Geometry
+    // 3. Process Primitives and Geometry
     bool anyMissingNormals = false;
 
     for (const auto& inst : meshInstances) {
@@ -252,8 +360,8 @@ Result<MeshData> processGltfData(cgltf_data* data, std::string_view /*baseDir*/,
 
             Submesh submesh{};
             submesh.name = (prim.material != nullptr && prim.material->name != nullptr)
-                                ? prim.material->name
-                                : ((mesh->name != nullptr) ? mesh->name : "Submesh");
+                               ? prim.material->name
+                               : ((mesh->name != nullptr) ? mesh->name : "Submesh");
             submesh.firstIndex = static_cast<uint32_t>(meshData.indices.size());
             submesh.vertexOffset = vertexBase;
 

@@ -15,6 +15,7 @@
 
 #include "core/math.h"
 #include "core/result.h"
+#include "render/material.h"
 
 #include <cstdint>
 #include <string>
@@ -59,6 +60,7 @@ struct MeshData {
     std::vector<Vertex> vertices{};
     std::vector<uint32_t> indices{};
     std::vector<Submesh> submeshes{};
+    std::vector<Material> materials{};
     AABB bounds{};
 
     MeshData() = default;
@@ -75,6 +77,9 @@ struct MeshData {
 
     [[nodiscard]] const std::vector<Submesh>& getSubmeshes() const noexcept { return submeshes; }
     [[nodiscard]] std::vector<Submesh>& getMutableSubmeshes() noexcept { return submeshes; }
+
+    [[nodiscard]] const std::vector<Material>& getMaterials() const noexcept { return materials; }
+    [[nodiscard]] std::vector<Material>& getMutableMaterials() noexcept { return materials; }
 
     [[nodiscard]] const AABB& getBounds() const noexcept { return bounds; }
 
@@ -105,11 +110,12 @@ struct MeshData {
     /// Computes smooth area-weighted vertex normals from polygon faces if missing or zero.
     void generateNormals() noexcept;
 
-    /// Clears all vertices, indices, and submeshes.
+    /// Clears all vertices, indices, submeshes, and materials.
     void clear() noexcept {
         vertices.clear();
         indices.clear();
         submeshes.clear();
+        materials.clear();
         bounds = AABB{};
     }
 };
