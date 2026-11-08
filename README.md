@@ -149,6 +149,15 @@ The engine includes a functional developer visual editor (`editor/`) built with 
   - **ColliderComponent:** Geometric primitive shapes (`Box`, `Sphere`, `Capsule`), shape-specific dimensions (half-extents, radius, half-height), and center offsets.
   - **ScriptComponent:** Editable Lua script routine name, enabled/disabled execution toggle, update interval, and real-time status indicators (`[Active]`, `[Unassigned]`, `[Disabled]`).
   - **Multi-Selection Editing:** Detection of common components across all selected entities, per-axis mixed-state indicators (`---`), batch property modifications applied to all selected entities without affecting unselected entities, batch Add Component to all, and batch Remove Component from all.
+- **Native Scene Serialization & Persistence (Milestone 4):**
+  - **Native `.hikari` File Format:** Versioned JSON format containing scene metadata, stable entity identifiers (`StableIdComponent`), and attached ECS component data.
+  - **Supported Components:** Full serialization and deserialization for `PhysicsTransformComponent` (position, quaternion rotation, scale), `RigidBodyComponent` (motion type, collision layer), `ColliderComponent` (box, sphere, capsule dimensions and offsets), and `ScriptComponent` (routine name, enabled flag, update interval).
+  - **Transactional Deserialization:** Corrupted or invalid scene files (syntax errors, unsupported schema versions, duplicate entity IDs, degenerate scale) are rejected in memory before mutating the active simulation world.
+  - **Atomic File Saving:** Two-step save process writing to a temporary file (`.tmp`) before atomic filesystem renaming, preventing partial file writes or corruption on crash.
+  - **Editor File Workflows:** File menu actions (`New Scene`, `Open Scene...`, `Save Scene`, `Save Scene As...`), modal confirmation dialogs for unsaved changes, path prompt dialogs, error alerts, and keyboard shortcuts (`Ctrl+N`, `Ctrl+O`, `Ctrl+S`, `Ctrl+Shift+S`).
+  - **Dirty State Tracking (`*`):** Real-time dirty flag tracking on entity creation, renaming, component mutations, and deletion with visual indicators on the toolbar and status bar (`Scene: Name*`).
+  - **Selection Safety:** Selection cache invalidation and clearing upon loading or creating scenes to prevent stale entity handle references.
+  - **Sample Scene:** Verified reference scene available at `assets/scenes/sample.hikari`.
 - **Scene Viewport Panel:** Viewport resolution and aspect ratio calculation, dark slate canvas, coordinate grid lines, center crosshairs, and honest empty-scene baseline indicators.
 - **Content Browser:** Virtual project asset filesystem navigation tree (`assets/`, `data/`, `game/`, `docs/`).
 - **Log Console Panel:** Streams live ring-buffer records from `Logger::defaultLogger()` with severity filtering (All, Info, Warning, Error), search, and clear controls.
@@ -157,7 +166,7 @@ The engine includes a functional developer visual editor (`editor/`) built with 
 
 ### Current Limitations & Incomplete Features
 - **Empty-Scene Viewport Canvas:** The viewport panel currently displays an empty-scene canvas with coordinate grid and crosshairs. Offscreen 3D scene rasterization targeting a viewport render texture is planned for when the mesh scene renderer is complete.
-- **Disk-Backed Scene Serialization:** Scene save/load currently outputs log notifications; disk serialization of Flecs entity archetypes will be integrated with the upcoming asset cooker.
+- **Renderer & Mesh Components:** Mesh rendering, PBR materials, and GLTF asset imports are not yet part of the scene format; they will be integrated once the 3D scene rendering pipeline is developed.
 
 ---
 

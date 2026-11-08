@@ -28,6 +28,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added regression test suite (`testInvalidEntityLookupSafety`, `testPhysicsObjectCreationAndUniqueNamingRegression`, `testRepeatedPhysicsObjectCreationAndHierarchyRendering`) in `tests/unit/editor/editor_test.cpp`.
 
 ### Added
+- **Editor Milestone 4: Native Scene Serialization & Deserialization (.hikari)**:
+  - **Native `.hikari` File Format & JSON Engine (`core::JsonValue`)**:
+    - Implemented a standard-compliant, exception-free recursive descent JSON parser and serializer in `engine/core` with zero third-party dependencies.
+    - Defined schema version 1 for native `.hikari` files with metadata (`name`, `generator`, `timestamp`), stable entity identifiers (`StableIdComponent`), and component payloads.
+  - **Supported ECS Components**:
+    - `PhysicsTransformComponent`: position ([x, y, z]), quaternion rotation ([x, y, z, w]), and scale ([x, y, z]).
+    - `RigidBodyComponent`: motion type (`static`, `kinematic`, `dynamic`) and collision layer ID.
+    - `ColliderComponent`: geometric primitives (`box`, `sphere`, `capsule`), dimensions (`half_extents`, `radius`, `half_height`), and center offsets.
+    - `ScriptComponent`: Lua script routine name, execution enable toggle, and update interval.
+    - Forward compatibility: unrecognized components are skipped with non-fatal log warnings.
+  - **Transactional Deserialization & World Safety**:
+    - Pre-validates scene syntax, schema version, duplicate IDs, and degenerate geometry in memory before mutating the simulation world.
+    - Preserves existing simulation world state if the scene file is missing, corrupted, or invalid.
+    - Clean entity teardown via `World::clearUserEntities()` preserving engine systems and components.
+  - **Reliable Atomic File Saving**:
+    - Implemented atomic file writes via temporary files (`<filepath>.tmp`) followed by atomic rename to guarantee files are never left corrupted or truncated.
+  - **Editor File Workflows & UI Integration**:
+    - File Menu actions: `New Scene` (`Ctrl+N`), `Open Scene...` (`Ctrl+O`), `Save Scene` (`Ctrl+S`), `Save Scene As...` (`Ctrl+Shift+S`).
+    - Modal confirmation dialogs for unsaved changes before New Scene and Open Scene.
+    - File path input dialogs for Open Scene and Save Scene As, along with error alert popups.
+    - Real-time dirty state tracking (`*`) on entity creation, duplication, renaming, component mutations, and deletion.
+    - Live scene title and dirty state indicator in the editor toolbar and status bar (`Scene: Name*`).
+    - Automatic `SelectionModel` invalidation and clearing on scene load to prevent stale entity handle references.
+  - **Sample Scene & Test Coverage**:
+    - Created reference scene at `assets/scenes/sample.hikari`.
+    - Added comprehensive unit tests in `tests/unit/framework/scene_test.cpp` and `tests/unit/editor/editor_test.cpp`.
 - **Editor Milestone 3: Production-Quality Entity Inspector Completion**:
   - **ECS Component Lifecycle Management**:
     - Comprehensive component management in `InspectorPanel` supporting `PhysicsTransformComponent`, `RigidBodyComponent`, `ColliderComponent`, and `ScriptComponent`.
