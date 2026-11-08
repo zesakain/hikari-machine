@@ -13,7 +13,7 @@ Key architectural boundaries:
 
 ## 2. Editor Camera Mathematics
 
-The `eng::editor::EditorCamera` ([`editor/include/editor/editor_camera.h`](file:///home/lux/Hikari/editor/include/editor/editor_camera.h)) manages:
+The `eng::editor::EditorCamera` ([`editor/include/editor/editor_camera.h`](editor/include/editor/editor_camera.h)) manages:
 - **Position & Pivot**: `position_`, `pivot_`, `distance_`.
 - **Orientation**: `yaw_` and `pitch_` (clamped to $[-89^\circ, +89^\circ]$ to prevent gimbal lock singularities).
 - **Vectors**:

@@ -17,7 +17,7 @@ The central architectural identity of Hikari is the **Two-State Conductor** oper
 
 ## 2. Module Boundaries & Layer Hierarchy
 
-In strict accordance with [ADR-0004](file:///home/lux/Hikari/docs/adr/0004-layered-engine-architecture.md), dependencies flow strictly downward:
+In strict accordance with [ADR-0004](docs/adr/0004-layered-engine-architecture.md), dependencies flow strictly downward:
 
 ```
 Framework (Conductor, Mode, Clocks)

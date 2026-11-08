@@ -1,7 +1,7 @@
 # Independent Manual Acceptance Audit: Milestone 8A
 ## RHI Graphics Pipeline & Shader Foundation
 
-**Repository:** `/home/lux/Hikari`  
+**Repository:** `/home/user/hikari-machine`  
 **Branch:** `main`  
 **Audit Date:** 2026-11-08  
 **Audit Scope:** Verification of RHI graphics pipeline and shader infrastructure implemented in Milestone 8A.
@@ -56,14 +56,14 @@ No crashes, memory corruptions, memory leaks, data races, or breaking architectu
 
 1. **`VulkanCommandList::beginRenderPass` Currently Restricted to Swapchain Presentation**
    - **Severity:** Medium (Milestone 8B Prerequisite)
-   - **File & Symbol:** [`engine/rhi/src/vulkan/vulkan_command_list.cpp:77-178`](file:///home/lux/Hikari/engine/rhi/src/vulkan/vulkan_command_list.cpp#L77-L178), `VulkanCommandList::beginRenderPass`
+   - **File & Symbol:** [`engine/rhi/src/vulkan/vulkan_command_list.cpp:77-178`](engine/rhi/src/vulkan/vulkan_command_list.cpp#L77-L178), `VulkanCommandList::beginRenderPass`
    - **Evidence:** Line 82 asserts `device_->getSwapchain() != nullptr`, retrieves `swapView`, and line 168 sets `.pDepthAttachment = nullptr`. The `info.colorTarget` parameter is currently not resolved to an offscreen `VkImageView`.
    - **Explanation:** In Milestone 8A, offscreen viewport rendering was deliberately scoped out to keep the foundation atomic. However, `beginRenderPass` must be generalized in Milestone 8B to bind arbitrary offscreen color and depth render targets.
    - **Recommended Action for Milestone 8B:** Extend `RenderPassBeginInfo` with `TextureHandle depthTarget`. In `beginRenderPass`, inspect `info.colorTarget`: if valid, resolve its `VkImageView` and transition its layout; similarly bind `info.depthTarget` if valid.
 
 2. **Descriptor Set Allocation and Binding Path Not Implemented**
    - **Severity:** Medium
-   - **File & Symbol:** [`engine/rhi/include/rhi/rhi_device.h`](file:///home/lux/Hikari/engine/rhi/include/rhi/rhi_device.h), [`engine/rhi/include/rhi/command_list.h`](file:///home/lux/Hikari/engine/rhi/include/rhi/command_list.h)
+   - **File & Symbol:** [`engine/rhi/include/rhi/rhi_device.h`](engine/rhi/include/rhi/rhi_device.h), [`engine/rhi/include/rhi/command_list.h`](engine/rhi/include/rhi/command_list.h)
    - **Evidence:** `createPipelineLayout` successfully compiles `VkDescriptorSetLayout` arrays, but `RhiDevice` does not offer `createDescriptorPool` / `allocateDescriptorSet`, and `RhiCommandList` does not provide `bindDescriptorSet`.
    - **Explanation:** Push constants (`kMaxPushConstantSize = 128` bytes) are fully operational and serve as the primary mechanism for uploading MVP and transform matrices in baseline rendering.
    - **Recommended Action for Milestone 8B:** Use push constants for camera view-projection and entity model matrices in `SceneRenderer`. If descriptor-based uniform buffers or textures are introduced later, implement descriptor pools and binding in a dedicated milestone.
@@ -72,14 +72,14 @@ No crashes, memory corruptions, memory leaks, data races, or breaking architectu
 
 1. **`pushConstants` Does Not Validate Layout Compatibility Against Bound Pipeline**
    - **Severity:** Low
-   - **File & Symbol:** [`engine/rhi/src/vulkan/vulkan_command_list.cpp:328`](file:///home/lux/Hikari/engine/rhi/src/vulkan/vulkan_command_list.cpp#L328), `VulkanCommandList::pushConstants`
+   - **File & Symbol:** [`engine/rhi/src/vulkan/vulkan_command_list.cpp:328`](engine/rhi/src/vulkan/vulkan_command_list.cpp#L328), `VulkanCommandList::pushConstants`
    - **Evidence:** `pushConstants` resolves `layout` and calls `vkCmdPushConstants` directly without checking whether `layout == boundLayoutHandle_`.
    - **Explanation:** If a caller accidentally passes a layout unrelated to the currently bound pipeline, undefined push constant mapping could occur.
    - **Recommended Action:** In debug builds, add an assert or log warning if `boundPipeline_ != VK_NULL_HANDLE && layout != boundLayoutHandle_`.
 
 2. **Stencil Operations Hardcoded to Disabled**
    - **Severity:** Low
-   - **File & Symbol:** [`engine/rhi/src/vulkan/vulkan_device.cpp:981`](file:///home/lux/Hikari/engine/rhi/src/vulkan/vulkan_device.cpp#L981)
+   - **File & Symbol:** [`engine/rhi/src/vulkan/vulkan_device.cpp:981`](engine/rhi/src/vulkan/vulkan_device.cpp#L981)
    - **Evidence:** `depthStencil.stencilTestEnable` is hardcoded to `VK_FALSE` in pipeline creation.
    - **Explanation:** `PipelineDepthStencilState` only exposes depth testing, writing, and compare operators. Baseline 3D mesh rasterization does not require stencil buffers.
    - **Recommended Action:** Defer stencil state exposure until a feature (such as planar shadows or object outlines) requires it.

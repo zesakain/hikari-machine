@@ -2,7 +2,7 @@
 ## Rendering Pipeline Reality Check & GPU Rendering Audit
 
 **Date:** 2026-11-08  
-**Repository:** `/home/lux/Hikari`  
+**Repository:** `/home/user/hikari-machine`  
 **Milestone:** 7.5 — Rendering Pipeline Reality Check  
 **Author:** Antigravity (Advanced Agentic Coding Assistant)  
 **Status:** Complete — Audit Only (No production modifications, no commits)  
@@ -16,13 +16,13 @@ A comprehensive investigation of the Hikari codebase was conducted to determine 
 ### Key Finding:
 **Hikari does NOT currently render 3D meshes through a GPU graphics pipeline.**
 
-While GPU resource infrastructure ([`GpuMesh`](file:///home/lux/Hikari/engine/render/include/render/gpu_mesh.h), [`RhiDevice::createBuffer`](file:///home/lux/Hikari/engine/rhi/src/vulkan/vulkan_device.cpp#L289-L346), and [`RhiDevice::writeBuffer`](file:///home/lux/Hikari/engine/rhi/src/vulkan/vulkan_device.cpp#L366-L389)) genuinely allocates Vulkan `VkBuffer` memory on the GPU and uploads vertex/index data into host-visible GPU memory, **these GPU buffers are never bound or read by any graphics pipeline during viewport rendering.**
+While GPU resource infrastructure ([`GpuMesh`](engine/render/include/render/gpu_mesh.h), [`RhiDevice::createBuffer`](engine/rhi/src/vulkan/vulkan_device.cpp#L289-L346), and [`RhiDevice::writeBuffer`](engine/rhi/src/vulkan/vulkan_device.cpp#L366-L389)) genuinely allocates Vulkan `VkBuffer` memory on the GPU and uploads vertex/index data into host-visible GPU memory, **these GPU buffers are never bound or read by any graphics pipeline during viewport rendering.**
 
-Instead, the Scene Viewport visualizes 3D meshes via **CPU-side software projection and 2D vector triangle rendering through Dear ImGui's draw list** ([`ImDrawList`](file:///home/lux/Hikari/editor/src/panels/viewport_panel.cpp#L349-L432)):
-1. The viewport panel retrieves the CPU copy of the mesh geometry ([`MeshData`](file:///home/lux/Hikari/engine/render/include/render/mesh.h)) directly from system RAM.
+Instead, the Scene Viewport visualizes 3D meshes via **CPU-side software projection and 2D vector triangle rendering through Dear ImGui's draw list** ([`ImDrawList`](editor/src/panels/viewport_panel.cpp#L349-L432)):
+1. The viewport panel retrieves the CPU copy of the mesh geometry ([`MeshData`](engine/render/include/render/mesh.h)) directly from system RAM.
 2. The CPU performs world transformation, camera projection, backface culling, and flat diffuse lighting for every triangle.
 3. The resulting 2D screen-space triangles are submitted to Dear ImGui (`drawList->AddTriangleFilled`), which rasterizes them using ImGui's internal 2D UI shader.
-4. The [`SceneRenderer`](file:///home/lux/Hikari/engine/render/src/scene_renderer.cpp) class (which records `bindVertexBuffer` and `drawIndexed` to `RhiCommandList`) is **completely disconnected** from both the editor and the engine runtime loop; it is invoked solely inside a unit test.
+4. The [`SceneRenderer`](engine/render/src/scene_renderer.cpp) class (which records `bindVertexBuffer` and `drawIndexed` to `RhiCommandList`) is **completely disconnected** from both the editor and the engine runtime loop; it is invoked solely inside a unit test.
 5. Hikari's RHI currently lacks shader module management, pipeline layout creation, and graphics pipeline state objects (`VkPipeline`).
 
 ---
@@ -88,19 +88,19 @@ The table below summarizes Vulkan rendering capabilities across Hikari's codebas
 
 | Capability | Implemented in RHI | Called by Viewport / Engine Loop | Evidence & Location |
 | :--- | :---: | :---: | :--- |
-| **Vertex Buffers** | **YES** | **NO** | [`VulkanDevice::createBuffer`](file:///home/lux/Hikari/engine/rhi/src/vulkan/vulkan_device.cpp#L289-L346) calls `vkCreateBuffer` (`VK_BUFFER_USAGE_VERTEX_BUFFER_BIT`) and allocates `VkDeviceMemory`. However, ViewportPanel never binds or reads GPU vertex buffers; it accesses CPU `MeshData::vertices`. |
-| **Index Buffers** | **YES** | **NO** | [`VulkanDevice::createBuffer`](file:///home/lux/Hikari/engine/rhi/src/vulkan/vulkan_device.cpp#L289-L346) calls `vkCreateBuffer` (`VK_BUFFER_USAGE_INDEX_BUFFER_BIT`). ViewportPanel only reads CPU `MeshData::indices`. |
-| **Buffer Upload (`writeBuffer`)** | **YES** | **NO** | [`VulkanDevice::writeBuffer`](file:///home/lux/Hikari/engine/rhi/src/vulkan/vulkan_device.cpp#L366-L389) copies data into persistently mapped host-visible memory (`slot.mappedData`). ViewportPanel does not invoke uploads; `AssetManager::uploadMesh` is only triggered if `SceneRenderer` is used. |
+| **Vertex Buffers** | **YES** | **NO** | [`VulkanDevice::createBuffer`](engine/rhi/src/vulkan/vulkan_device.cpp#L289-L346) calls `vkCreateBuffer` (`VK_BUFFER_USAGE_VERTEX_BUFFER_BIT`) and allocates `VkDeviceMemory`. However, ViewportPanel never binds or reads GPU vertex buffers; it accesses CPU `MeshData::vertices`. |
+| **Index Buffers** | **YES** | **NO** | [`VulkanDevice::createBuffer`](engine/rhi/src/vulkan/vulkan_device.cpp#L289-L346) calls `vkCreateBuffer` (`VK_BUFFER_USAGE_INDEX_BUFFER_BIT`). ViewportPanel only reads CPU `MeshData::indices`. |
+| **Buffer Upload (`writeBuffer`)** | **YES** | **NO** | [`VulkanDevice::writeBuffer`](engine/rhi/src/vulkan/vulkan_device.cpp#L366-L389) copies data into persistently mapped host-visible memory (`slot.mappedData`). ViewportPanel does not invoke uploads; `AssetManager::uploadMesh` is only triggered if `SceneRenderer` is used. |
 | **Shader Modules (`VkShaderModule`)** | **NO** | **NO** | Zero occurrences of `VkShaderModule`, `vkCreateShaderModule`, or shader compilation in Hikari (`engine/` or `editor/`). Only Dear ImGui's internal backend creates its own embedded UI shader. |
 | **Graphics Pipelines (`VkPipeline`)** | **NO** | **NO** | Zero occurrences of `VkGraphicsPipelineCreateInfo` or `vkCreateGraphicsPipelines` in Hikari. RHI has no `createPipeline()` method. |
-| **Pipeline Binding (`vkCmdBindPipeline`)** | **NO** | **NO** | Zero occurrences in Hikari. [`RhiCommandList`](file:///home/lux/Hikari/engine/rhi/include/rhi/command_list.h) lacks a `bindPipeline()` method. |
-| **Vertex Binding (`vkCmdBindVertexBuffers`)** | **YES** | **NO** | Implemented in [`VulkanCommandList::bindVertexBuffer`](file:///home/lux/Hikari/engine/rhi/src/vulkan/vulkan_command_list.cpp#L304). Only called in `SceneRenderer::renderScene` and unit tests; never in the active frame loop. |
-| **Index Binding (`vkCmdBindIndexBuffer`)** | **YES** | **NO** | Implemented in [`VulkanCommandList::bindIndexBuffer`](file:///home/lux/Hikari/engine/rhi/src/vulkan/vulkan_command_list.cpp#L314). Only called in `SceneRenderer::renderScene` and unit tests; never in the active frame loop. |
-| **Draw Calls (`vkCmdDraw` / `vkCmdDrawIndexed`)** | **YES** | **NO** | Implemented in [`VulkanCommandList::drawIndexed`](file:///home/lux/Hikari/engine/rhi/src/vulkan/vulkan_command_list.cpp#L333). Uncalled in active frame loop. |
-| **Depth Testing & Z-Buffering** | **NO** | **NO** | No depth attachment image is created or bound. [`RenderPassBeginInfo`](file:///home/lux/Hikari/engine/rhi/include/rhi/command_list.h#L24) only specifies color clear. Mesh rendering in viewport relies solely on CPU triangle backface culling; overlapping geometry exhibits Painter's Algorithm sorting artifacts. |
-| **Offscreen Render Target (`TextureHandle`)** | **PARTIALLY** | **NO** | [`VulkanDevice::createTexture`](file:///home/lux/Hikari/engine/rhi/src/vulkan/vulkan_device.cpp#L391) can allocate `VkImage`, but no framebuffer / offscreen target is configured. Viewport draws straight into ImGui's window draw list. |
-| **Dynamic Rendering (`vkCmdBeginRendering`)** | **YES** | **YES** | Actively executed every frame in [`VulkanCommandList::beginRenderPass`](file:///home/lux/Hikari/engine/rhi/src/vulkan/vulkan_command_list.cpp#L147-L164) directly targeting the active swapchain backbuffer. |
-| **Swapchain Presentation** | **YES** | **YES** | Actively executed in [`src/main.cpp:405`](file:///home/lux/Hikari/src/main.cpp#L405) via [`VulkanDevice::present`](file:///home/lux/Hikari/engine/rhi/src/vulkan/vulkan_device.cpp#L520). |
+| **Pipeline Binding (`vkCmdBindPipeline`)** | **NO** | **NO** | Zero occurrences in Hikari. [`RhiCommandList`](engine/rhi/include/rhi/command_list.h) lacks a `bindPipeline()` method. |
+| **Vertex Binding (`vkCmdBindVertexBuffers`)** | **YES** | **NO** | Implemented in [`VulkanCommandList::bindVertexBuffer`](engine/rhi/src/vulkan/vulkan_command_list.cpp#L304). Only called in `SceneRenderer::renderScene` and unit tests; never in the active frame loop. |
+| **Index Binding (`vkCmdBindIndexBuffer`)** | **YES** | **NO** | Implemented in [`VulkanCommandList::bindIndexBuffer`](engine/rhi/src/vulkan/vulkan_command_list.cpp#L314). Only called in `SceneRenderer::renderScene` and unit tests; never in the active frame loop. |
+| **Draw Calls (`vkCmdDraw` / `vkCmdDrawIndexed`)** | **YES** | **NO** | Implemented in [`VulkanCommandList::drawIndexed`](engine/rhi/src/vulkan/vulkan_command_list.cpp#L333). Uncalled in active frame loop. |
+| **Depth Testing & Z-Buffering** | **NO** | **NO** | No depth attachment image is created or bound. [`RenderPassBeginInfo`](engine/rhi/include/rhi/command_list.h#L24) only specifies color clear. Mesh rendering in viewport relies solely on CPU triangle backface culling; overlapping geometry exhibits Painter's Algorithm sorting artifacts. |
+| **Offscreen Render Target (`TextureHandle`)** | **PARTIALLY** | **NO** | [`VulkanDevice::createTexture`](engine/rhi/src/vulkan/vulkan_device.cpp#L391) can allocate `VkImage`, but no framebuffer / offscreen target is configured. Viewport draws straight into ImGui's window draw list. |
+| **Dynamic Rendering (`vkCmdBeginRendering`)** | **YES** | **YES** | Actively executed every frame in [`VulkanCommandList::beginRenderPass`](engine/rhi/src/vulkan/vulkan_command_list.cpp#L147-L164) directly targeting the active swapchain backbuffer. |
+| **Swapchain Presentation** | **YES** | **YES** | Actively executed in [`src/main.cpp:405`](src/main.cpp#L405) via [`VulkanDevice::present`](engine/rhi/src/vulkan/vulkan_device.cpp#L520). |
 
 ---
 
@@ -110,17 +110,17 @@ The table below breaks down every phase of the mesh rendering pipeline and attri
 
 | Pipeline Stage | Executing Processor | Detailed Implementation & Evidence |
 | :--- | :---: | :--- |
-| **1. File Parsing & Loading** | **CPU** | [`ObjImporter::importFromFile`](file:///home/lux/Hikari/engine/render/src/obj_importer.cpp#L136-L245) parses tokens via `std::ifstream` and populates CPU `MeshData`. |
-| **2. Geometry Validation & Normals** | **CPU** | [`MeshData::recalculateBounds`](file:///home/lux/Hikari/engine/render/src/mesh.cpp#L29-L43) and [`MeshData::generateNormals`](file:///home/lux/Hikari/engine/render/src/mesh.cpp#L45-L75) run on host CPU. |
-| **3. Asset Repository Caching** | **CPU** | [`AssetManager`](file:///home/lux/Hikari/engine/render/src/asset_manager.cpp) stores `std::unordered_map<AssetId, MeshEntry>` in CPU RAM. |
-| **4. GPU Buffer Allocation** | **GPU** | [`VulkanDevice::createBuffer`](file:///home/lux/Hikari/engine/rhi/src/vulkan/vulkan_device.cpp#L289-L346) allocates `VkBuffer` and `VkDeviceMemory` via Vulkan driver. |
-| **5. Host-to-Device Upload** | **CPU / GPU Bus** | [`VulkanDevice::writeBuffer`](file:///home/lux/Hikari/engine/rhi/src/vulkan/vulkan_device.cpp#L366-L389) executes `std::memcpy` into mapped host-visible memory. |
-| **6. ECS Entity Mesh Query** | **CPU** | [`ViewportPanel::draw`](file:///home/lux/Hikari/editor/src/panels/viewport_panel.cpp#L301-L335) iterates Flecs entities with `MeshComponent` on the main thread. |
-| **7. Vertex World Transformation** | **CPU** | [`ViewportPanel::draw`](file:///home/lux/Hikari/editor/src/panels/viewport_panel.cpp#L354-L356): `worldPos = tr.position + tr.rotation.rotate(v.pos * tr.scale)`. |
-| **8. Camera View-Projection** | **CPU** | [`ViewportPanel::draw`](file:///home/lux/Hikari/editor/src/panels/viewport_panel.cpp#L358-L360): `camera_.project(...)` computes matrix multiplication and screen mapping on CPU. |
-| **9. Face Normal & Backface Culling** | **CPU** | [`ViewportPanel::draw`](file:///home/lux/Hikari/editor/src/panels/viewport_panel.cpp#L386-L392): `triNormal = cross(w1 - w0, w2 - w0).normalized()`, `dot(triNormal, toCamera) > 0`. |
-| **10. Diffuse Lighting Calculation** | **CPU** | [`ViewportPanel::draw`](file:///home/lux/Hikari/editor/src/panels/viewport_panel.cpp#L401-L403): `diffuse = max(0, dot(triNormal, lightDir))`. |
-| **11. Mesh Rasterization** | **CPU $\to$ GPU** | [`ViewportPanel::draw`](file:///home/lux/Hikari/editor/src/panels/viewport_panel.cpp#L419): Submits 2D screen triangles to Dear ImGui (`drawList->AddTriangleFilled(p0, p1, p2, col)`). Dear ImGui's internal 2D shader rasterizes the resulting 2D vertices to the swapchain. |
+| **1. File Parsing & Loading** | **CPU** | [`ObjImporter::importFromFile`](engine/render/src/obj_importer.cpp#L136-L245) parses tokens via `std::ifstream` and populates CPU `MeshData`. |
+| **2. Geometry Validation & Normals** | **CPU** | [`MeshData::recalculateBounds`](engine/render/src/mesh.cpp#L29-L43) and [`MeshData::generateNormals`](engine/render/src/mesh.cpp#L45-L75) run on host CPU. |
+| **3. Asset Repository Caching** | **CPU** | [`AssetManager`](engine/render/src/asset_manager.cpp) stores `std::unordered_map<AssetId, MeshEntry>` in CPU RAM. |
+| **4. GPU Buffer Allocation** | **GPU** | [`VulkanDevice::createBuffer`](engine/rhi/src/vulkan/vulkan_device.cpp#L289-L346) allocates `VkBuffer` and `VkDeviceMemory` via Vulkan driver. |
+| **5. Host-to-Device Upload** | **CPU / GPU Bus** | [`VulkanDevice::writeBuffer`](engine/rhi/src/vulkan/vulkan_device.cpp#L366-L389) executes `std::memcpy` into mapped host-visible memory. |
+| **6. ECS Entity Mesh Query** | **CPU** | [`ViewportPanel::draw`](editor/src/panels/viewport_panel.cpp#L301-L335) iterates Flecs entities with `MeshComponent` on the main thread. |
+| **7. Vertex World Transformation** | **CPU** | [`ViewportPanel::draw`](editor/src/panels/viewport_panel.cpp#L354-L356): `worldPos = tr.position + tr.rotation.rotate(v.pos * tr.scale)`. |
+| **8. Camera View-Projection** | **CPU** | [`ViewportPanel::draw`](editor/src/panels/viewport_panel.cpp#L358-L360): `camera_.project(...)` computes matrix multiplication and screen mapping on CPU. |
+| **9. Face Normal & Backface Culling** | **CPU** | [`ViewportPanel::draw`](editor/src/panels/viewport_panel.cpp#L386-L392): `triNormal = cross(w1 - w0, w2 - w0).normalized()`, `dot(triNormal, toCamera) > 0`. |
+| **10. Diffuse Lighting Calculation** | **CPU** | [`ViewportPanel::draw`](editor/src/panels/viewport_panel.cpp#L401-L403): `diffuse = max(0, dot(triNormal, lightDir))`. |
+| **11. Mesh Rasterization** | **CPU $\to$ GPU** | [`ViewportPanel::draw`](editor/src/panels/viewport_panel.cpp#L419): Submits 2D screen triangles to Dear ImGui (`drawList->AddTriangleFilled(p0, p1, p2, col)`). Dear ImGui's internal 2D shader rasterizes the resulting 2D vertices to the swapchain. |
 | **12. Depth Testing** | **NONE** | No depth buffer exists. Triangles are drawn in index order. |
 
 ---
@@ -128,7 +128,7 @@ The table below breaks down every phase of the mesh rendering pipeline and attri
 ## E. SceneRenderer Integration Analysis
 
 ### 1. Where `SceneRenderer` Lives and What It Does
-[`SceneRenderer`](file:///home/lux/Hikari/engine/render/include/render/scene_renderer.h) was implemented in Milestone 7:
+[`SceneRenderer`](engine/render/include/render/scene_renderer.h) was implemented in Milestone 7:
 ```cpp
 // engine/render/src/scene_renderer.cpp:48-65
 cmdList.bindVertexBuffer(0, gpuMesh->getVertexBuffer(), 0);
@@ -219,8 +219,8 @@ To achieve genuine GPU mesh rendering without creating parallel subsystems:
 > **Mesh visualization in Hikari is primarily CPU-side despite the presence of genuine GPU buffer infrastructure.**
 
 ### Direct Code Evidence:
-1. **CPU Geometry Access:** `ViewportPanel::draw` ([`viewport_panel.cpp:337`](file:///home/lux/Hikari/editor/src/panels/viewport_panel.cpp#L337)) fetches `MeshData*` from `AssetManager` in CPU RAM; it never requests or uses `GpuMesh*`.
-2. **CPU Projection & Shading:** `ViewportPanel::draw` ([`viewport_panel.cpp:349-432`](file:///home/lux/Hikari/editor/src/panels/viewport_panel.cpp#L349-L432)) executes software projection (`camera_.project`), manual facet normal cross-products, CPU backface culling, and CPU flat diffuse lighting in a loop over all mesh indices on the main thread.
-3. **ImGui 2D Drawing:** Triangles are rendered into the viewport by calling `drawList->AddTriangleFilled(p0, p1, p2, triColor)` ([`viewport_panel.cpp:419`](file:///home/lux/Hikari/editor/src/panels/viewport_panel.cpp#L419)).
+1. **CPU Geometry Access:** `ViewportPanel::draw` ([`viewport_panel.cpp:337`](editor/src/panels/viewport_panel.cpp#L337)) fetches `MeshData*` from `AssetManager` in CPU RAM; it never requests or uses `GpuMesh*`.
+2. **CPU Projection & Shading:** `ViewportPanel::draw` ([`viewport_panel.cpp:349-432`](editor/src/panels/viewport_panel.cpp#L349-L432)) executes software projection (`camera_.project`), manual facet normal cross-products, CPU backface culling, and CPU flat diffuse lighting in a loop over all mesh indices on the main thread.
+3. **ImGui 2D Drawing:** Triangles are rendered into the viewport by calling `drawList->AddTriangleFilled(p0, p1, p2, triColor)` ([`viewport_panel.cpp:419`](editor/src/panels/viewport_panel.cpp#L419)).
 4. **No GPU Pipeline for Meshes:** There are zero calls to `vkCreateGraphicsPipelines` or `vkCmdBindPipeline` in Hikari. The only Vulkan graphics pipeline in existence is Dear ImGui's internal 2D UI shader inside `imgui_impl_vulkan.cpp`.
-5. **Orphaned SceneRenderer:** [`SceneRenderer::renderScene`](file:///home/lux/Hikari/engine/render/src/scene_renderer.cpp#L10-L76) is never called by `ViewportPanel`, `EditorEngine`, or `main.cpp`.
+5. **Orphaned SceneRenderer:** [`SceneRenderer::renderScene`](engine/render/src/scene_renderer.cpp#L10-L76) is never called by `ViewportPanel`, `EditorEngine`, or `main.cpp`.
