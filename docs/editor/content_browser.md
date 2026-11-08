@@ -83,8 +83,11 @@ Supports instant generation of template files:
 - Validates target name and prevents destination collisions.
 
 ### D. Safe Deletion
-- Prompts with a confirmation modal before deleting any item.
-- Non-empty directories require explicit confirmation for recursive deletion.
+- Accessible directly via the **Delete** toolbar button and via right-click context menu.
+- Toolbar button dynamically reflects selection state: disabled when no item is selected, enabled when a valid file or folder is selected.
+- Prompts with a confirmation modal detailing the target item's name and type before deleting.
+- Non-empty directories trigger an alert warning requiring explicit confirmation for recursive deletion.
+- Upon deletion, the active selection is cleared and directory contents are refreshed.
 - Deletion of the project asset root is strictly forbidden.
 
 ### E. Duplication

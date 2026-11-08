@@ -206,6 +206,18 @@ static void testFolderAndFileManagement() {
     TEST_CHECK(!rootDelete.hasValue());
     TEST_CHECK(std::filesystem::exists(root));
 
+    // 10. Selection State Handling on Deletion
+    auto tempFile = controller.createFile("to_delete.txt", ContentFileTemplate::TextFile);
+    TEST_CHECK(tempFile.hasValue());
+    TEST_CHECK(controller.getSelectedItem() != nullptr);
+    TEST_CHECK(controller.getSelectedItem()->name == "to_delete.txt");
+
+    auto delRes = controller.deleteItem(tempFile.value());
+    TEST_CHECK(delRes.hasValue());
+    controller.setSelectedItemIndex(-1);
+    TEST_CHECK(controller.getSelectedItem() == nullptr);
+    TEST_CHECK(controller.getSelectedItemIndex() == -1);
+
     std::cout << "[PASS] testFolderAndFileManagement\n";
 }
 

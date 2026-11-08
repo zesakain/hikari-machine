@@ -58,6 +58,8 @@ private:
 
     bool showDeleteModal_{false};
     std::filesystem::path targetDeletePath_{};
+    std::string targetDeleteItemName_{};
+    std::string targetDeleteItemType_{};
     bool isDeleteNonEmptyDir_{false};
 
     bool showErrorModal_{false};

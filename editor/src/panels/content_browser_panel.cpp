@@ -159,6 +159,37 @@ void ContentBrowserPanel::drawToolbar(EditorContext& ctx) {
     }
 
     ImGui::SameLine();
+    const auto* selectedItem = controller_.getSelectedItem();
+    const bool canDelete = (selectedItem != nullptr);
+    if (!canDelete) {
+        ImGui::BeginDisabled();
+    }
+    if (ImGui::Button("Delete")) {
+        if (selectedItem != nullptr) {
+            targetDeletePath_ = selectedItem->fullPath;
+            targetDeleteItemName_ = selectedItem->name;
+            targetDeleteItemType_ = selectedItem->isDirectory
+                                        ? "Folder"
+                                        : (selectedItem->extension.empty()
+                                               ? "File"
+                                               : (selectedItem->extension + " File"));
+            isDeleteNonEmptyDir_ = (selectedItem->isDirectory &&
+                                   !controller_.isDirectoryEmpty(selectedItem->fullPath));
+            showDeleteModal_ = true;
+        }
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        if (!canDelete) {
+            ImGui::SetTooltip("Delete: Select an item to delete");
+        } else {
+            ImGui::SetTooltip("Delete selected item");
+        }
+    }
+    if (!canDelete) {
+        ImGui::EndDisabled();
+    }
+
+    ImGui::SameLine();
     ImGui::TextDisabled("|");
     ImGui::SameLine();
 
@@ -507,7 +538,14 @@ void ContentBrowserPanel::drawListView(EditorContext& ctx) {
 
                 if (ImGui::MenuItem("Delete...")) {
                     targetDeletePath_ = item.fullPath;
-                    isDeleteNonEmptyDir_ = (item.isDirectory && !controller_.isDirectoryEmpty(item.fullPath));
+                    targetDeleteItemName_ = item.name;
+                    targetDeleteItemType_ = item.isDirectory
+                                                ? "Folder"
+                                                : (item.extension.empty()
+                                                       ? "File"
+                                                       : (item.extension + " File"));
+                    isDeleteNonEmptyDir_ =
+                        (item.isDirectory && !controller_.isDirectoryEmpty(item.fullPath));
                     showDeleteModal_ = true;
                 }
 
@@ -642,7 +680,14 @@ void ContentBrowserPanel::drawGridView(EditorContext& ctx) {
 
             if (ImGui::MenuItem("Delete...")) {
                 targetDeletePath_ = item.fullPath;
-                isDeleteNonEmptyDir_ = (item.isDirectory && !controller_.isDirectoryEmpty(item.fullPath));
+                targetDeleteItemName_ = item.name;
+                targetDeleteItemType_ = item.isDirectory
+                                            ? "Folder"
+                                            : (item.extension.empty()
+                                                   ? "File"
+                                                   : (item.extension + " File"));
+                isDeleteNonEmptyDir_ =
+                    (item.isDirectory && !controller_.isDirectoryEmpty(item.fullPath));
                 showDeleteModal_ = true;
             }
 
@@ -828,17 +873,25 @@ void ContentBrowserPanel::drawModals() {
     }
 
     if (ImGui::BeginPopupModal("Confirm Delete##Modal", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        std::string itemName = targetRenamePath_.filename().string();
+        std::string itemName = targetDeleteItemName_;
         if (itemName.empty()) {
             itemName = targetDeletePath_.filename().string();
         }
+        std::string itemType = targetDeleteItemType_;
+        if (itemType.empty()) {
+            itemType = isDeleteNonEmptyDir_ ? "Folder" : "Item";
+        }
+
+        ImGui::Text("Item: %s", itemName.c_str());
+        ImGui::Text("Type: %s", itemType.c_str());
+        ImGui::Spacing();
 
         if (isDeleteNonEmptyDir_) {
             ImGui::TextColored(ImVec4(1.0F, 0.4F, 0.4F, 1.0F), "WARNING: Non-empty folder!");
-            ImGui::Text("'%s' contains files or subfolders.", itemName.c_str());
+            ImGui::Text("This folder contains files or subdirectories.");
             ImGui::Text("Are you sure you want to permanently delete it and all its contents?");
         } else {
-            ImGui::Text("Are you sure you want to delete '%s'?", itemName.c_str());
+            ImGui::Text("Are you sure you want to delete this %s?", itemType.c_str());
         }
 
         ImGui::Spacing();
@@ -847,6 +900,8 @@ void ContentBrowserPanel::drawModals() {
             if (!res.hasValue()) {
                 errorMessage_ = res.error().message;
                 showErrorModal_ = true;
+            } else {
+                controller_.setSelectedItemIndex(-1);
             }
             ImGui::CloseCurrentPopup();
         }
