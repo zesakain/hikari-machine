@@ -6,6 +6,14 @@
 /// hierarchies. Computes WorldTransformComponent from local TransformComponent trees,
 /// respecting dirty invalidation flags and matrix composition conventions.
 ///
+/// Scheduling:
+/// Hierarchy transform propagation is registered as a two-pass continuous pipeline:
+/// 1. HierarchyTransformPreSync (flecs::OnValidate): Runs after gameplay/script/animation updates
+///    (flecs::OnUpdate) and before physics (flecs::PostUpdate), ensuring kinematic rigid bodies
+///    receive up-to-date world transforms before Jolt steps.
+/// 2. HierarchyTransformSystem (flecs::PreStore): Runs after physics post-sync (flecs::PostUpdate),
+///    propagating simulated dynamic body movement down to all child entities before rendering.
+///
 /// Ownership and Lifetime:
 /// Systems are owned by the World under SystemGroup::Continuous and registered in Flecs pipelines.
 ///
@@ -22,8 +30,8 @@ namespace eng::world {
 
 class World;
 
-/// @brief Registers the hierarchical transform propagation system in the World under
-/// SystemGroup::Continuous.
+/// @brief Registers the hierarchical transform propagation systems (PreSync and PostSync) in the
+/// World under SystemGroup::Continuous.
 void registerHierarchySystems(World& world);
 
 /// @brief Directly evaluates and updates WorldTransformComponent for all entities in the World.

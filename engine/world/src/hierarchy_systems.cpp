@@ -141,11 +141,19 @@ void updateHierarchyTransforms(World& world) {
 void registerHierarchySystems(World& world) {
     auto& ecs = world.getRawWorld();
 
-    auto sys = ecs.system<>("HierarchyTransformSystem")
-                   .kind(flecs::PreStore)
-                   .run([&world](flecs::iter& /*it*/) { updateHierarchyTransforms(world); });
+    // 1. PreSync: Propagate transforms after gameplay/scripts (OnUpdate) and before physics
+    // (PostUpdate)
+    auto preSync = ecs.system<>("HierarchyTransformPreSync")
+                       .kind(flecs::OnValidate)
+                       .run([&world](flecs::iter& /*it*/) { updateHierarchyTransforms(world); });
+    world.registerSystem(SystemGroup::Continuous, preSync);
 
-    world.registerSystem(SystemGroup::Continuous, sys);
+    // 2. PostSync: Propagate simulated dynamic bodies (PostUpdate) to child descendants before
+    // rendering
+    auto postSync = ecs.system<>("HierarchyTransformSystem")
+                        .kind(flecs::PreStore)
+                        .run([&world](flecs::iter& /*it*/) { updateHierarchyTransforms(world); });
+    world.registerSystem(SystemGroup::Continuous, postSync);
 }
 
 } // namespace eng::world

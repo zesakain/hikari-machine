@@ -2,6 +2,9 @@
 /// @brief Comprehensive unit tests for hierarchical transform propagation and dirty invalidation.
 
 #include "core/math.h"
+#include "physics/physics_components.h"
+#include "physics/physics_system.h"
+#include "physics/physics_world.h"
 #include "world/components.h"
 #include "world/entity.h"
 #include "world/hierarchy_systems.h"
@@ -365,6 +368,120 @@ static int testHierarchySystemDuringSimulationProgress() {
     return 0;
 }
 
+// 14. Moving a parent updates a kinematic child's physics transform before that frame's physics
+// step
+static int testKinematicChildUpdatedBeforePhysicsStep() {
+    (void)physics::PhysicsSystem::initialize();
+    World world;
+    physics::PhysicsWorld physicsWorld;
+
+    physics::registerPhysicsComponents(world);
+    physics::registerPhysicsSystems(world, physicsWorld);
+    world.setSystemGroupActive(SystemGroup::Continuous, true);
+
+    EntityHandle parent = world.createEntity("Parent");
+    world.setComponent(parent, TransformComponent{Transform{Vec3{10.0F, 0.0F, 0.0F}}});
+
+    EntityHandle child = world.createEntity("KinematicChild");
+    world.setComponent(child, TransformComponent{Transform{Vec3{0.0F, 5.0F, 0.0F}}});
+    TEST_CHECK(world.setParent(child, parent, false));
+
+    physics::BodyDesc kinDesc{};
+    kinDesc.motionType = physics::MotionType::Kinematic;
+    kinDesc.position = Vec3{0.0F, 5.0F, 0.0F};
+    kinDesc.collider = physics::ColliderDesc::makeSphere(0.5F);
+    auto kinHandle = physicsWorld.createBody(kinDesc).value();
+
+    world.setComponent(child,
+                       physics::RigidBodyComponent{kinHandle, physics::MotionType::Kinematic});
+    world.setComponent(
+        child, physics::PhysicsTransformComponent{.transform = Transform{Vec3{0.0F, 5.0F, 0.0F}}});
+
+    // Initial simulation step establishes hierarchy and synchronizes to Jolt
+    world.progress(0.016F);
+
+    auto joltTr1 = physicsWorld.getTransform(kinHandle).value();
+    TEST_CHECK(isNearVec3(joltTr1.position, Vec3{10.0F, 5.0F, 0.0F}));
+    const auto* ptc1 = world.getComponent<physics::PhysicsTransformComponent>(child);
+    TEST_CHECK(ptc1 != nullptr && isNearVec3(ptc1->transform.position, Vec3{10.0F, 5.0F, 0.0F}));
+
+    // Move parent entity during gameplay/scripting
+    auto* parentTc = world.getMutableComponent<TransformComponent>(parent);
+    parentTc->transform.position = Vec3{25.0F, 0.0F, 0.0F};
+    parentTc->isDirty = true;
+
+    // Advance 1 frame of simulation progress: HierarchyTransformPreSync (OnValidate) MUST update
+    // child's WorldTransformComponent before PhysicsPreSync (PostUpdate) pushes to Jolt.
+    world.progress(0.016F);
+
+    auto joltTr2 = physicsWorld.getTransform(kinHandle).value();
+    TEST_CHECK(isNearVec3(joltTr2.position, Vec3{25.0F, 5.0F, 0.0F}));
+
+    const auto* ptc2 = world.getComponent<physics::PhysicsTransformComponent>(child);
+    TEST_CHECK(ptc2 != nullptr && isNearVec3(ptc2->transform.position, Vec3{25.0F, 5.0F, 0.0F}));
+
+    const auto* childWt = world.getComponent<WorldTransformComponent>(child);
+    TEST_CHECK(childWt != nullptr &&
+               isNearVec3(childWt->worldTransform.position, Vec3{25.0F, 5.0F, 0.0F}));
+
+    return 0;
+}
+
+// 15. Dynamic body simulation updates world transform and propagates to child descendants
+static int testDynamicBodySyncUpdatesWorldTransformAndDescendants() {
+    (void)physics::PhysicsSystem::initialize();
+    World world;
+    physics::PhysicsWorld physicsWorld;
+
+    physics::registerPhysicsComponents(world);
+    physics::registerPhysicsSystems(world, physicsWorld);
+    world.setSystemGroupActive(SystemGroup::Continuous, true);
+
+    // Create dynamic parent entity falling under gravity
+    EntityHandle dynamicParent = world.createEntity("DynamicParent");
+    world.setComponent(dynamicParent, TransformComponent{Transform{Vec3{0.0F, 20.0F, 0.0F}}});
+
+    physics::BodyDesc dynDesc{};
+    dynDesc.motionType = physics::MotionType::Dynamic;
+    dynDesc.position = Vec3{0.0F, 20.0F, 0.0F};
+    dynDesc.collider = physics::ColliderDesc::makeSphere(0.5F);
+    auto dynHandle = physicsWorld.createBody(dynDesc).value();
+
+    world.setComponent(dynamicParent,
+                       physics::RigidBodyComponent{dynHandle, physics::MotionType::Dynamic});
+    world.setComponent(dynamicParent, physics::PhysicsTransformComponent{
+                                          .transform = Transform{Vec3{0.0F, 20.0F, 0.0F}}});
+
+    // Create child attached to dynamic parent at local offset (0, 2, 0)
+    EntityHandle child = world.createEntity("ChildAttachment");
+    world.setComponent(child, TransformComponent{Transform{Vec3{0.0F, 2.0F, 0.0F}}});
+    TEST_CHECK(world.setParent(child, dynamicParent, false));
+
+    // Progress simulation: dynamic body accelerates under gravity
+    world.progress(0.1F);
+
+    const auto* parentWt = world.getComponent<WorldTransformComponent>(dynamicParent);
+    const auto* childWt = world.getComponent<WorldTransformComponent>(child);
+
+    TEST_CHECK(parentWt != nullptr);
+    TEST_CHECK(childWt != nullptr);
+
+    // Dynamic parent fell below initial Y=20.0
+    TEST_CHECK(parentWt->worldTransform.position.y < 20.0F);
+
+    // Child attachment followed dynamic parent with exact local offset (0, 2, 0)
+    TEST_CHECK(isNear(childWt->worldTransform.position.y,
+                      parentWt->worldTransform.position.y + 2.0F, 1e-2F));
+    TEST_CHECK(isNear(childWt->worldTransform.position.x, 0.0F));
+    TEST_CHECK(isNear(childWt->worldTransform.position.z, 0.0F));
+
+    // Dirty flags must be cleared after PreStore propagation
+    const auto* childTc = world.getComponent<TransformComponent>(child);
+    TEST_CHECK(childTc != nullptr && !childTc->isDirty);
+
+    return 0;
+}
+
 int main() {
     std::cout << "[TransformPropagationTest] Running Phase 2 transform evaluation tests...\n";
 
@@ -393,6 +510,10 @@ int main() {
     if (testInvalidOrMissingTransformHandling() != 0)
         return 1;
     if (testHierarchySystemDuringSimulationProgress() != 0)
+        return 1;
+    if (testKinematicChildUpdatedBeforePhysicsStep() != 0)
+        return 1;
+    if (testDynamicBodySyncUpdatesWorldTransformAndDescendants() != 0)
         return 1;
 
     std::cout << "[TransformPropagationTest] All Phase 2 transform propagation tests passed "

@@ -54,10 +54,11 @@ void registerPhysicsSystems(world::World& world, PhysicsWorld& physicsWorld) {
         });
 
     // 2. Pre-sync: Push kinematic transforms from ECS into Jolt simulation
+    // Scheduled in PostUpdate after HierarchyTransformPreSync (OnValidate)
     auto preSync =
-        ecs.system<const PhysicsTransformComponent, const RigidBodyComponent>("PhysicsPreSync")
-            .kind(flecs::OnUpdate)
-            .each([&physicsWorld](flecs::iter& it, size_t index, const PhysicsTransformComponent& t,
+        ecs.system<PhysicsTransformComponent, const RigidBodyComponent>("PhysicsPreSync")
+            .kind(flecs::PostUpdate)
+            .each([&physicsWorld](flecs::iter& it, size_t index, PhysicsTransformComponent& t,
                                   const RigidBodyComponent& rb) {
                 if (rb.motionType == MotionType::Kinematic && rb.bodyHandle.isValid()) {
                     flecs::entity e = it.entity(index);
@@ -65,13 +66,17 @@ void registerPhysicsSystems(world::World& world, PhysicsWorld& physicsWorld) {
                     const Transform targetTransform =
                         (wt != nullptr) ? wt->worldTransform : t.transform;
                     (void)physicsWorld.setTransform(rb.bodyHandle, targetTransform);
+                    if (wt != nullptr) {
+                        t.transform = targetTransform;
+                    }
                 }
             });
     world.registerSystem(world::SystemGroup::Continuous, preSync);
 
     // 3. Step: Advance fixed-timestep Jolt physical simulation
+    // Scheduled in PostUpdate immediately after PhysicsPreSync
     auto stepSystem =
-        ecs.system<>("PhysicsStep").kind(flecs::OnUpdate).run([&physicsWorld](flecs::iter& it) {
+        ecs.system<>("PhysicsStep").kind(flecs::PostUpdate).run([&physicsWorld](flecs::iter& it) {
             (void)physicsWorld.step(it.delta_time());
         });
     world.registerSystem(world::SystemGroup::Continuous, stepSystem);
