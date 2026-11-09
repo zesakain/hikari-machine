@@ -31,9 +31,41 @@ enum class ConductorState : uint8_t {
     Terminated = 6
 };
 
+/// Returns a human-readable string representation of a ConductorState.
+[[nodiscard]] constexpr std::string_view conductorStateToString(ConductorState state) noexcept {
+    switch (state) {
+    case ConductorState::Uninitialized:
+        return "Uninitialized";
+    case ConductorState::Active:
+        return "Active";
+    case ConductorState::Preparing:
+        return "Preparing";
+    case ConductorState::Prepared:
+        return "Prepared";
+    case ConductorState::Committing:
+        return "Committing";
+    case ConductorState::Transitioning:
+        return "Transitioning";
+    case ConductorState::Terminated:
+        return "Terminated";
+    }
+    return "Unknown";
+}
+
 /// @enum ActiveSlot
 /// @brief Identifier of the mode slot currently occupying the Active role.
 enum class ActiveSlot : uint8_t { SlotA = 0, SlotB = 1 };
+
+/// Returns a human-readable string representation of an ActiveSlot.
+[[nodiscard]] constexpr std::string_view activeSlotToString(ActiveSlot slot) noexcept {
+    switch (slot) {
+    case ActiveSlot::SlotA:
+        return "Slot A";
+    case ActiveSlot::SlotB:
+        return "Slot B";
+    }
+    return "Unknown";
+}
 
 /// @struct StateMetadata
 /// @brief Optional display and diagnostic metadata for a Conductor state slot.

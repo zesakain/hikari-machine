@@ -25,6 +25,7 @@
 #include "world/world.h"
 
 #include <memory>
+#include <optional>
 
 namespace eng::framework {
 
@@ -82,7 +83,47 @@ public:
     ///
     /// Preconditions: ConductorState is Active.
     /// Postconditions: ConductorState becomes Preparing.
-    [[nodiscard]] Result<void> requestTransition();
+    ///
+    /// @param autoCommit If true, automatically commits the transition once standby preparation
+    /// completes.
+    /// @return Result indicating success or rejection error.
+    [[nodiscard]] Result<void> requestTransition(bool autoCommit = false);
+
+    /// Requests a transition to a specific target slot.
+    ///
+    /// Preconditions: ConductorState is Active and targetSlot != activeSlot().
+    ///
+    /// @param targetSlot Target slot to transition into.
+    /// @param autoCommit If true, automatically commits the transition once standby preparation
+    /// completes.
+    /// @return Result indicating success or rejection error.
+    [[nodiscard]] Result<void> requestTransition(ActiveSlot targetSlot, bool autoCommit = false);
+
+    /// Requests a transition by target state name.
+    ///
+    /// Preconditions: ConductorState is Active and targetStateName matches a registered slot.
+    ///
+    /// @param targetStateName Name or display name of the target state.
+    /// @param autoCommit If true, automatically commits the transition once standby preparation
+    /// completes.
+    /// @return Result indicating success or rejection error (InvalidArgument if missing/unknown
+    /// target).
+    [[nodiscard]] Result<void> requestTransition(std::string_view targetStateName,
+                                                 bool autoCommit = false);
+
+    /// Convenience overload for C-strings to prevent implicit conversion to bool.
+    [[nodiscard]] Result<void> requestTransition(const char* targetStateName,
+                                                 bool autoCommit = false) {
+        return requestTransition(targetStateName != nullptr ? std::string_view(targetStateName)
+                                                            : std::string_view{},
+                                 autoCommit);
+    }
+
+    /// Checks if a transition request is currently pending.
+    [[nodiscard]] bool hasPendingTransition() const noexcept;
+
+    /// Returns the target slot of the currently pending transition, if any.
+    [[nodiscard]] std::optional<ActiveSlot> getPendingTargetSlot() const noexcept;
 
     /// Atomically validates speculative cache, reverses mode roles, and starts transition curve.
     ///
@@ -172,6 +213,14 @@ private:
     Duration transitionElapsed_;
     uint32_t successfulTransitions_{0};
     uint32_t failedTransitions_{0};
+
+    struct PendingTransitionRequest {
+        ActiveSlot fromSlot{ActiveSlot::SlotA};
+        ActiveSlot toSlot{ActiveSlot::SlotB};
+        bool autoCommit{false};
+        bool valid{false};
+    };
+    PendingTransitionRequest pendingRequest_{};
 };
 
 } // namespace eng::framework

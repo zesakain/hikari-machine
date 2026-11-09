@@ -24,11 +24,17 @@ public:
 
     [[nodiscard]] std::string_view getName() const noexcept override { return name_; }
 
-    [[nodiscard]] Result<void> enter(world::World&) override { return Result<void>::success(); }
+    [[nodiscard]] Result<void> enter(world::World&) override {
+        ENG_LOG_FORMAT(LogLevel::Info, "Conductor", "Entering %s (Active Role)", name_.c_str());
+        return Result<void>::success();
+    }
 
     void update(world::World&, Duration) override {}
 
-    [[nodiscard]] Result<void> exit(world::World&) override { return Result<void>::success(); }
+    [[nodiscard]] Result<void> exit(world::World&) override {
+        ENG_LOG_FORMAT(LogLevel::Info, "Conductor", "Exiting %s", name_.c_str());
+        return Result<void>::success();
+    }
 
     [[nodiscard]] Result<PreparationStatus> prepare(world::World&, const Budget&) override {
         return PreparationStatus::Ready;

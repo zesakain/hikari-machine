@@ -61,6 +61,10 @@ void Conductor::update(Duration realDelta) {
         } else {
             actionClock_.setTimeScale(1.0F);
             state_ = ConductorState::Active;
+            ENG_LOG_FORMAT(LogLevel::Info, "Conductor",
+                           "Transition curve complete: %.*s is now in steady Active state",
+                           static_cast<int>(getActiveMode().getName().size()),
+                           getActiveMode().getName().data());
         }
     }
 
@@ -81,62 +85,197 @@ void Conductor::update(Duration realDelta) {
         if (prepRes.hasValue()) {
             if (prepRes.value() == PreparationStatus::Ready) {
                 state_ = ConductorState::Prepared;
+                ENG_LOG_FORMAT(LogLevel::Info, "Conductor",
+                               "Standby preparation complete for %.*s: Ready to commit transition",
+                               static_cast<int>(getStandbyMode().getName().size()),
+                               getStandbyMode().getName().data());
+                if (pendingRequest_.valid && pendingRequest_.autoCommit) {
+                    (void)executeTransition();
+                }
             } else if (prepRes.value() == PreparationStatus::Failed) {
-                ENG_LOG_WARN("Conductor",
-                             "Standby mode preparation failed; aborting transition request");
+                ENG_LOG_FORMAT(
+                    LogLevel::Warning, "Conductor",
+                    "Standby mode preparation failed for %.*s; aborting transition request",
+                    static_cast<int>(getStandbyMode().getName().size()),
+                    getStandbyMode().getName().data());
                 getStandbyMode().cancelPrepare();
+                pendingRequest_ = {};
                 state_ = ConductorState::Active;
                 ++failedTransitions_;
             }
         } else {
-            ENG_LOG_WARN("Conductor",
-                         "Standby mode preparation returned error; aborting transition request");
+            ENG_LOG_FORMAT(LogLevel::Warning, "Conductor",
+                           "Standby mode preparation returned error for %.*s: %.*s; aborting "
+                           "transition request",
+                           static_cast<int>(getStandbyMode().getName().size()),
+                           getStandbyMode().getName().data(),
+                           static_cast<int>(prepRes.error().message.size()),
+                           prepRes.error().message.data());
             getStandbyMode().cancelPrepare();
+            pendingRequest_ = {};
             state_ = ConductorState::Active;
             ++failedTransitions_;
         }
     }
 }
 
-Result<void> Conductor::requestTransition() {
-    if (state_ != ConductorState::Active) {
-        return Error{.code = ErrorCode::InvalidTransition,
-                     .message = "Cannot request transition unless Conductor is in Active state"};
+Result<void> Conductor::requestTransition(bool autoCommit) {
+    const auto targetSlot =
+        (activeSlot_ == ActiveSlot::SlotA) ? ActiveSlot::SlotB : ActiveSlot::SlotA;
+    return requestTransition(targetSlot, autoCommit);
+}
+
+Result<void> Conductor::requestTransition(ActiveSlot targetSlot, bool autoCommit) {
+    if (state_ == ConductorState::Uninitialized || state_ == ConductorState::Terminated) {
+        ENG_LOG_FORMAT(LogLevel::Warning, "Conductor",
+                       "Transition request rejected: Conductor is in state %s",
+                       conductorStateToString(state_).data());
+        return Error{.code = ErrorCode::InvalidState,
+                     .message = "Conductor is not in an active state"};
     }
 
+    if (state_ != ConductorState::Active || pendingRequest_.valid) {
+        ENG_LOG_FORMAT(
+            LogLevel::Warning, "Conductor",
+            "Transition request rejected: transition already pending or in progress (state: %s)",
+            conductorStateToString(state_).data());
+        return Error{.code = ErrorCode::InvalidTransition,
+                     .message =
+                         "Transition requested while another transition is pending or in progress"};
+    }
+
+    if (targetSlot == activeSlot_) {
+        ENG_LOG_FORMAT(LogLevel::Warning, "Conductor",
+                       "Transition request rejected: target state (Slot %s) is already active",
+                       (targetSlot == ActiveSlot::SlotA) ? "A" : "B");
+        return Error{.code = ErrorCode::InvalidTransition,
+                     .message = "Target state is already active"};
+    }
+
+    const auto fromSlot = activeSlot_;
+    const auto toSlot = targetSlot;
+    const auto fromName = getSlotDisplayName(fromSlot);
+    const auto toName = getSlotDisplayName(toSlot);
+
+    ENG_LOG_FORMAT(LogLevel::Info, "Conductor",
+                   "Transition request received: from Slot %s (%.*s) to Slot %s (%.*s)",
+                   (fromSlot == ActiveSlot::SlotA) ? "A" : "B", static_cast<int>(fromName.size()),
+                   fromName.data(), (toSlot == ActiveSlot::SlotA) ? "A" : "B",
+                   static_cast<int>(toName.size()), toName.data());
+
+    ENG_LOG_FORMAT(LogLevel::Info, "Conductor",
+                   "Transition validation result: SUCCESS (target: %.*s)",
+                   static_cast<int>(toName.size()), toName.data());
+
+    pendingRequest_ = PendingTransitionRequest{
+        .fromSlot = fromSlot,
+        .toSlot = toSlot,
+        .autoCommit = autoCommit,
+        .valid = true,
+    };
+
     state_ = ConductorState::Preparing;
+
+    ENG_LOG_FORMAT(LogLevel::Info, "Conductor",
+                   "Transition queued: standby preparation in progress (autoCommit: %s)",
+                   autoCommit ? "true" : "false");
+
     return Result<void>::success();
+}
+
+Result<void> Conductor::requestTransition(std::string_view targetStateName, bool autoCommit) {
+    if (targetStateName.empty()) {
+        ENG_LOG_WARN("Conductor", "Transition request rejected: target state name is empty");
+        return Error{.code = ErrorCode::InvalidArgument,
+                     .message = "Missing target state: target state name is empty"};
+    }
+
+    std::optional<ActiveSlot> targetSlot;
+    if (targetStateName == modeA_->getName() ||
+        targetStateName == getSlotDisplayName(ActiveSlot::SlotA)) {
+        targetSlot = ActiveSlot::SlotA;
+    } else if (targetStateName == modeB_->getName() ||
+               targetStateName == getSlotDisplayName(ActiveSlot::SlotB)) {
+        targetSlot = ActiveSlot::SlotB;
+    }
+
+    if (!targetSlot.has_value()) {
+        ENG_LOG_FORMAT(LogLevel::Warning, "Conductor",
+                       "Transition request rejected: target state '%.*s' not found",
+                       static_cast<int>(targetStateName.size()), targetStateName.data());
+        return Error{.code = ErrorCode::InvalidArgument,
+                     .message = "Missing target state: state not found in Conductor slots"};
+    }
+
+    return requestTransition(targetSlot.value(), autoCommit);
+}
+
+bool Conductor::hasPendingTransition() const noexcept {
+    return pendingRequest_.valid;
+}
+
+std::optional<ActiveSlot> Conductor::getPendingTargetSlot() const noexcept {
+    if (pendingRequest_.valid) {
+        return pendingRequest_.toSlot;
+    }
+    return std::nullopt;
 }
 
 Result<void> Conductor::executeTransition() {
     if (state_ != ConductorState::Prepared) {
+        ENG_LOG_FORMAT(
+            LogLevel::Warning, "Conductor",
+            "Transition execution rejected: Conductor is not in Prepared state (current state: %s)",
+            conductorStateToString(state_).data());
         return Error{.code = ErrorCode::InvalidTransition,
                      .message = "Cannot execute transition unless standby mode is Prepared"};
     }
+
+    const auto fromSlot = activeSlot_;
+    const auto toSlot = (activeSlot_ == ActiveSlot::SlotA) ? ActiveSlot::SlotB : ActiveSlot::SlotA;
+    const auto fromName = getActiveMode().getName();
+    const auto toName = getStandbyMode().getName();
+
+    ENG_LOG_FORMAT(LogLevel::Info, "Conductor",
+                   "Executing transition: %.*s (Slot %s) -> %.*s (Slot %s)",
+                   static_cast<int>(fromName.size()), fromName.data(),
+                   (fromSlot == ActiveSlot::SlotA) ? "A" : "B", static_cast<int>(toName.size()),
+                   toName.data(), (toSlot == ActiveSlot::SlotA) ? "A" : "B");
 
     state_ = ConductorState::Committing;
 
     // Pre-commit validation of speculative cache
     auto commitRes = getStandbyMode().commit(world_);
     if (!commitRes.hasValue()) {
-        // Rollback: Preserve current active state completely
-        ENG_LOG_WARN("Conductor",
-                     "W-0101: Commit validation failed on speculative cache; transition aborted");
+        ENG_LOG_FORMAT(LogLevel::Warning, "Conductor",
+                       "W-0101: Commit validation failed on speculative cache for %.*s; transition "
+                       "aborted: %.*s",
+                       static_cast<int>(toName.size()), toName.data(),
+                       static_cast<int>(commitRes.error().message.size()),
+                       commitRes.error().message.data());
         getStandbyMode().cancelPrepare();
+        pendingRequest_ = {};
         state_ = ConductorState::Active;
         ++failedTransitions_;
         return Error{.code = ErrorCode::CommitValidationFailed,
                      .message = "Commit validation failed; active state preserved via rollback"};
     }
 
+    ENG_LOG_FORMAT(LogLevel::Info, "Conductor", "Transition validation result: SUCCESS for %.*s",
+                   static_cast<int>(toName.size()), toName.data());
+
     // Validation succeeded: Perform atomic role reversal
+    ENG_LOG_FORMAT(LogLevel::Info, "Conductor", "Source state exit: %.*s",
+                   static_cast<int>(fromName.size()), fromName.data());
     auto exitRes = getActiveMode().exit(world_);
     (void)exitRes; // Mode exit cleanup
 
-    activeSlot_ = (activeSlot_ == ActiveSlot::SlotA) ? ActiveSlot::SlotB : ActiveSlot::SlotA;
+    activeSlot_ = toSlot;
     world_.setSystemGroupActive(world::SystemGroup::StateA, activeSlot_ == ActiveSlot::SlotA);
     world_.setSystemGroupActive(world::SystemGroup::StateB, activeSlot_ == ActiveSlot::SlotB);
 
+    ENG_LOG_FORMAT(LogLevel::Info, "Conductor", "Target state entry: %.*s (Active Role)",
+                   static_cast<int>(toName.size()), toName.data());
     auto enterRes = getActiveMode().enter(world_);
     (void)enterRes;
 
@@ -145,13 +284,22 @@ Result<void> Conductor::executeTransition() {
     transitionElapsed_ = Duration::zero();
     actionClock_.setTimeScale(config_.slowMotionInitialScale);
     ++successfulTransitions_;
+    pendingRequest_ = {};
+
+    ENG_LOG_FORMAT(LogLevel::Info, "Conductor", "Active state after processing: %.*s (Slot %s)",
+                   static_cast<int>(toName.size()), toName.data(),
+                   (activeSlot_ == ActiveSlot::SlotA) ? "A" : "B");
 
     return Result<void>::success();
 }
 
 void Conductor::cancelTransition() {
     if (state_ == ConductorState::Preparing || state_ == ConductorState::Prepared) {
+        ENG_LOG_FORMAT(
+            LogLevel::Info, "Conductor", "Transition cancelled; reverting to active state %.*s",
+            static_cast<int>(getActiveMode().getName().size()), getActiveMode().getName().data());
         getStandbyMode().cancelPrepare();
+        pendingRequest_ = {};
         state_ = ConductorState::Active;
     }
 }
@@ -159,6 +307,7 @@ void Conductor::cancelTransition() {
 void Conductor::shutdown() {
     if (state_ == ConductorState::Preparing || state_ == ConductorState::Prepared) {
         getStandbyMode().cancelPrepare();
+        pendingRequest_ = {};
     }
     if (state_ != ConductorState::Uninitialized && state_ != ConductorState::Terminated) {
         auto exitRes = getActiveMode().exit(world_);
