@@ -1358,6 +1358,85 @@ static void testEditorRuntimeSessionIntegrationAndIsolation() {
     std::cout << "[PASS] testEditorRuntimeSessionIntegrationAndIsolation\n";
 }
 
+static void testEditorToRuntimeTransitionIntegration() {
+    auto devRes = rhi::createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto nullDevice = std::move(devRes.value());
+
+    auto cmdRes = nullDevice->createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto nullCmd = std::move(cmdRes.value());
+
+    world::World editWorld;
+    auto modeA = std::make_unique<DummyEditorMode>("Edit State A");
+    auto modeB = std::make_unique<DummyEditorMode>("Edit State B");
+    framework::Conductor editConductor(editWorld, std::move(modeA), std::move(modeB));
+    TEST_CHECK(editConductor.initialize().hasValue());
+
+    framework::RuntimeSessionConfig sessionConfig{};
+    sessionConfig.modeFactory = []() {
+        return std::make_pair(std::make_unique<DummyEditorMode>("Runtime State A"),
+                              std::make_unique<DummyEditorMode>("Runtime State B"));
+    };
+    framework::RuntimeSession runtimeSession(sessionConfig);
+
+    EditorEngine editor;
+    TEST_CHECK(editor.initialize(*nullDevice));
+    editor.bindRuntimeSession(&runtimeSession);
+    editor.bindWorld(&editWorld);
+    editor.bindConductor(&editConductor);
+
+    // Initial state: Edit Mode; active conductor is editConductor
+    TEST_CHECK(editor.getRuntimeSession().getActiveConductor() == &editConductor);
+    TEST_CHECK(editConductor.getActiveSlot() == framework::ActiveSlot::SlotA);
+
+    // Start simulation (Play)
+    TEST_CHECK(editor.getRuntimeSession().play().hasValue());
+    TEST_CHECK(editor.getRuntimeSession().isSimulating());
+
+    // In Play mode, the active conductor is the runtimeConductor
+    auto* runtimeCond = editor.getRuntimeSession().getActiveConductor();
+    TEST_CHECK(runtimeCond != nullptr);
+    TEST_CHECK(runtimeCond != &editConductor);
+    TEST_CHECK(runtimeCond->getActiveSlot() == framework::ActiveSlot::SlotA);
+    TEST_CHECK(runtimeCond->getActiveMode().getName() == "Runtime State A");
+
+    // Begin frame in editor: updates context.conductor to runtimeCond
+    nullCmd->begin();
+    editor.beginFrame(Duration::fromMilliseconds(16));
+    editor.drawPanels();
+    editor.endFrame(*nullCmd);
+    nullCmd->end();
+
+    // Trigger transition from State A to State B on the active runtime conductor
+    auto reqRes = runtimeCond->requestTransition(framework::ActiveSlot::SlotB, /*autoCommit=*/true);
+    TEST_CHECK(reqRes.hasValue());
+    TEST_CHECK(runtimeCond->hasPendingTransition());
+    TEST_CHECK(runtimeCond->getState() == framework::ConductorState::Preparing);
+
+    // Advance session frame: standby prepares and auto-commits transition to Slot B
+    editor.getRuntimeSession().update(Duration::fromMilliseconds(16));
+    TEST_CHECK(runtimeCond->getActiveSlot() == framework::ActiveSlot::SlotB);
+    TEST_CHECK(runtimeCond->getActiveMode().getName() == "Runtime State B");
+    TEST_CHECK(runtimeCond->getState() == framework::ConductorState::Transitioning);
+
+    // Next editor frame reflects active Slot B runtime state
+    nullCmd->begin();
+    editor.beginFrame(Duration::fromMilliseconds(16));
+    editor.drawPanels();
+    editor.endFrame(*nullCmd);
+    nullCmd->end();
+
+    // Stop simulation: cleanly returns to Edit Mode
+    TEST_CHECK(editor.getRuntimeSession().stop().hasValue());
+    TEST_CHECK(!editor.getRuntimeSession().isSimulating());
+    TEST_CHECK(editor.getRuntimeSession().getActiveConductor() == &editConductor);
+    TEST_CHECK(editConductor.getActiveSlot() == framework::ActiveSlot::SlotA);
+
+    editor.shutdown();
+    std::cout << "[PASS] testEditorToRuntimeTransitionIntegration\n";
+}
+
 static void testEditorCameraLifecycleAndNavigation() {
     EditorCamera camera;
     TEST_CHECK(camera.getDistance() > 0.0F);
@@ -2406,6 +2485,7 @@ int main() {
     testMultiSelectionPropertyEditingAndBatchOperations();
     testWorkspaceSceneLifecycleAndFileOperations();
     testEditorRuntimeSessionIntegrationAndIsolation();
+    testEditorToRuntimeTransitionIntegration();
     testEditorCameraLifecycleAndNavigation();
     testEditorCameraNavigationAndFlyMode();
     testViewportRayPickingAndEntitySelection();

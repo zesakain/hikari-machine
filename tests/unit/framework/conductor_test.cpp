@@ -30,6 +30,9 @@ public:
 
     [[nodiscard]] Result<void> enter(World& /*world*/) override {
         ++enterCount;
+        if (eventLog != nullptr) {
+            eventLog->push_back(std::string(name_) + "_enter");
+        }
         return Result<void>::success();
     }
 
@@ -37,6 +40,9 @@ public:
 
     [[nodiscard]] Result<void> exit(World& /*world*/) override {
         ++exitCount;
+        if (eventLog != nullptr) {
+            eventLog->push_back(std::string(name_) + "_exit");
+        }
         return Result<void>::success();
     }
 
@@ -91,6 +97,7 @@ public:
     bool failPreparation{false};
     bool failCommit{false};
     EntityHandle validateTargetEntity;
+    std::vector<std::string>* eventLog{nullptr};
 };
 
 static int testConductorInitialization() {
@@ -331,6 +338,163 @@ static int testUserDefinedStateMetadata() {
     return 0;
 }
 
+static int testSuccessfulABTransition() {
+    World world;
+    auto modeA = std::make_unique<MockMode>("ModeA");
+    auto modeB = std::make_unique<MockMode>("ModeB");
+
+    auto* rawA = modeA.get();
+    auto* rawB = modeB.get();
+
+    Conductor conductor(world, std::move(modeA), std::move(modeB));
+    auto initRes = conductor.initialize(ActiveSlot::SlotA);
+    TEST_CHECK(initRes.hasValue());
+    TEST_CHECK(conductor.getActiveSlot() == ActiveSlot::SlotA);
+    TEST_CHECK(conductor.getState() == ConductorState::Active);
+
+    // Request transition to Slot B with autoCommit
+    auto reqRes = conductor.requestTransition(ActiveSlot::SlotB, /*autoCommit=*/true);
+    TEST_CHECK(reqRes.hasValue());
+    TEST_CHECK(conductor.hasPendingTransition());
+    TEST_CHECK(conductor.getPendingTargetSlot() == ActiveSlot::SlotB);
+    TEST_CHECK(conductor.getState() == ConductorState::Preparing);
+
+    // Ticking conductor should process preparation and auto-commit atomically
+    conductor.update(Duration::fromMilliseconds(16));
+    TEST_CHECK(conductor.getActiveSlot() == ActiveSlot::SlotB);
+    TEST_CHECK(conductor.getState() == ConductorState::Transitioning);
+    TEST_CHECK(!conductor.hasPendingTransition());
+    TEST_CHECK(rawA->exitCount == 1);
+    TEST_CHECK(rawB->enterCount == 1);
+    TEST_CHECK(conductor.getSuccessfulTransitionsCount() == 1);
+
+    // Ticking past slow motion curve brings conductor to steady Active state
+    conductor.update(Duration::fromMilliseconds(350));
+    TEST_CHECK(conductor.getState() == ConductorState::Active);
+    TEST_CHECK(conductor.getActiveSlot() == ActiveSlot::SlotB);
+
+    return 0;
+}
+
+static int testInvalidTransitionRejection() {
+    World world;
+    auto modeA = std::make_unique<MockMode>("ModeA");
+    auto modeB = std::make_unique<MockMode>("ModeB");
+
+    Conductor conductor(world, std::move(modeA), std::move(modeB));
+
+    // 1. Requesting transition when uninitialized fails
+    auto uninitReq = conductor.requestTransition(ActiveSlot::SlotB);
+    TEST_CHECK(!uninitReq.hasValue());
+    TEST_CHECK(uninitReq.error().code == ErrorCode::InvalidState);
+
+    // 2. Initialize Slot A
+    (void)conductor.initialize(ActiveSlot::SlotA);
+
+    // 3. Requesting transition to currently active slot is rejected
+    auto selfReq = conductor.requestTransition(ActiveSlot::SlotA);
+    TEST_CHECK(!selfReq.hasValue());
+    TEST_CHECK(selfReq.error().code == ErrorCode::InvalidTransition);
+    TEST_CHECK(!conductor.hasPendingTransition());
+
+    // 4. Executing transition when not in Prepared state is rejected
+    auto execRes = conductor.executeTransition();
+    TEST_CHECK(!execRes.hasValue());
+    TEST_CHECK(execRes.error().code == ErrorCode::InvalidTransition);
+
+    return 0;
+}
+
+static int testMissingTargetState() {
+    World world;
+    auto modeA = std::make_unique<MockMode>("ModeA");
+    auto modeB = std::make_unique<MockMode>("ModeB");
+
+    Conductor conductor(world, std::move(modeA), std::move(modeB));
+    (void)conductor.initialize(ActiveSlot::SlotA);
+
+    // 1. Empty target state name is rejected
+    auto emptyReq = conductor.requestTransition("");
+    TEST_CHECK(!emptyReq.hasValue());
+    TEST_CHECK(emptyReq.error().code == ErrorCode::InvalidArgument);
+    TEST_CHECK(!conductor.hasPendingTransition());
+    TEST_CHECK(conductor.getState() == ConductorState::Active);
+
+    // 2. Non-existent state name is rejected
+    auto unknownReq = conductor.requestTransition("NonExistentState");
+    TEST_CHECK(!unknownReq.hasValue());
+    TEST_CHECK(unknownReq.error().code == ErrorCode::InvalidArgument);
+    TEST_CHECK(!conductor.hasPendingTransition());
+    TEST_CHECK(conductor.getState() == ConductorState::Active);
+
+    return 0;
+}
+
+static int testTransitionRequestedWhilePending() {
+    World world;
+    auto modeA = std::make_unique<MockMode>("ModeA");
+    auto modeB = std::make_unique<MockMode>("ModeB");
+
+    auto* rawB = modeB.get();
+    rawB->framesRequiredForPreparation = 5;
+
+    Conductor conductor(world, std::move(modeA), std::move(modeB));
+    (void)conductor.initialize(ActiveSlot::SlotA);
+
+    // 1. Initial valid request queues transition
+    auto req1 = conductor.requestTransition(ActiveSlot::SlotB);
+    TEST_CHECK(req1.hasValue());
+    TEST_CHECK(conductor.hasPendingTransition());
+    TEST_CHECK(conductor.getState() == ConductorState::Preparing);
+
+    // 2. Second request while another is pending must be rejected
+    auto req2 = conductor.requestTransition(ActiveSlot::SlotB);
+    TEST_CHECK(!req2.hasValue());
+    TEST_CHECK(req2.error().code == ErrorCode::InvalidTransition);
+
+    auto req3 = conductor.requestTransition("ModeB");
+    TEST_CHECK(!req3.hasValue());
+    TEST_CHECK(req3.error().code == ErrorCode::InvalidTransition);
+
+    // Conductor still retains original pending transition
+    TEST_CHECK(conductor.hasPendingTransition());
+    TEST_CHECK(conductor.getState() == ConductorState::Preparing);
+
+    return 0;
+}
+
+static int testCorrectExitAndEnterCallbackOrder() {
+    World world;
+    std::vector<std::string> eventLog;
+
+    auto modeA = std::make_unique<MockMode>("ModeA");
+    auto modeB = std::make_unique<MockMode>("ModeB");
+    modeA->eventLog = &eventLog;
+    modeB->eventLog = &eventLog;
+
+    Conductor conductor(world, std::move(modeA), std::move(modeB));
+    (void)conductor.initialize(ActiveSlot::SlotA);
+
+    TEST_CHECK(eventLog.size() == 1);
+    TEST_CHECK(eventLog[0] == "ModeA_enter");
+
+    // Request transition A -> B
+    (void)conductor.requestTransition(ActiveSlot::SlotB);
+    conductor.update(Duration::fromMilliseconds(16));
+    TEST_CHECK(conductor.getState() == ConductorState::Prepared);
+
+    // Commit transition
+    auto execRes = conductor.executeTransition();
+    TEST_CHECK(execRes.hasValue());
+
+    // Verify callback order: ModeA_exit MUST precede ModeB_enter!
+    TEST_CHECK(eventLog.size() == 3);
+    TEST_CHECK(eventLog[1] == "ModeA_exit");
+    TEST_CHECK(eventLog[2] == "ModeB_enter");
+
+    return 0;
+}
+
 int main() {
     if (testConductorInitialization() != 0) {
         return 1;
@@ -348,6 +512,21 @@ int main() {
         return 1;
     }
     if (testUserDefinedStateMetadata() != 0) {
+        return 1;
+    }
+    if (testSuccessfulABTransition() != 0) {
+        return 1;
+    }
+    if (testInvalidTransitionRejection() != 0) {
+        return 1;
+    }
+    if (testMissingTargetState() != 0) {
+        return 1;
+    }
+    if (testTransitionRequestedWhilePending() != 0) {
+        return 1;
+    }
+    if (testCorrectExitAndEnterCallbackOrder() != 0) {
         return 1;
     }
     std::cout << "All Conductor unit tests passed successfully.\n";
