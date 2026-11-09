@@ -3,6 +3,8 @@
 
 #include "world/world.h"
 
+#include "world/hierarchy_systems.h"
+
 #include <algorithm>
 
 namespace eng::world {
@@ -14,6 +16,8 @@ World::World() {
 
     ecs_.component<TransformComponent>("TransformComponent");
     ecs_.component<WorldTransformComponent>("WorldTransformComponent");
+
+    registerHierarchySystems(*this);
 }
 
 World::~World() = default;
@@ -168,7 +172,7 @@ void World::progress(float deltaSeconds) {
     ecs_.progress(deltaSeconds);
 }
 
-bool World::setParent(EntityHandle child, EntityHandle parent) {
+bool World::setParent(EntityHandle child, EntityHandle parent, bool preserveWorldTransform) {
     if (!isAlive(child)) {
         return false;
     }
@@ -186,6 +190,51 @@ bool World::setParent(EntityHandle child, EntityHandle parent) {
     for (const auto& validator : hierarchyValidators_) {
         if (validator && !validator(*this, child, parent)) {
             return false;
+        }
+    }
+
+    // Calculate new local transform to preserve world placement if requested
+    if (preserveWorldTransform) {
+        Mat4 childWorldMat = Mat4::identity();
+        if (const auto* wt = getComponent<WorldTransformComponent>(child)) {
+            childWorldMat = wt->worldMatrix;
+        } else if (const auto* tc = getComponent<TransformComponent>(child)) {
+            childWorldMat = tc->transform.toMatrix();
+        }
+
+        if (parent.isValid()) {
+            Mat4 parentWorldMat = Mat4::identity();
+            if (const auto* pwt = getComponent<WorldTransformComponent>(parent)) {
+                parentWorldMat = pwt->worldMatrix;
+            } else if (const auto* ptc = getComponent<TransformComponent>(parent)) {
+                parentWorldMat = ptc->transform.toMatrix();
+            }
+
+            auto invParent = parentWorldMat.inverse();
+            if (!invParent.has_value()) {
+                // Reject reparenting if target parent's matrix is non-invertible (e.g. zero scale)
+                return false;
+            }
+
+            Mat4 newLocalMat = invParent.value() * childWorldMat;
+            auto decomp = newLocalMat.decompose();
+            if (!decomp.has_value()) {
+                return false;
+            }
+
+            if (auto* tc = getMutableComponent<TransformComponent>(child)) {
+                tc->transform = decomp.value();
+                tc->isDirty = true;
+            }
+        } else {
+            // Detaching to root: child local transform becomes its current world transform
+            auto decomp = childWorldMat.decompose();
+            if (decomp.has_value()) {
+                if (auto* tc = getMutableComponent<TransformComponent>(child)) {
+                    tc->transform = decomp.value();
+                    tc->isDirty = true;
+                }
+            }
         }
     }
 

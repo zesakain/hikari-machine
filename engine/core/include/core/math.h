@@ -238,6 +238,9 @@ struct Quat {
                     std::cos(halfAngle)};
     }
 
+    /// Extracts orientation quaternion from a 4x4 rotation/affine matrix.
+    [[nodiscard]] static Quat fromRotationMatrix(const struct Mat4& mat) noexcept;
+
     [[nodiscard]] constexpr float lengthSq() const noexcept {
         return (x * x) + (y * y) + (z * z) + (w * w);
     }
@@ -592,6 +595,9 @@ struct Mat4 {
 
         return res;
     }
+
+    /// Decomposes affine matrix into position, orientation quaternion, and scale.
+    [[nodiscard]] std::optional<struct Transform> decompose() const noexcept;
 };
 
 /// @struct Ray
@@ -793,5 +799,93 @@ struct Transform {
         };
     }
 };
+
+inline Quat Quat::fromRotationMatrix(const Mat4& mat) noexcept {
+    const float r00 = mat.m[0];
+    const float r01 = mat.m[4];
+    const float r02 = mat.m[8];
+    const float r10 = mat.m[1];
+    const float r11 = mat.m[5];
+    const float r12 = mat.m[9];
+    const float r20 = mat.m[2];
+    const float r21 = mat.m[6];
+    const float r22 = mat.m[10];
+
+    const float tr = r00 + r11 + r22;
+    float qx = 0.0F;
+    float qy = 0.0F;
+    float qz = 0.0F;
+    float qw = 1.0F;
+
+    if (tr > 0.0F) {
+        const float s = std::sqrt(tr + 1.0F) * 2.0F;
+        qw = 0.25F * s;
+        qx = (r21 - r12) / s;
+        qy = (r02 - r20) / s;
+        qz = (r10 - r01) / s;
+    } else if ((r00 > r11) && (r00 > r22)) {
+        const float s = std::sqrt(1.0F + r00 - r11 - r22) * 2.0F;
+        qw = (r21 - r12) / s;
+        qx = 0.25F * s;
+        qy = (r01 + r10) / s;
+        qz = (r02 + r20) / s;
+    } else if (r11 > r22) {
+        const float s = std::sqrt(1.0F + r11 - r00 - r22) * 2.0F;
+        qw = (r02 - r20) / s;
+        qx = (r01 + r10) / s;
+        qy = 0.25F * s;
+        qz = (r12 + r21) / s;
+    } else {
+        const float s = std::sqrt(1.0F + r22 - r00 - r11) * 2.0F;
+        qw = (r10 - r01) / s;
+        qx = (r02 + r20) / s;
+        qy = (r12 + r21) / s;
+        qz = 0.25F * s;
+    }
+
+    return Quat{qx, qy, qz, qw}.normalized();
+}
+
+inline std::optional<Transform> Mat4::decompose() const noexcept {
+    const Vec3 translation{m[12], m[13], m[14]};
+
+    Vec3 col0{m[0], m[1], m[2]};
+    Vec3 col1{m[4], m[5], m[6]};
+    Vec3 col2{m[8], m[9], m[10]};
+
+    float scaleX = col0.length();
+    float scaleY = col1.length();
+    float scaleZ = col2.length();
+
+    if (scaleX < 1e-6F || scaleY < 1e-6F || scaleZ < 1e-6F) {
+        return std::nullopt;
+    }
+
+    // Check determinant to preserve reflection/negative scale
+    const Vec3 cross12 = Vec3::cross(col1, col2);
+    if (Vec3::dot(col0, cross12) < 0.0F) {
+        scaleX = -scaleX;
+        col0 = -col0;
+    }
+
+    col0 = col0 / scaleX;
+    col1 = col1 / scaleY;
+    col2 = col2 / scaleZ;
+
+    Mat4 rotMat{};
+    rotMat.m[0] = col0.x;
+    rotMat.m[1] = col0.y;
+    rotMat.m[2] = col0.z;
+    rotMat.m[4] = col1.x;
+    rotMat.m[5] = col1.y;
+    rotMat.m[6] = col1.z;
+    rotMat.m[8] = col2.x;
+    rotMat.m[9] = col2.y;
+    rotMat.m[10] = col2.z;
+    rotMat.m[15] = 1.0F;
+
+    const Quat rotation = Quat::fromRotationMatrix(rotMat);
+    return Transform{translation, rotation, Vec3{scaleX, scaleY, scaleZ}};
+}
 
 } // namespace eng

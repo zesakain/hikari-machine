@@ -86,6 +86,10 @@ add_executable(hierarchy_test unit/world/hierarchy_test.cpp)
 target_link_libraries(hierarchy_test PRIVATE hikari::engine_world hikari::engine_physics)
 add_test(NAME hierarchy_test COMMAND hierarchy_test)
 
+add_executable(transform_propagation_test unit/world/transform_propagation_test.cpp)
+target_link_libraries(transform_propagation_test PRIVATE hikari::engine_world hikari::engine_physics)
+add_test(NAME transform_propagation_test COMMAND transform_propagation_test)
+
 # Framework Unit Tests
 add_executable(conductor_test unit/framework/conductor_test.cpp)
 target_link_libraries(conductor_test PRIVATE hikari::engine_framework)

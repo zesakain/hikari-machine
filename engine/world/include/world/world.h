@@ -78,6 +78,11 @@ public:
             ecs_.entity(entity.id).template add<T>();
         } else {
             ecs_.entity(entity.id).set<T>(std::move(component));
+            if constexpr (std::is_same_v<T, TransformComponent>) {
+                if (!ecs_.entity(entity.id).template has<WorldTransformComponent>()) {
+                    ecs_.entity(entity.id).template set<WorldTransformComponent>({});
+                }
+            }
         }
     }
 
@@ -156,11 +161,14 @@ public:
     /// - child != parent.
     /// - parent must not be a descendant of child (acyclic invariant).
     /// - Any registered hierarchy validators must return true.
+    /// - If preserveWorldTransform is true, target parent matrix must be invertible.
     ///
     /// @param child The child entity to attach or detach.
     /// @param parent The new parent entity, or invalid handle to make root.
+    /// @param preserveWorldTransform If true, recalculates local transform to keep world position
+    /// stationary.
     /// @return true if parenting was successful; false if rejected.
-    bool setParent(EntityHandle child, EntityHandle parent);
+    bool setParent(EntityHandle child, EntityHandle parent, bool preserveWorldTransform = true);
 
     /// Retrieves the direct parent entity, or an invalid handle if entity is root or dead.
     [[nodiscard]] EntityHandle getParent(EntityHandle child) const;

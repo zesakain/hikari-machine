@@ -17,6 +17,7 @@ target_compile_options(flecs_static PRIVATE -w)
 
 add_library(engine_world STATIC
     src/world.cpp
+    src/hierarchy_systems.cpp
 )
 add_library(hikari::engine_world ALIAS engine_world)
 

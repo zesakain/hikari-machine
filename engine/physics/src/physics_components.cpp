@@ -57,12 +57,16 @@ void registerPhysicsSystems(world::World& world, PhysicsWorld& physicsWorld) {
     auto preSync =
         ecs.system<const PhysicsTransformComponent, const RigidBodyComponent>("PhysicsPreSync")
             .kind(flecs::OnUpdate)
-            .each(
-                [&physicsWorld](const PhysicsTransformComponent& t, const RigidBodyComponent& rb) {
-                    if (rb.motionType == MotionType::Kinematic && rb.bodyHandle.isValid()) {
-                        (void)physicsWorld.setTransform(rb.bodyHandle, t.transform);
-                    }
-                });
+            .each([&physicsWorld](flecs::iter& it, size_t index, const PhysicsTransformComponent& t,
+                                  const RigidBodyComponent& rb) {
+                if (rb.motionType == MotionType::Kinematic && rb.bodyHandle.isValid()) {
+                    flecs::entity e = it.entity(index);
+                    const auto* wt = e.get<world::WorldTransformComponent>();
+                    const Transform targetTransform =
+                        (wt != nullptr) ? wt->worldTransform : t.transform;
+                    (void)physicsWorld.setTransform(rb.bodyHandle, targetTransform);
+                }
+            });
     world.registerSystem(world::SystemGroup::Continuous, preSync);
 
     // 3. Step: Advance fixed-timestep Jolt physical simulation
@@ -76,11 +80,17 @@ void registerPhysicsSystems(world::World& world, PhysicsWorld& physicsWorld) {
     auto postSync =
         ecs.system<PhysicsTransformComponent, const RigidBodyComponent>("PhysicsPostSync")
             .kind(flecs::PostUpdate)
-            .each([&physicsWorld](PhysicsTransformComponent& t, const RigidBodyComponent& rb) {
+            .each([&physicsWorld](flecs::iter& it, size_t index, PhysicsTransformComponent& t,
+                                  const RigidBodyComponent& rb) {
                 if (rb.motionType == MotionType::Dynamic && rb.bodyHandle.isValid()) {
                     auto res = physicsWorld.getTransform(rb.bodyHandle);
                     if (res.hasValue()) {
                         t.transform = res.value();
+                        flecs::entity e = it.entity(index);
+                        if (auto* tc = e.get_mut<world::TransformComponent>()) {
+                            tc->transform = res.value();
+                            tc->isDirty = true;
+                        }
                     }
                 }
             });
