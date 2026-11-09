@@ -288,8 +288,14 @@ body {
         }
 
 #if defined(HIKARI_BUILD_EDITOR)
+        framework::RuntimeSessionConfig sessionConfig{};
+        sessionConfig.modeFactory = []() {
+            return std::make_pair(std::make_unique<StateAMode>(), std::make_unique<StateBMode>());
+        };
+        framework::RuntimeSession runtimeSession(sessionConfig);
         editor::EditorEngine editorEngine;
         if (editorEngine.initialize(*rhiDevice)) {
+            editorEngine.bindRuntimeSession(&runtimeSession);
             editorEngine.bindWorld(&world);
             editorEngine.bindConductor(&conductor);
             ENG_LOG_INFO("Editor",
@@ -355,6 +361,11 @@ body {
 #if defined(HIKARI_BUILD_EDITOR)
             if (editorEngine.isInitialized()) {
                 editorEngine.getRuntimeSession().update(fixedStep);
+                if (!editorEngine.getRuntimeSession().isSimulating() &&
+                    (conductor.getState() == framework::ConductorState::Preparing ||
+                     conductor.getState() == framework::ConductorState::Transitioning)) {
+                    conductor.update(fixedStep);
+                }
             } else {
                 conductor.update(fixedStep);
                 world.progress(static_cast<float>(fixedStep.toSeconds()));

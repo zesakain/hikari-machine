@@ -8,12 +8,12 @@
 #include "editor/hierarchy_panel.h"
 #include "editor/selection_model.h"
 #include "editor/ui_helpers.h"
-#include "imgui_utils.h"
 #include "framework/conductor.h"
 #include "framework/runtime_session.h"
 #include "framework/scene.h"
 #include "framework/scene_serializer.h"
 #include "framework/simulation_state.h"
+#include "imgui_utils.h"
 #include "physics/physics_components.h"
 #include "rhi/rhi_device.h"
 #include "script/script_components.h"
@@ -418,10 +418,12 @@ struct WorkspaceManager::Impl {
                     if (ImGui::MenuItem("Hikari Dark", nullptr, currentTheme == ThemeType::Dark)) {
                         applyEditorTheme(ThemeType::Dark);
                     }
-                    if (ImGui::MenuItem("Hikari Midnight", nullptr, currentTheme == ThemeType::Midnight)) {
+                    if (ImGui::MenuItem("Hikari Midnight", nullptr,
+                                        currentTheme == ThemeType::Midnight)) {
                         applyEditorTheme(ThemeType::Midnight);
                     }
-                    if (ImGui::MenuItem("Hikari Light", nullptr, currentTheme == ThemeType::Light)) {
+                    if (ImGui::MenuItem("Hikari Light", nullptr,
+                                        currentTheme == ThemeType::Light)) {
                         applyEditorTheme(ThemeType::Light);
                     }
                     ImGui::EndMenu();
@@ -667,7 +669,8 @@ struct WorkspaceManager::Impl {
                                  ImGuiWindowFlags_NoScrollWithMouse |
                                  ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking;
 
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(ThemeMetrics::kSpacingL, ThemeMetrics::kSpacingS));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,
+                            ImVec2(ThemeMetrics::kSpacingL, ThemeMetrics::kSpacingS));
         ImGui::PushStyleColor(ImGuiCol_WindowBg, toImVec4(theme.backgroundApp));
 
         if (ImGui::Begin("##EditorToolbar", nullptr, flags)) {
@@ -705,7 +708,8 @@ struct WorkspaceManager::Impl {
                             simState == framework::SimulationState::Paused);
 
             // Play button
-            if (drawTransportButton(EditorIcons::kPlay, "Play", theme.transportPlay, !canPlay, canPlay)) {
+            if (drawTransportButton(EditorIcons::kPlay, "Play", theme.transportPlay, !canPlay,
+                                    canPlay)) {
                 if (ctx.selection != nullptr) {
                     ctx.selection->clear();
                 }
@@ -741,7 +745,8 @@ struct WorkspaceManager::Impl {
             ImGui::SameLine();
 
             // Resume button
-            if (drawTransportButton(EditorIcons::kResume, "Resume", theme.transportResume, !canResume, canResume)) {
+            if (drawTransportButton(EditorIcons::kResume, "Resume", theme.transportResume,
+                                    !canResume, canResume)) {
                 if (ctx.runtimeSession != nullptr) {
                     (void)ctx.runtimeSession->resume();
                     ctx.simulationState = ctx.runtimeSession->getSimulationState();
@@ -764,7 +769,8 @@ struct WorkspaceManager::Impl {
             ImGui::SameLine();
 
             // Stop button
-            if (drawTransportButton(EditorIcons::kStop, "Stop", theme.transportStop, !canStop, canStop)) {
+            if (drawTransportButton(EditorIcons::kStop, "Stop", theme.transportStop, !canStop,
+                                    canStop)) {
                 if (ctx.selection != nullptr) {
                     ctx.selection->clear();
                 }
@@ -807,12 +813,15 @@ struct WorkspaceManager::Impl {
 
                 std::string_view slotName = ctx.conductor->getSlotDisplayName(activeSlot);
                 char slotBuf[64];
-                std::snprintf(slotBuf, sizeof(slotBuf), "Active: %.*s", static_cast<int>(slotName.size()), slotName.data());
+                std::snprintf(slotBuf, sizeof(slotBuf), "Active: %.*s",
+                              static_cast<int>(slotName.size()), slotName.data());
 
                 if (state == framework::ConductorState::Transitioning) {
                     drawBadge("Transitioning", theme.badgeStandby);
                 } else {
-                    drawBadge(slotBuf, (activeSlot == framework::ActiveSlot::SlotA) ? theme.accentPrimary : theme.statusWarning);
+                    drawBadge(slotBuf, (activeSlot == framework::ActiveSlot::SlotA)
+                                           ? theme.accentPrimary
+                                           : theme.statusWarning);
                 }
 
                 ImGui::SameLine();
@@ -825,7 +834,7 @@ struct WorkspaceManager::Impl {
                     std::snprintf(switchLabel, sizeof(switchLabel), "Switch to %.*s",
                                   static_cast<int>(targetName.size()), targetName.data());
                     if (ImGui::SmallButton(switchLabel)) {
-                        (void)ctx.conductor->requestTransition();
+                        (void)ctx.conductor->requestTransition(targetSlot, true);
                     }
                 } else if (state == framework::ConductorState::Prepared) {
                     if (ImGui::SmallButton("Commit Switch")) {
@@ -840,7 +849,8 @@ struct WorkspaceManager::Impl {
             ImGui::TextColored(toImVec4(theme.borderMedium), "|");
             ImGui::SameLine();
             char sceneBuf[128];
-            std::snprintf(sceneBuf, sizeof(sceneBuf), "%s%s", currentSceneName.c_str(), isSceneDirty ? "*" : "");
+            std::snprintf(sceneBuf, sizeof(sceneBuf), "%s%s", currentSceneName.c_str(),
+                          isSceneDirty ? "*" : "");
             drawBadge(sceneBuf, isSceneDirty ? theme.statusWarning : theme.accentPrimary);
         }
         ImGui::End();
@@ -878,10 +888,11 @@ struct WorkspaceManager::Impl {
             ImGui::TextColored(toImVec4(theme.borderMedium), "|");
             ImGui::SameLine();
             if (!currentScenePath.empty()) {
-                ImGui::TextColored(toImVec4(theme.textSecondary), "Scene: %s%s", currentScenePath.c_str(),
-                                   isSceneDirty ? "*" : "");
+                ImGui::TextColored(toImVec4(theme.textSecondary), "Scene: %s%s",
+                                   currentScenePath.c_str(), isSceneDirty ? "*" : "");
             } else {
-                ImGui::TextColored(toImVec4(theme.textMuted), "Scene: [Untitled]%s", isSceneDirty ? "*" : "");
+                ImGui::TextColored(toImVec4(theme.textMuted), "Scene: [Untitled]%s",
+                                   isSceneDirty ? "*" : "");
             }
             ImGui::SameLine();
             ImGui::TextColored(toImVec4(theme.borderMedium), "|");
@@ -889,7 +900,8 @@ struct WorkspaceManager::Impl {
             // Selected entity badge
             ImGui::SameLine();
             if (ctx.selection != nullptr && ctx.selection->count() > 1) {
-                ImGui::TextColored(toImVec4(theme.textPrimary), "Selected: %zu Entities", ctx.selection->count());
+                ImGui::TextColored(toImVec4(theme.textPrimary), "Selected: %zu Entities",
+                                   ctx.selection->count());
             } else if (ctx.selectedEntityId != 0 && ctx.world != nullptr &&
                        ctx.world->isAlive(world::EntityHandle(ctx.selectedEntityId))) {
                 flecs::world& ecs = ctx.world->getRawWorld();
@@ -912,7 +924,8 @@ struct WorkspaceManager::Impl {
                 ImGui::TextColored(toImVec4(theme.borderMedium), "|");
                 ImGui::SameLine();
                 flecs::world& ecs = ctx.world->getRawWorld();
-                ImGui::TextColored(toImVec4(theme.textSecondary), "ECS: %d entities", ecs.count<flecs::Component>());
+                ImGui::TextColored(toImVec4(theme.textSecondary), "ECS: %d entities",
+                                   ecs.count<flecs::Component>());
             }
 
             // Right: GPU & resolution & performance
@@ -920,7 +933,8 @@ struct WorkspaceManager::Impl {
             ImGui::TextColored(toImVec4(theme.borderMedium), "|");
             ImGui::SameLine();
             if (ctx.rhiDevice != nullptr) {
-                ImGui::TextColored(toImVec4(theme.textSecondary), "Vulkan 1.3 | %s", ctx.rhiDevice->getCaps().deviceName.data());
+                ImGui::TextColored(toImVec4(theme.textSecondary), "Vulkan 1.3 | %s",
+                                   ctx.rhiDevice->getCaps().deviceName.data());
             } else {
                 ImGui::TextColored(toImVec4(theme.textMuted), "Null RHI");
             }
@@ -928,12 +942,14 @@ struct WorkspaceManager::Impl {
             ImGui::SameLine();
             ImGui::TextColored(toImVec4(theme.borderMedium), "|");
             ImGui::SameLine();
-            ImGui::TextColored(toImVec4(theme.textSecondary), "Viewport: %ux%u", ctx.windowWidth, ctx.windowHeight);
+            ImGui::TextColored(toImVec4(theme.textSecondary), "Viewport: %ux%u", ctx.windowWidth,
+                               ctx.windowHeight);
 
             ImGui::SameLine();
             ImGui::TextColored(toImVec4(theme.borderMedium), "|");
             ImGui::SameLine();
-            ImGui::TextColored(toImVec4(theme.textPrimary), "FPS: %.1f (%.2f ms)", static_cast<double>(ctx.currentFps),
+            ImGui::TextColored(toImVec4(theme.textPrimary), "FPS: %.1f (%.2f ms)",
+                               static_cast<double>(ctx.currentFps),
                                static_cast<double>(ctx.lastFrameTimeMs));
         }
         ImGui::End();

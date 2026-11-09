@@ -156,12 +156,14 @@ void ConductorPanel::draw(EditorContext& ctx) {
 
             // 3. Interactive Transition Controls
             if (state == framework::ConductorState::Active) {
+                auto targetSlot =
+                    isSlotAActive ? framework::ActiveSlot::SlotB : framework::ActiveSlot::SlotA;
                 std::string_view targetName = isSlotAActive ? slotBName : slotAName;
                 char btnLabel[64];
                 std::snprintf(btnLabel, sizeof(btnLabel), "Request Transition to %.*s",
                               static_cast<int>(targetName.size()), targetName.data());
                 if (ImGui::Button(btnLabel, ImVec2(-1.0F, 30.0F))) {
-                    (void)ctx.conductor->requestTransition();
+                    (void)ctx.conductor->requestTransition(targetSlot, true);
                 }
             } else if (state == framework::ConductorState::Prepared) {
                 if (ImGui::Button("Commit Transition Switch", ImVec2(200.0F, 30.0F))) {
