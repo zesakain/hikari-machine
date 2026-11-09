@@ -22,6 +22,8 @@
 #include "rhi/rhi_device.h"
 #include "script/script_components.h"
 #include "script/script_engine.h"
+#include "world/components.h"
+#include "world/hierarchy_systems.h"
 #include "world/world.h"
 
 #include <cstdlib>
@@ -2448,6 +2450,237 @@ static void testEditorShutdownWithUploadedMeshAssets() {
     std::cout << "[PASS] testEditorShutdownWithUploadedMeshAssets\n";
 }
 
+static void testHierarchyPanelTreeAndSelection() {
+    auto devRes = rhi::createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto nullDev = std::move(devRes.value());
+
+    auto cmdRes = nullDev->createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto nullCmd = std::move(cmdRes.value());
+
+    world::World world;
+    auto modeA = std::make_unique<DummyEditorMode>("ModeA");
+    auto modeB = std::make_unique<DummyEditorMode>("ModeB");
+    framework::Conductor conductor(world, std::move(modeA), std::move(modeB));
+    TEST_CHECK(conductor.initialize().hasValue());
+
+    EditorEngine editor;
+    TEST_CHECK(editor.initialize(*nullDev));
+    editor.bindWorld(&world);
+    editor.bindConductor(&conductor);
+
+    // Build hierarchy:
+    // RootA
+    //   -> ChildA1
+    //       -> GrandchildA1
+    //   -> ChildA2
+    // RootB
+    auto rootA = world.createEntity("RootA");
+    auto childA1 = world.createEntity("ChildA1");
+    auto grandchildA1 = world.createEntity("GrandchildA1");
+    auto childA2 = world.createEntity("ChildA2");
+    auto rootB = world.createEntity("RootB");
+
+    world.setParent(childA1, rootA, false);
+    world.setParent(grandchildA1, childA1, false);
+    world.setParent(childA2, rootA, false);
+
+    // Verify ECS state
+    auto roots = world.getRootEntities();
+    TEST_CHECK(roots.size() == 2);
+    TEST_CHECK(world.getParent(childA1) == rootA);
+    TEST_CHECK(world.getParent(childA2) == rootA);
+    TEST_CHECK(world.getParent(grandchildA1) == childA1);
+    TEST_CHECK(!world.getParent(rootA).isValid());
+    TEST_CHECK(!world.getParent(rootB).isValid());
+
+    // Selection synchronization: select grandchild across hierarchy
+    editor.getSelectionModel().select(grandchildA1);
+    TEST_CHECK(editor.getSelectionModel().isSelected(grandchildA1));
+    TEST_CHECK(editor.getSelectionModel().getPrimarySelected() == grandchildA1);
+
+    // Multi-select across hierarchy levels (RootA and GrandchildA1)
+    editor.getSelectionModel().select(rootA, true);
+    TEST_CHECK(editor.getSelectionModel().count() == 2);
+    TEST_CHECK(editor.getSelectionModel().isSelected(rootA));
+    TEST_CHECK(editor.getSelectionModel().isSelected(grandchildA1));
+
+    // Render 3 frames to verify recursive tree view rendering
+    for (int frame = 0; frame < 3; ++frame) {
+        nullCmd->begin();
+        editor.beginFrame(Duration::fromMilliseconds(16));
+        editor.drawPanels();
+        editor.endFrame(*nullCmd);
+        nullCmd->end();
+        TEST_CHECK(editor.lastDrawCallCount() > 0);
+    }
+
+    editor.shutdown();
+    conductor.shutdown();
+    std::cout << "[PASS] testHierarchyPanelTreeAndSelection\n";
+}
+
+static void testHierarchyCascadingDestructionInEditor() {
+    auto devRes = rhi::createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto nullDev = std::move(devRes.value());
+
+    auto cmdRes = nullDev->createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto nullCmd = std::move(cmdRes.value());
+
+    world::World world;
+    auto modeA = std::make_unique<DummyEditorMode>("ModeA");
+    auto modeB = std::make_unique<DummyEditorMode>("ModeB");
+    framework::Conductor conductor(world, std::move(modeA), std::move(modeB));
+    TEST_CHECK(conductor.initialize().hasValue());
+
+    EditorEngine editor;
+    TEST_CHECK(editor.initialize(*nullDev));
+    editor.bindWorld(&world);
+    editor.bindConductor(&conductor);
+
+    auto parent = world.createEntity("CascadeParent");
+    auto child = world.createEntity("CascadeChild");
+    auto grandchild = world.createEntity("CascadeGrandchild");
+    auto independent = world.createEntity("IndependentRoot");
+
+    world.setParent(child, parent, false);
+    world.setParent(grandchild, child, false);
+
+    // Select all 3 hierarchy entities
+    const world::EntityHandle initialSelection[] = {parent, child, grandchild};
+    editor.getSelectionModel().selectAll(initialSelection);
+    TEST_CHECK(editor.getSelectionModel().count() == 3);
+
+    // Render frame
+    nullCmd->begin();
+    editor.beginFrame(Duration::fromMilliseconds(16));
+    editor.drawPanels();
+    editor.endFrame(*nullCmd);
+    nullCmd->end();
+
+    // Destroy parent entity: cascades to child and grandchild
+    world.destroyEntity(parent);
+    TEST_CHECK(!world.isAlive(parent));
+    TEST_CHECK(!world.isAlive(child));
+    TEST_CHECK(!world.isAlive(grandchild));
+    TEST_CHECK(world.isAlive(independent));
+
+    // Next frame: destroyed entities must be automatically purged from selection
+    nullCmd->begin();
+    editor.beginFrame(Duration::fromMilliseconds(16));
+    editor.drawPanels();
+    editor.endFrame(*nullCmd);
+    nullCmd->end();
+
+    TEST_CHECK(editor.getSelectionModel().empty());
+    TEST_CHECK(editor.getSelectionModel().count() == 0);
+
+    auto roots = world.getRootEntities();
+    TEST_CHECK(roots.size() == 1);
+    TEST_CHECK(roots[0] == independent);
+
+    editor.shutdown();
+    conductor.shutdown();
+    std::cout << "[PASS] testHierarchyCascadingDestructionInEditor\n";
+}
+
+static void testHierarchyReparentingPreserveWorldTransform() {
+    world::World world;
+
+    // Parent at (10, 0, 0)
+    auto parent = world.createEntity("Parent");
+    world.setComponent(parent, world::TransformComponent{Transform{Vec3{10.0F, 0.0F, 0.0F}}});
+
+    // Child at (15, 0, 0)
+    auto child = world.createEntity("Child");
+    world.setComponent(child, world::TransformComponent{Transform{Vec3{15.0F, 0.0F, 0.0F}}});
+
+    world::updateHierarchyTransforms(world);
+
+    const auto* wtChildInit = world.getComponent<world::WorldTransformComponent>(child);
+    TEST_CHECK(wtChildInit != nullptr);
+    TEST_CHECK(std::abs(wtChildInit->worldTransform.position.x - 15.0F) < 1e-3F);
+
+    // Reparent Child under Parent with preserveWorldTransform = true
+    bool ok = HierarchyPanel::reparentEntity(world, child, parent, true);
+    TEST_CHECK(ok);
+    TEST_CHECK(world.getParent(child) == parent);
+
+    // Local position should now be (5, 0, 0) relative to parent (10, 0, 0)
+    const auto* tcChild = world.getComponent<world::TransformComponent>(child);
+    TEST_CHECK(tcChild != nullptr);
+    TEST_CHECK(std::abs(tcChild->transform.position.x - 5.0F) < 1e-3F);
+
+    // After updating transforms, world position should be stationary at (15, 0, 0)
+    world::updateHierarchyTransforms(world);
+    const auto* wtChildReparented = world.getComponent<world::WorldTransformComponent>(child);
+    TEST_CHECK(wtChildReparented != nullptr);
+    TEST_CHECK(std::abs(wtChildReparented->worldTransform.position.x - 15.0F) < 1e-3F);
+    TEST_CHECK(std::abs(wtChildReparented->worldMatrix.m[12] - 15.0F) < 1e-3F);
+
+    // Detach Child to root with preserveWorldTransform = true
+    bool detachOk = HierarchyPanel::reparentEntity(world, child, world::EntityHandle{}, true);
+    TEST_CHECK(detachOk);
+    TEST_CHECK(!world.getParent(child).isValid());
+
+    // Local position becomes world position (15, 0, 0)
+    const auto* tcChildDetached = world.getComponent<world::TransformComponent>(child);
+    TEST_CHECK(tcChildDetached != nullptr);
+    TEST_CHECK(std::abs(tcChildDetached->transform.position.x - 15.0F) < 1e-3F);
+
+    world::updateHierarchyTransforms(world);
+    const auto* wtChildDetached = world.getComponent<world::WorldTransformComponent>(child);
+    TEST_CHECK(wtChildDetached != nullptr);
+    TEST_CHECK(std::abs(wtChildDetached->worldTransform.position.x - 15.0F) < 1e-3F);
+
+    std::cout << "[PASS] testHierarchyReparentingPreserveWorldTransform\n";
+}
+
+static void testHierarchyReparentingRejectionAndSafeguards() {
+    world::World world;
+
+    auto entityA = world.createEntity("EntityA");
+    auto entityB = world.createEntity("EntityB");
+    auto entityC = world.createEntity("EntityC");
+
+    world.setComponent(entityA, world::TransformComponent{Transform{Vec3{1.0F, 0.0F, 0.0F}}});
+    world.setComponent(entityB, world::TransformComponent{Transform{Vec3{2.0F, 0.0F, 0.0F}}});
+    world.setComponent(entityC, world::TransformComponent{Transform{Vec3{3.0F, 0.0F, 0.0F}}});
+
+    // 1. Reparenting entity onto itself is rejected
+    TEST_CHECK(!HierarchyPanel::reparentEntity(world, entityA, entityA));
+
+    // 2. Cycle prevention: A -> B -> C; attempting to parent A under C must fail
+    TEST_CHECK(HierarchyPanel::reparentEntity(world, entityB, entityA, false));
+    TEST_CHECK(HierarchyPanel::reparentEntity(world, entityC, entityB, false));
+    TEST_CHECK(!HierarchyPanel::reparentEntity(world, entityA, entityC));
+    TEST_CHECK(!HierarchyPanel::reparentEntity(world, entityA, entityB));
+
+    // 3. Singular parent matrix: Parent with scale (0, 0, 0) has non-invertible matrix
+    auto singularParent = world.createEntity("SingularParent");
+    world.setComponent(singularParent,
+                       world::TransformComponent{Transform{Vec3{0.0F, 0.0F, 0.0F}, Quat::identity(),
+                                                           Vec3{0.0F, 0.0F, 0.0F}}});
+    world::updateHierarchyTransforms(world);
+
+    auto targetChild = world.createEntity("TargetChild");
+    world.setComponent(targetChild, world::TransformComponent{Transform{Vec3{5.0F, 0.0F, 0.0F}}});
+
+    bool singularOk = HierarchyPanel::reparentEntity(world, targetChild, singularParent, true);
+    TEST_CHECK(!singularOk); // Must be safely rejected without dividing by zero
+    TEST_CHECK(!world.getParent(targetChild).isValid()); // Remained root
+
+    std::cout << "[PASS] testHierarchyReparentingRejectionAndSafeguards\n";
+}
+
+static void testHierarchyDragDropPayloadContract() {
+    TEST_CHECK(std::string_view(kHierarchyEntityDragPayload) == "HIERARCHY_ENTITY_DRAG");
+    std::cout << "[PASS] testHierarchyDragDropPayloadContract\n";
+}
+
 int main() {
     std::cout << "Running Editor subsystem unit tests...\n";
     const std::filesystem::path candidates[] = {"assets/models", "../../../assets/models",
@@ -2494,6 +2727,14 @@ int main() {
     testEditorMeshAssetPipelineAndRendering();
     testEditorGpuViewportIntegrationLifecycle();
     testEditorGpuViewportVulkanHardware();
+
+    // Milestone 8B.6 Phase 4: Editor Hierarchy Panel Redesign Tests
+    testHierarchyDragDropPayloadContract();
+    testHierarchyPanelTreeAndSelection();
+    testHierarchyCascadingDestructionInEditor();
+    testHierarchyReparentingPreserveWorldTransform();
+    testHierarchyReparentingRejectionAndSafeguards();
+
     std::cout << "All Editor subsystem tests PASSED!\n";
     return 0;
 }

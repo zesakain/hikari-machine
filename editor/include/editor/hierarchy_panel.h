@@ -1,5 +1,17 @@
 /// @file hierarchy_panel.h
-/// @brief Scene hierarchy panel for inspecting and creating entities in the Shared World.
+/// @brief Scene hierarchy panel for inspecting and organizing entities in the Shared World.
+///
+/// Purpose:
+/// Provides an interactive recursive tree view of entities in the active Shared World, supporting
+/// selection, parent-child expansion/collapsing, inline renaming, drag-and-drop reparenting,
+/// cascading deletion/duplication, and component badges.
+///
+/// Thread Safety:
+/// Main editor thread only.
+///
+/// Invariants:
+/// - Single source of truth is the ECS World; panel does not duplicate hierarchy state.
+/// - Reparenting defaults to preserving world placement (stationary visual placement).
 
 #pragma once
 
@@ -9,6 +21,7 @@
 #include <array>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace flecs {
 struct world;
@@ -19,6 +32,9 @@ class World;
 } // namespace eng::world
 
 namespace eng::editor {
+
+/// ImGui drag-and-drop payload identifier for entity handles.
+inline constexpr const char* kHierarchyEntityDragPayload = "HIERARCHY_ENTITY_DRAG";
 
 enum class ComponentFilter : uint8_t { All = 0, Transform = 1, Physics = 2, Script = 3 };
 
@@ -46,6 +62,11 @@ public:
     [[nodiscard]] static std::string generateUniqueEntityName(world::World& world,
                                                               const char* baseName);
 
+    /// Reparents an entity using editor semantics.
+    /// Defaults to preserveWorldTransform = true per Milestone 8B.6 Section 5.1.
+    static bool reparentEntity(world::World& world, world::EntityHandle child,
+                               world::EntityHandle parent, bool preserveWorldTransform = true);
+
     /// Initiates an inline rename for an entity.
     void startRenaming(world::EntityHandle entity, std::string_view currentName);
 
@@ -56,6 +77,10 @@ public:
     void cancelRename() noexcept;
 
 private:
+    void drawEntityNode(EditorContext& ctx, world::EntityHandle handle,
+                        std::vector<world::EntityHandle>& displayedHandles, int& entityCount,
+                        std::string_view searchFilter, ComponentFilter compFilter);
+
     std::array<char, 64> searchFilter_{};
     ComponentFilter componentFilter_{ComponentFilter::All};
     world::EntityHandle renamingEntity_{};
