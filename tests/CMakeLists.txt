@@ -82,6 +82,10 @@ add_executable(world_test unit/world/world_test.cpp)
 target_link_libraries(world_test PRIVATE hikari::engine_world)
 add_test(NAME world_test COMMAND world_test)
 
+add_executable(hierarchy_test unit/world/hierarchy_test.cpp)
+target_link_libraries(hierarchy_test PRIVATE hikari::engine_world hikari::engine_physics)
+add_test(NAME hierarchy_test COMMAND hierarchy_test)
+
 # Framework Unit Tests
 add_executable(conductor_test unit/framework/conductor_test.cpp)
 target_link_libraries(conductor_test PRIVATE hikari::engine_framework)

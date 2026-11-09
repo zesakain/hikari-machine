@@ -13,6 +13,31 @@ void registerPhysicsComponents(world::World& world) {
     ecs.component<RigidBodyComponent>("RigidBodyComponent");
     ecs.component<ColliderComponent>("ColliderComponent");
     ecs.component<PhysicsTransformComponent>("PhysicsTransformComponent");
+
+    // Dynamic rigid-body entities must remain root entities in this milestone
+    world.addHierarchyValidator(
+        [](const world::World& w, world::EntityHandle child, world::EntityHandle parent) -> bool {
+            if (parent.isValid()) {
+                const auto* rb = w.getComponent<RigidBodyComponent>(child);
+                if (rb != nullptr && rb->motionType == MotionType::Dynamic) {
+                    return false;
+                }
+            }
+            return true;
+        });
+
+    // Observer: If an entity already has a parent and receives Dynamic RigidBodyComponent, detach
+    // it to root
+    ecs.observer<RigidBodyComponent>()
+        .event(flecs::OnSet)
+        .each([](flecs::iter& it, size_t index, RigidBodyComponent& rb) {
+            if (rb.motionType == MotionType::Dynamic) {
+                flecs::entity e = it.entity(index);
+                if (e.target(flecs::ChildOf).is_valid()) {
+                    e.remove(flecs::ChildOf, flecs::Wildcard);
+                }
+            }
+        });
 }
 
 void registerPhysicsSystems(world::World& world, PhysicsWorld& physicsWorld) {

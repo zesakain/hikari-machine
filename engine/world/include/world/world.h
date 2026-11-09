@@ -21,6 +21,7 @@
 
 #include "core/assert.h"
 #include "core/result.h"
+#include "world/components.h"
 #include "world/entity.h"
 #include "world/system_group.h"
 
@@ -143,6 +144,39 @@ public:
     /// Retrieves all currently active user entities in the World.
     [[nodiscard]] std::vector<EntityHandle> getAllEntities() const;
 
+    /// Validator function signature for hierarchy operations.
+    using HierarchyValidator = bool (*)(const World& world, EntityHandle child,
+                                        EntityHandle parent);
+
+    /// Establishes a parent-child relationship. Pass EntityHandle{} as parent to detach to root.
+    ///
+    /// Preconditions:
+    /// - child must be an alive entity.
+    /// - If parent is valid, parent must be an alive entity.
+    /// - child != parent.
+    /// - parent must not be a descendant of child (acyclic invariant).
+    /// - Any registered hierarchy validators must return true.
+    ///
+    /// @param child The child entity to attach or detach.
+    /// @param parent The new parent entity, or invalid handle to make root.
+    /// @return true if parenting was successful; false if rejected.
+    bool setParent(EntityHandle child, EntityHandle parent);
+
+    /// Retrieves the direct parent entity, or an invalid handle if entity is root or dead.
+    [[nodiscard]] EntityHandle getParent(EntityHandle child) const;
+
+    /// Retrieves all immediate children of the specified parent entity.
+    [[nodiscard]] std::vector<EntityHandle> getChildren(EntityHandle parent) const;
+
+    /// Checks if 'descendant' is an ancestor-descendant child of 'ancestor'.
+    [[nodiscard]] bool isDescendantOf(EntityHandle descendant, EntityHandle ancestor) const;
+
+    /// Retrieves all root entities (alive entities without a parent).
+    [[nodiscard]] std::vector<EntityHandle> getRootEntities() const;
+
+    /// Registers a validation callback invoked by setParent() before establishing relationships.
+    void addHierarchyValidator(HierarchyValidator validator);
+
     /// Direct access to underlying Flecs world instance.
     [[nodiscard]] flecs::world& getRawWorld() noexcept { return ecs_; }
 
@@ -154,6 +188,7 @@ private:
     std::vector<EntityHandle> activeEntities_{};
     std::array<bool, static_cast<size_t>(SystemGroup::Count)> groupActive_{};
     std::array<std::vector<flecs::system>, static_cast<size_t>(SystemGroup::Count)> groupSystems_{};
+    std::vector<HierarchyValidator> hierarchyValidators_{};
 };
 
 } // namespace eng::world

@@ -11,13 +11,17 @@ World::World() {
     groupActive_[static_cast<size_t>(SystemGroup::Continuous)] = true;
     groupActive_[static_cast<size_t>(SystemGroup::StateA)] = true;
     groupActive_[static_cast<size_t>(SystemGroup::StateB)] = false;
+
+    ecs_.component<TransformComponent>("TransformComponent");
+    ecs_.component<WorldTransformComponent>("WorldTransformComponent");
 }
 
 World::~World() = default;
 
 World::World(World&& other) noexcept
     : ecs_(std::move(other.ecs_)), activeEntities_(std::move(other.activeEntities_)),
-      groupActive_(other.groupActive_), groupSystems_(std::move(other.groupSystems_)) {}
+      groupActive_(other.groupActive_), groupSystems_(std::move(other.groupSystems_)),
+      hierarchyValidators_(std::move(other.hierarchyValidators_)) {}
 
 World& World::operator=(World&& other) noexcept {
     if (this != &other) {
@@ -25,6 +29,7 @@ World& World::operator=(World&& other) noexcept {
         activeEntities_ = std::move(other.activeEntities_);
         groupActive_ = other.groupActive_;
         groupSystems_ = std::move(other.groupSystems_);
+        hierarchyValidators_ = std::move(other.hierarchyValidators_);
     }
     return *this;
 }
@@ -52,9 +57,30 @@ EntityHandle World::createEntity(std::string_view name) {
 }
 
 void World::destroyEntity(EntityHandle entity) {
-    if (isAlive(entity)) {
-        ecs_.entity(entity.id).destruct();
-        auto it = std::find(activeEntities_.begin(), activeEntities_.end(), entity);
+    if (!isAlive(entity)) {
+        return;
+    }
+
+    // Collect all descendants recursively before destruction to ensure activeEntities_ consistency
+    std::vector<EntityHandle> toClean;
+    std::vector<EntityHandle> stack;
+    stack.push_back(entity);
+
+    while (!stack.empty()) {
+        EntityHandle curr = stack.back();
+        stack.pop_back();
+        toClean.push_back(curr);
+
+        if (isAlive(curr)) {
+            ecs_.entity(curr.id).children(
+                [&stack](flecs::entity child) { stack.push_back(EntityHandle(child.id())); });
+        }
+    }
+
+    ecs_.entity(entity.id).destruct();
+
+    for (EntityHandle h : toClean) {
+        auto it = std::find(activeEntities_.begin(), activeEntities_.end(), h);
         if (it != activeEntities_.end()) {
             activeEntities_.erase(it);
         }
@@ -140,6 +166,90 @@ bool World::isSystemGroupActive(SystemGroup group) const noexcept {
 
 void World::progress(float deltaSeconds) {
     ecs_.progress(deltaSeconds);
+}
+
+bool World::setParent(EntityHandle child, EntityHandle parent) {
+    if (!isAlive(child)) {
+        return false;
+    }
+    if (parent.isValid() && !isAlive(parent)) {
+        return false;
+    }
+    if (child == parent) {
+        return false;
+    }
+    if (parent.isValid() && isDescendantOf(parent, child)) {
+        return false;
+    }
+
+    // Run registered hierarchy validators
+    for (const auto& validator : hierarchyValidators_) {
+        if (validator && !validator(*this, child, parent)) {
+            return false;
+        }
+    }
+
+    auto childEntity = ecs_.entity(child.id);
+    if (parent.isValid()) {
+        auto parentEntity = ecs_.entity(parent.id);
+        childEntity.child_of(parentEntity);
+    } else {
+        childEntity.remove(flecs::ChildOf, flecs::Wildcard);
+    }
+
+    if (auto* tc = getMutableComponent<TransformComponent>(child)) {
+        tc->isDirty = true;
+    }
+
+    return true;
+}
+
+EntityHandle World::getParent(EntityHandle child) const {
+    if (!isAlive(child)) {
+        return EntityHandle{};
+    }
+    const auto p = ecs_.entity(child.id).parent();
+    return p.is_valid() ? EntityHandle(p.id()) : EntityHandle{};
+}
+
+std::vector<EntityHandle> World::getChildren(EntityHandle parent) const {
+    std::vector<EntityHandle> result;
+    if (!isAlive(parent)) {
+        return result;
+    }
+    ecs_.entity(parent.id).children(
+        [&result](flecs::entity child) { result.push_back(EntityHandle(child.id())); });
+    return result;
+}
+
+bool World::isDescendantOf(EntityHandle descendant, EntityHandle ancestor) const {
+    if (!isAlive(descendant) || !isAlive(ancestor) || descendant == ancestor) {
+        return false;
+    }
+    EntityHandle curr = getParent(descendant);
+    while (curr.isValid()) {
+        if (curr == ancestor) {
+            return true;
+        }
+        curr = getParent(curr);
+    }
+    return false;
+}
+
+std::vector<EntityHandle> World::getRootEntities() const {
+    std::vector<EntityHandle> roots;
+    for (EntityHandle h : activeEntities_) {
+        if (isAlive(h) && !getParent(h).isValid()) {
+            roots.push_back(h);
+        }
+    }
+    return roots;
+}
+
+void World::addHierarchyValidator(HierarchyValidator validator) {
+    if (validator != nullptr) {
+        hierarchyValidators_.push_back(validator);
+    }
 }
 
 } // namespace eng::world
