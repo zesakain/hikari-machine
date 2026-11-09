@@ -482,6 +482,59 @@ static int testDynamicBodySyncUpdatesWorldTransformAndDescendants() {
     return 0;
 }
 
+// 16. Deterministic pipeline execution order verification
+static int testDeterministicPipelineExecutionOrder() {
+    (void)physics::PhysicsSystem::initialize();
+    World world;
+    physics::PhysicsWorld physicsWorld;
+
+    physics::registerPhysicsComponents(world);
+    auto phases = physics::registerPhysicsSystems(world, physicsWorld);
+    world.setSystemGroupActive(SystemGroup::Continuous, true);
+
+    auto& ecs = world.getRawWorld();
+    std::vector<std::string> executionTimeline;
+
+    // Register probe systems in deliberately REVERSED order
+    ecs.system<>("Probe_PreStore").kind(flecs::PreStore).run([&](flecs::iter&) {
+        executionTimeline.push_back("PreStore");
+    });
+    ecs.system<>("Probe_PhysicsPostSync").kind(phases.postSync).run([&](flecs::iter&) {
+        executionTimeline.push_back("PhysicsPostSync");
+    });
+    ecs.system<>("Probe_PhysicsStep").kind(phases.step).run([&](flecs::iter&) {
+        executionTimeline.push_back("PhysicsStep");
+    });
+    ecs.system<>("Probe_PhysicsPreSync").kind(phases.preSync).run([&](flecs::iter&) {
+        executionTimeline.push_back("PhysicsPreSync");
+    });
+    ecs.system<>("Probe_PostUpdate").kind(flecs::PostUpdate).run([&](flecs::iter&) {
+        executionTimeline.push_back("PostUpdate");
+    });
+    ecs.system<>("Probe_OnValidate").kind(flecs::OnValidate).run([&](flecs::iter&) {
+        executionTimeline.push_back("OnValidate");
+    });
+    ecs.system<>("Probe_OnUpdate").kind(flecs::OnUpdate).run([&](flecs::iter&) {
+        executionTimeline.push_back("OnUpdate");
+    });
+
+    world.progress(0.016F);
+
+    // Verify exact DAG pipeline ordering:
+    // OnUpdate -> OnValidate -> PostUpdate -> PhysicsPreSync -> PhysicsStep -> PhysicsPostSync ->
+    // PreStore
+    TEST_CHECK(executionTimeline.size() == 7);
+    TEST_CHECK(executionTimeline[0] == "OnUpdate");
+    TEST_CHECK(executionTimeline[1] == "OnValidate");
+    TEST_CHECK(executionTimeline[2] == "PostUpdate");
+    TEST_CHECK(executionTimeline[3] == "PhysicsPreSync");
+    TEST_CHECK(executionTimeline[4] == "PhysicsStep");
+    TEST_CHECK(executionTimeline[5] == "PhysicsPostSync");
+    TEST_CHECK(executionTimeline[6] == "PreStore");
+
+    return 0;
+}
+
 int main() {
     std::cout << "[TransformPropagationTest] Running Phase 2 transform evaluation tests...\n";
 
@@ -514,6 +567,8 @@ int main() {
     if (testKinematicChildUpdatedBeforePhysicsStep() != 0)
         return 1;
     if (testDynamicBodySyncUpdatesWorldTransformAndDescendants() != 0)
+        return 1;
+    if (testDeterministicPipelineExecutionOrder() != 0)
         return 1;
 
     std::cout << "[TransformPropagationTest] All Phase 2 transform propagation tests passed "

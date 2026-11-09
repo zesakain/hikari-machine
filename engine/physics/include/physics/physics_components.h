@@ -43,14 +43,34 @@ struct PhysicsTransformComponent {
     Transform transform;
 };
 
+/// @struct PhysicsPipelinePhases
+/// @brief Explicit Flecs pipeline phases establishing the deterministic execution order
+/// of physics synchronization relative to gameplay updates, hierarchy propagation, and rendering.
+struct PhysicsPipelinePhases {
+    flecs::entity preSync;
+    flecs::entity step;
+    flecs::entity postSync;
+};
+
 /// Registers physics component reflection and observers in the Flecs World.
 void registerPhysicsComponents(world::World& world);
 
 /// Registers continuous physics stepping and transform synchronization systems in the World.
 ///
+/// Purpose:
+/// Binds kinematic and dynamic rigid body synchronization and the fixed-step Jolt simulation into
+/// the Flecs pipeline under SystemGroup::Continuous.
+///
+/// Scheduling:
+/// Enforces deterministic DAG execution order via dedicated Flecs pipeline phases:
+/// flecs::PostUpdate -> PhysicsPreSyncPhase -> PhysicsStepPhase -> PhysicsPostSyncPhase ->
+/// flecs::PreStore.
+///
 /// Preconditions:
 /// - registerPhysicsComponents() has been called.
 /// - physicsWorld is initialized and valid.
-void registerPhysicsSystems(world::World& world, PhysicsWorld& physicsWorld);
+///
+/// @return Struct containing the three registered Flecs pipeline phase entities.
+PhysicsPipelinePhases registerPhysicsSystems(world::World& world, PhysicsWorld& physicsWorld);
 
 } // namespace eng::physics

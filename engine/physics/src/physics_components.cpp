@@ -40,7 +40,7 @@ void registerPhysicsComponents(world::World& world) {
         });
 }
 
-void registerPhysicsSystems(world::World& world, PhysicsWorld& physicsWorld) {
+PhysicsPipelinePhases registerPhysicsSystems(world::World& world, PhysicsWorld& physicsWorld) {
     auto& ecs = world.getRawWorld();
 
     // 1. Observer: Clean up Jolt body when RigidBodyComponent is removed or entity is deleted
@@ -53,11 +53,23 @@ void registerPhysicsSystems(world::World& world, PhysicsWorld& physicsWorld) {
             }
         });
 
-    // 2. Pre-sync: Push kinematic transforms from ECS into Jolt simulation
-    // Scheduled in PostUpdate after HierarchyTransformPreSync (OnValidate)
+    // 2. Establish deterministic physics pipeline sub-phases strictly chained between PostUpdate
+    // and PreStore. Invariant: Gameplay/scripts (OnUpdate) -> Hierarchy PreSync (OnValidate) ->
+    // PostUpdate ->
+    //            PhysicsPreSyncPhase -> PhysicsStepPhase -> PhysicsPostSyncPhase -> PreStore
+    //            (Hierarchy PostSync).
+    auto preSyncPhase =
+        ecs.entity("PhysicsPreSyncPhase").add(flecs::Phase).depends_on(flecs::PostUpdate);
+    auto stepPhase = ecs.entity("PhysicsStepPhase").add(flecs::Phase).depends_on(preSyncPhase);
+    auto postSyncPhase = ecs.entity("PhysicsPostSyncPhase").add(flecs::Phase).depends_on(stepPhase);
+    ecs.entity(flecs::PreStore).depends_on(postSyncPhase);
+
+    // 3. Pre-sync: Push kinematic transforms from ECS into Jolt simulation
+    // Scheduled in PhysicsPreSyncPhase (after HierarchyTransformPreSync in OnValidate and
+    // PostUpdate)
     auto preSync =
         ecs.system<PhysicsTransformComponent, const RigidBodyComponent>("PhysicsPreSync")
-            .kind(flecs::PostUpdate)
+            .kind(preSyncPhase)
             .each([&physicsWorld](flecs::iter& it, size_t index, PhysicsTransformComponent& t,
                                   const RigidBodyComponent& rb) {
                 if (rb.motionType == MotionType::Kinematic && rb.bodyHandle.isValid()) {
@@ -73,18 +85,19 @@ void registerPhysicsSystems(world::World& world, PhysicsWorld& physicsWorld) {
             });
     world.registerSystem(world::SystemGroup::Continuous, preSync);
 
-    // 3. Step: Advance fixed-timestep Jolt physical simulation
-    // Scheduled in PostUpdate immediately after PhysicsPreSync
+    // 4. Step: Advance fixed-timestep Jolt physical simulation
+    // Scheduled in PhysicsStepPhase (strictly after PhysicsPreSyncPhase)
     auto stepSystem =
-        ecs.system<>("PhysicsStep").kind(flecs::PostUpdate).run([&physicsWorld](flecs::iter& it) {
+        ecs.system<>("PhysicsStep").kind(stepPhase).run([&physicsWorld](flecs::iter& it) {
             (void)physicsWorld.step(it.delta_time());
         });
     world.registerSystem(world::SystemGroup::Continuous, stepSystem);
 
-    // 4. Post-sync: Pull dynamic simulated body transforms back into ECS
+    // 5. Post-sync: Pull dynamic simulated body transforms back into ECS
+    // Scheduled in PhysicsPostSyncPhase (strictly after PhysicsStepPhase, before PreStore)
     auto postSync =
         ecs.system<PhysicsTransformComponent, const RigidBodyComponent>("PhysicsPostSync")
-            .kind(flecs::PostUpdate)
+            .kind(postSyncPhase)
             .each([&physicsWorld](flecs::iter& it, size_t index, PhysicsTransformComponent& t,
                                   const RigidBodyComponent& rb) {
                 if (rb.motionType == MotionType::Dynamic && rb.bodyHandle.isValid()) {
@@ -100,6 +113,12 @@ void registerPhysicsSystems(world::World& world, PhysicsWorld& physicsWorld) {
                 }
             });
     world.registerSystem(world::SystemGroup::Continuous, postSync);
+
+    return PhysicsPipelinePhases{
+        .preSync = preSyncPhase,
+        .step = stepPhase,
+        .postSync = postSyncPhase,
+    };
 }
 
 } // namespace eng::physics
