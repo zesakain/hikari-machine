@@ -302,6 +302,106 @@ int testFailureHandlingAndCleanup() {
     return 0;
 }
 
+int testRuntimeSessionPhysicsPipelineOrdering() {
+    World editWorld;
+    physics::registerPhysicsComponents(editWorld);
+
+    // Provide an initial entity in Edit World to deserialize into Runtime World
+    auto e = editWorld.createEntity("TestEntity");
+    editWorld.setComponent(e, physics::PhysicsTransformComponent{
+                                  .transform = Transform(Vec3(0.0F, 5.0F, 0.0F), Quat::identity(),
+                                                         Vec3(1.0F, 1.0F, 1.0F)),
+                              });
+
+    RuntimeSession session;
+    session.setEditWorld(&editWorld);
+
+    // 1. Play starts isolated runtime simulation and creates physics pipeline phases
+    TEST_CHECK(session.play().hasValue());
+    TEST_CHECK(session.getSimulationState() == SimulationState::Playing);
+
+    World* rtWorld = session.getRuntimeWorld();
+    TEST_CHECK(rtWorld != nullptr);
+    auto& ecs = rtWorld->getRawWorld();
+
+    // 2. Discover the deterministic physics pipeline phases instantiated by RuntimeSession
+    auto preSyncPhase = ecs.lookup("PhysicsPreSyncPhase");
+    auto stepPhase = ecs.lookup("PhysicsStepPhase");
+    auto postSyncPhase = ecs.lookup("PhysicsPostSyncPhase");
+
+    TEST_CHECK(preSyncPhase.is_valid());
+    TEST_CHECK(stepPhase.is_valid());
+    TEST_CHECK(postSyncPhase.is_valid());
+
+    // 3. Register probe systems in deliberately REVERSED order to verify DAG order independence
+    std::vector<std::string> timeline;
+
+    auto p7 = ecs.system<>("Probe_PreStore").kind(flecs::PreStore).run([&](flecs::iter&) {
+        timeline.push_back("PreStore");
+    });
+    auto p6 = ecs.system<>("Probe_PhysicsPostSync").kind(postSyncPhase).run([&](flecs::iter&) {
+        timeline.push_back("PhysicsPostSyncPhase");
+    });
+    auto p5 = ecs.system<>("Probe_PhysicsStep").kind(stepPhase).run([&](flecs::iter&) {
+        timeline.push_back("PhysicsStepPhase");
+    });
+    auto p4 = ecs.system<>("Probe_PhysicsPreSync").kind(preSyncPhase).run([&](flecs::iter&) {
+        timeline.push_back("PhysicsPreSyncPhase");
+    });
+    auto p3 = ecs.system<>("Probe_PostUpdate").kind(flecs::PostUpdate).run([&](flecs::iter&) {
+        timeline.push_back("PostUpdate");
+    });
+    auto p2 = ecs.system<>("Probe_OnValidate").kind(flecs::OnValidate).run([&](flecs::iter&) {
+        timeline.push_back("OnValidate");
+    });
+    auto p1 = ecs.system<>("Probe_OnUpdate").kind(flecs::OnUpdate).run([&](flecs::iter&) {
+        timeline.push_back("OnUpdate");
+    });
+
+    rtWorld->registerSystem(SystemGroup::Continuous, p1);
+    rtWorld->registerSystem(SystemGroup::Continuous, p2);
+    rtWorld->registerSystem(SystemGroup::Continuous, p3);
+    rtWorld->registerSystem(SystemGroup::Continuous, p4);
+    rtWorld->registerSystem(SystemGroup::Continuous, p5);
+    rtWorld->registerSystem(SystemGroup::Continuous, p6);
+    rtWorld->registerSystem(SystemGroup::Continuous, p7);
+
+    // 4. Exercise the actual RuntimeSession update path
+    timeline.clear();
+    session.update(Duration::fromMilliseconds(16));
+
+    // Verify that the timeline observed through session.update() matches the expected phase
+    // ordering:
+    // 1. OnUpdate
+    // 2. OnValidate
+    // 3. PostUpdate
+    // 4. PhysicsPreSyncPhase
+    // 5. PhysicsStepPhase
+    // 6. PhysicsPostSyncPhase
+    // 7. PreStore
+    TEST_CHECK(!timeline.empty());
+    constexpr size_t kPhaseCount = 7;
+    TEST_CHECK(timeline.size() % kPhaseCount == 0);
+
+    for (size_t offset = 0; offset < timeline.size(); offset += kPhaseCount) {
+        TEST_CHECK(timeline[offset + 0] == "OnUpdate");
+        TEST_CHECK(timeline[offset + 1] == "OnValidate");
+        TEST_CHECK(timeline[offset + 2] == "PostUpdate");
+        TEST_CHECK(timeline[offset + 3] == "PhysicsPreSyncPhase");
+        TEST_CHECK(timeline[offset + 4] == "PhysicsStepPhase");
+        TEST_CHECK(timeline[offset + 5] == "PhysicsPostSyncPhase");
+        TEST_CHECK(timeline[offset + 6] == "PreStore");
+    }
+
+    // 5. Clean teardown upon stop
+    TEST_CHECK(session.stop().hasValue());
+    TEST_CHECK(session.getSimulationState() == SimulationState::Edit);
+    TEST_CHECK(session.getRuntimeWorld() == nullptr);
+
+    std::cout << "[PASS] testRuntimeSessionPhysicsPipelineOrdering\n";
+    return 0;
+}
+
 } // namespace
 
 int main() {
@@ -313,6 +413,8 @@ int main() {
     if (testSimulationPhysicsAndScriptExecution() != 0)
         return 1;
     if (testFailureHandlingAndCleanup() != 0)
+        return 1;
+    if (testRuntimeSessionPhysicsPipelineOrdering() != 0)
         return 1;
     std::cout << "All RuntimeSession tests PASSED!\n";
     return 0;
