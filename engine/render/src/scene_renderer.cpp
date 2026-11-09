@@ -6,6 +6,7 @@
 #include "core/assert.h"
 #include "physics/physics_components.h"
 #include "render/mesh_shader_spirv.h"
+#include "world/components.h"
 
 #include <cstring>
 
@@ -384,9 +385,28 @@ RenderStats SceneRenderer::renderScene(world::World& world, AssetManager& assetM
             return;
         }
 
-        // Compute model matrix from entity transform if present
+        // Compute model matrix from entity transform.
+        // Priority: WorldTransformComponent (hierarchy-aware world matrix) >
+        //           TransformComponent (local transform fallback) >
+        //           PhysicsTransformComponent (physics simulation output) >
+        //           identity (stationary at world origin).
+        //
+        // WorldTransformComponent is preferred because it accumulates parent chain transforms
+        // and is updated by HierarchyTransformSystem every frame before rendering. Falling back
+        // to PhysicsTransformComponent preserves correct rendering of dynamic rigid bodies that
+        // are root-level entities (not parented) updated by PhysicsPostSync.
         Mat4 model = Mat4::identity();
-        if (e.has<physics::PhysicsTransformComponent>()) {
+        if (e.has<world::WorldTransformComponent>()) {
+            const auto* wt = e.get<world::WorldTransformComponent>();
+            if (wt != nullptr) {
+                model = wt->worldMatrix;
+            }
+        } else if (e.has<world::TransformComponent>()) {
+            const auto* tc = e.get<world::TransformComponent>();
+            if (tc != nullptr) {
+                model = tc->transform.toMatrix();
+            }
+        } else if (e.has<physics::PhysicsTransformComponent>()) {
             const auto* tc = e.get<physics::PhysicsTransformComponent>();
             if (tc != nullptr) {
                 model = tc->transform.toMatrix();

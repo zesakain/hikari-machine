@@ -2,8 +2,13 @@
 /// @brief Scene mesh rendering system and RHI command recorder.
 ///
 /// Purpose:
-/// Traverses ECS entities with MeshComponent and PhysicsTransformComponent, resolves their
-/// GPU mesh buffers via AssetManager, and records draw commands into an RhiCommandList.
+/// Traverses ECS entities with MeshComponent, resolves their GPU mesh buffers via AssetManager,
+/// and records draw commands into an RhiCommandList. Transform priority per entity:
+///   1. WorldTransformComponent::worldMatrix — set by HierarchyTransformSystem for parented
+///   entities.
+///   2. TransformComponent — local transform fallback.
+///   3. PhysicsTransformComponent — fallback for dynamic rigid bodies at root level.
+///   4. Identity matrix — stationary at origin if none of the above components are present.
 /// Manages offscreen color and depth render targets, shaders, and graphics pipeline for
 /// GPU-based scene viewport rendering.
 ///
