@@ -83,7 +83,7 @@ void ContentBrowserPanel::drawToolbar(EditorContext& ctx) {
     if (!canBack) {
         ImGui::BeginDisabled();
     }
-    if (ImGui::Button("◀##NavBack", ImVec2(24.0F, 0.0F))) {
+    if (ImGui::Button("<##NavBack", ImVec2(24.0F, 0.0F))) {
         controller_.navigateBack();
     }
     if (!canBack) {
@@ -95,7 +95,7 @@ void ContentBrowserPanel::drawToolbar(EditorContext& ctx) {
     if (!canFwd) {
         ImGui::BeginDisabled();
     }
-    if (ImGui::Button("▶##NavFwd", ImVec2(24.0F, 0.0F))) {
+    if (ImGui::Button(">##NavFwd", ImVec2(24.0F, 0.0F))) {
         controller_.navigateForward();
     }
     if (!canFwd) {
@@ -107,7 +107,7 @@ void ContentBrowserPanel::drawToolbar(EditorContext& ctx) {
     if (!canUp) {
         ImGui::BeginDisabled();
     }
-    if (ImGui::Button("▲##NavUp", ImVec2(24.0F, 0.0F))) {
+    if (ImGui::Button("^##NavUp", ImVec2(24.0F, 0.0F))) {
         controller_.navigateUp();
     }
     if (!canUp) {
@@ -115,7 +115,7 @@ void ContentBrowserPanel::drawToolbar(EditorContext& ctx) {
     }
 
     ImGui::SameLine();
-    if (ImGui::Button("⟲##Refresh", ImVec2(24.0F, 0.0F))) {
+    if (ImGui::Button("R##Refresh", ImVec2(24.0F, 0.0F))) {
         controller_.refresh();
     }
 

@@ -189,7 +189,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
             if (allHaveTransform) {
                 bool removeMultiTransform = false;
                 bool headerOpen =
-                    ImGui::CollapsingHeader("📐 Transform##Multi", ImGuiTreeNodeFlags_DefaultOpen);
+                    ImGui::CollapsingHeader("Transform##Multi", ImGuiTreeNodeFlags_DefaultOpen);
                 if (ImGui::BeginPopupContextItem("TransformMultiCtx")) {
                     if (ImGui::MenuItem("Reset Transform for All")) {
                         for (auto h : selected) {
@@ -340,7 +340,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
             if (allHaveRigidBody) {
                 bool removeMultiRb = false;
                 bool headerOpen =
-                    ImGui::CollapsingHeader("⚛ Rigid Body##Multi", ImGuiTreeNodeFlags_DefaultOpen);
+                    ImGui::CollapsingHeader("Rigid Body##Multi", ImGuiTreeNodeFlags_DefaultOpen);
                 if (ImGui::BeginPopupContextItem("RigidBodyMultiCtx")) {
                     if (ImGui::MenuItem("Reset to Dynamic for All")) {
                         for (auto h : selected) {
@@ -440,7 +440,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
             if (allHaveCollider) {
                 bool removeMultiCollider = false;
                 bool headerOpen =
-                    ImGui::CollapsingHeader("🛡 Collider##Multi", ImGuiTreeNodeFlags_DefaultOpen);
+                    ImGui::CollapsingHeader("Collider##Multi", ImGuiTreeNodeFlags_DefaultOpen);
                 if (ImGui::BeginPopupContextItem("ColliderMultiCtx")) {
                     if (ImGui::MenuItem("Reset to Default Box for All")) {
                         for (auto h : selected) {
@@ -511,7 +511,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
             // 4. Multi-Selection Script Card
             if (allHaveScript) {
                 bool removeMultiScript = false;
-                bool headerOpen = ImGui::CollapsingHeader("📜 Script Component##Multi",
+                bool headerOpen = ImGui::CollapsingHeader("Script Component##Multi",
                                                           ImGuiTreeNodeFlags_DefaultOpen);
                 if (ImGui::BeginPopupContextItem("ScriptMultiCtx")) {
                     if (ImGui::MenuItem("Clear Routine for All")) {
@@ -774,7 +774,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                 if (e.has<world::TransformComponent>() ||
                     e.has<physics::PhysicsTransformComponent>()) {
                     bool headerOpen =
-                        ImGui::CollapsingHeader("📐 Transform", ImGuiTreeNodeFlags_DefaultOpen);
+                        ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen);
                     if (ImGui::BeginPopupContextItem("TransformHeaderCtx")) {
                         if (ImGui::MenuItem("Reset Transform")) {
                             resetEntityTransform(e);
@@ -841,7 +841,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                 bool removeRigidBody = false;
                 if (e.has<physics::RigidBodyComponent>()) {
                     bool headerOpen =
-                        ImGui::CollapsingHeader("⚛ Rigid Body", ImGuiTreeNodeFlags_DefaultOpen);
+                        ImGui::CollapsingHeader("Rigid Body", ImGuiTreeNodeFlags_DefaultOpen);
                     if (ImGui::BeginPopupContextItem("RigidBodyHeaderCtx")) {
                         if (ImGui::MenuItem("Reset to Dynamic")) {
                             e.set<physics::RigidBodyComponent>({
@@ -909,7 +909,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                 bool removeCollider = false;
                 if (e.has<physics::ColliderComponent>()) {
                     bool headerOpen =
-                        ImGui::CollapsingHeader("🛡 Collider", ImGuiTreeNodeFlags_DefaultOpen);
+                        ImGui::CollapsingHeader("Collider", ImGuiTreeNodeFlags_DefaultOpen);
                     if (ImGui::BeginPopupContextItem("ColliderHeaderCtx")) {
                         if (ImGui::MenuItem("Reset to Default Box")) {
                             e.set<physics::ColliderComponent>({
@@ -1040,8 +1040,8 @@ void InspectorPanel::draw(EditorContext& ctx) {
                 // 4. Script Component Card
                 bool removeScript = false;
                 if (e.has<script::ScriptComponent>()) {
-                    bool headerOpen = ImGui::CollapsingHeader("📜 Script Component",
-                                                              ImGuiTreeNodeFlags_DefaultOpen);
+                    bool headerOpen =
+                        ImGui::CollapsingHeader("Script Component", ImGuiTreeNodeFlags_DefaultOpen);
                     if (ImGui::BeginPopupContextItem("ScriptHeaderCtx")) {
                         if (ImGui::MenuItem("Clear Routine")) {
                             auto* sc = e.get_mut<script::ScriptComponent>();
@@ -1131,8 +1131,8 @@ void InspectorPanel::draw(EditorContext& ctx) {
                 // 5. Mesh Component Card
                 bool removeMesh = false;
                 if (e.has<render::MeshComponent>()) {
-                    bool headerOpen = ImGui::CollapsingHeader("🧊 Mesh Component",
-                                                              ImGuiTreeNodeFlags_DefaultOpen);
+                    bool headerOpen =
+                        ImGui::CollapsingHeader("Mesh Component", ImGuiTreeNodeFlags_DefaultOpen);
                     if (ImGui::BeginPopupContextItem("MeshHeaderCtx")) {
                         if (ImGui::MenuItem("Remove Component")) {
                             removeMesh = true;

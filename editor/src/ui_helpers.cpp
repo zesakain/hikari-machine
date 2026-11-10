@@ -47,9 +47,21 @@ void drawStatusPill(const char* label, const Color4f& color, bool outlineOnly) {
 
     if (outlineOnly) {
         ImGui::TextColored(toImVec4(color), "[%s]", label);
-    } else {
-        ImGui::TextColored(toImVec4(color), "%s %s", EditorIcons::kDot, label);
+        return;
     }
+
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    const float radius = 3.5F;
+    const float lineHeight = ImGui::GetTextLineHeight();
+    const float centerY = p.y + (lineHeight * 0.5F);
+
+    drawList->AddCircleFilled(ImVec2(p.x + radius + 1.0F, centerY), radius,
+                              ImGui::GetColorU32(toImVec4(color)));
+
+    ImGui::Dummy(ImVec2((radius * 2.0F) + 5.0F, lineHeight));
+    ImGui::SameLine(0.0F, 0.0F);
+    ImGui::TextColored(toImVec4(color), "%s", label);
 }
 
 bool drawSectionHeader(const char* label, bool defaultOpen) {

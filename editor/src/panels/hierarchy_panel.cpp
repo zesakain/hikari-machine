@@ -326,22 +326,9 @@ void HierarchyPanel::drawEntityNode(EditorContext& ctx, world::EntityHandle hand
         ++entityCount;
     }
 
-    const char* icon = EditorIcons::kFile;
-    if (e.has<render::MeshComponent>()) {
-        icon = EditorIcons::kMesh;
-    } else if (e.has<physics::RigidBodyComponent>()) {
-        icon = EditorIcons::kPhysics;
-    } else if (e.has<script::ScriptComponent>()) {
-        icon = EditorIcons::kScript;
-    } else if (!children.empty()) {
-        icon = EditorIcons::kScene;
-    }
-
     bool isRenamingThis = (renamingEntity_ == handle);
 
     if (isRenamingThis) {
-        ImGui::Text("%s", icon);
-        ImGui::SameLine();
         if (focusRenameInput_) {
             ImGui::SetKeyboardFocusHere();
             focusRenameInput_ = false;
@@ -361,7 +348,7 @@ void HierarchyPanel::drawEntityNode(EditorContext& ctx, world::EntityHandle hand
         }
     } else {
         char label[128];
-        std::snprintf(label, sizeof(label), "%s %s##%llu", icon, name,
+        std::snprintf(label, sizeof(label), "%s##%llu", name,
                       static_cast<unsigned long long>(handle.id));
 
         bool isSelected = false;

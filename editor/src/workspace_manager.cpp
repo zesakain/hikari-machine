@@ -539,7 +539,7 @@ struct WorkspaceManager::Impl {
         }
         if (ImGui::BeginPopupModal("About Hikari Editor", nullptr,
                                    ImGuiWindowFlags_AlwaysAutoResize)) {
-            ImGui::TextColored(ImVec4(0.38F, 0.74F, 0.98F, 1.0F), "Hikari Engine — Studio Editor");
+            ImGui::TextColored(ImVec4(0.38F, 0.74F, 0.98F, 1.0F), "Hikari Engine - Studio Editor");
             ImGui::Text("Architecture: Two-State Conductor over Single Shared World");
             ImGui::Text("Version: 0.1.0 (Milestone 1.5 Professional Experience)");
             ImGui::Separator();
@@ -681,8 +681,8 @@ struct WorkspaceManager::Impl {
         if (ImGui::Begin("##EditorToolbar", nullptr, flags)) {
             // Group 1: Scene identity badge & Workspace layout selector
             char sceneBuf[128];
-            std::snprintf(sceneBuf, sizeof(sceneBuf), "%s %s%s", EditorIcons::kScene,
-                          currentSceneName.c_str(), isSceneDirty ? "*" : "");
+            std::snprintf(sceneBuf, sizeof(sceneBuf), "Scene: %s%s", currentSceneName.c_str(),
+                          isSceneDirty ? "*" : "");
             drawBadge(sceneBuf, isSceneDirty ? theme.statusWarning : theme.accentPrimary);
 
             ImGui::SameLine();
@@ -698,8 +698,7 @@ struct WorkspaceManager::Impl {
                 buildDefaultLayout(ImGui::GetID("HikariRootDockSpace"), activeLayoutPreset);
             }
             ImGui::SameLine();
-            if (ImGui::Button(EditorIcons::kReset,
-                              ImVec2(24.0F, ThemeMetrics::kButtonHeightStandard))) {
+            if (ImGui::Button("Reset Layout", ImVec2(0.0F, ThemeMetrics::kButtonHeightStandard))) {
                 layoutResetPending = true;
             }
             if (ImGui::IsItemHovered()) {
@@ -918,12 +917,11 @@ struct WorkspaceManager::Impl {
             ImGui::TextColored(toImVec4(theme.borderMedium), "|");
             ImGui::SameLine();
             if (!currentScenePath.empty()) {
-                ImGui::TextColored(toImVec4(theme.textSecondary), "%s Scene: %s%s",
-                                   EditorIcons::kScene, currentScenePath.c_str(),
-                                   isSceneDirty ? "*" : "");
+                ImGui::TextColored(toImVec4(theme.textSecondary), "Scene: %s%s",
+                                   currentScenePath.c_str(), isSceneDirty ? "*" : "");
             } else {
-                ImGui::TextColored(toImVec4(theme.textMuted), "%s Scene: [Untitled]%s",
-                                   EditorIcons::kScene, isSceneDirty ? "*" : "");
+                ImGui::TextColored(toImVec4(theme.textMuted), "Scene: [Untitled]%s",
+                                   isSceneDirty ? "*" : "");
             }
             ImGui::SameLine();
             ImGui::TextColored(toImVec4(theme.borderMedium), "|");
@@ -931,23 +929,18 @@ struct WorkspaceManager::Impl {
             // Selected entity badge
             ImGui::SameLine();
             if (ctx.selection != nullptr && ctx.selection->count() > 1) {
-                ImGui::TextColored(toImVec4(theme.textPrimary), "%s Selected: %zu Entities",
-                                   EditorIcons::kFolder, ctx.selection->count());
+                ImGui::TextColored(toImVec4(theme.textPrimary), "Selected: %zu Entities",
+                                   ctx.selection->count());
             } else if (ctx.selectedEntityId != 0 && ctx.world != nullptr &&
                        ctx.world->isAlive(world::EntityHandle(ctx.selectedEntityId))) {
                 flecs::world& ecs = ctx.world->getRawWorld();
                 flecs::entity e = ecs.entity(ctx.selectedEntityId);
                 const char* name = e.name().c_str();
-                const char* icon =
-                    e.has<render::MeshComponent>()
-                        ? EditorIcons::kMesh
-                        : (e.has<physics::RigidBodyComponent>() ? EditorIcons::kPhysics
-                                                                : EditorIcons::kFile);
                 if (name != nullptr && name[0] != '\0') {
-                    ImGui::TextColored(toImVec4(theme.textPrimary), "%s %s (#%llu)", icon, name,
+                    ImGui::TextColored(toImVec4(theme.textPrimary), "Selected: %s (#%llu)", name,
                                        static_cast<unsigned long long>(ctx.selectedEntityId));
                 } else {
-                    ImGui::TextColored(toImVec4(theme.textPrimary), "%s Entity #%llu", icon,
+                    ImGui::TextColored(toImVec4(theme.textPrimary), "Selected: Entity #%llu",
                                        static_cast<unsigned long long>(ctx.selectedEntityId));
                 }
             } else {
@@ -988,7 +981,16 @@ struct WorkspaceManager::Impl {
             Color4f fpsColor = (ctx.currentFps >= 55.0F)   ? theme.statusSuccess
                                : (ctx.currentFps >= 30.0F) ? theme.statusWarning
                                                            : theme.statusError;
-            ImGui::TextColored(toImVec4(fpsColor), "%s %.1f FPS (%.2f ms)", EditorIcons::kDot,
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            ImVec2 p = ImGui::GetCursorScreenPos();
+            const float radius = 3.5F;
+            const float lineHeight = ImGui::GetTextLineHeight();
+            const float centerY = p.y + (lineHeight * 0.5F);
+            drawList->AddCircleFilled(ImVec2(p.x + radius + 1.0F, centerY), radius,
+                                      ImGui::GetColorU32(toImVec4(fpsColor)));
+            ImGui::Dummy(ImVec2((radius * 2.0F) + 5.0F, lineHeight));
+            ImGui::SameLine(0.0F, 0.0F);
+            ImGui::TextColored(toImVec4(fpsColor), "%.1f FPS (%.2f ms)",
                                static_cast<double>(ctx.currentFps),
                                static_cast<double>(ctx.lastFrameTimeMs));
         }

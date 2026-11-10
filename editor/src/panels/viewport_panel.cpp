@@ -123,13 +123,142 @@ void ViewportPanel::draw(EditorContext& ctx) {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0F, 0.0F));
     if (ImGui::Begin(getDisplayName().data(), &isOpen_,
                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
-        ImVec2 avail = ImGui::GetContentRegionAvail();
-        ImVec2 screenPos = ImGui::GetCursorScreenPos();
-        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        const auto& theme = getActiveThemeColors();
+        const bool isGpuAvailable = (ctx.gpuRenderingActive && ctx.viewportTextureId != nullptr);
 
-        float topBarHeight = 34.0F;
-        ImVec2 canvasPos(screenPos.x, screenPos.y + topBarHeight);
-        ImVec2 canvasSize(avail.x, std::max(0.0F, avail.y - topBarHeight));
+        // ---------------------------------------------------------------------
+        // 1. Embedded Viewport Top Toolbar
+        // ---------------------------------------------------------------------
+        const float topBarHeight = 32.0F;
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, toImVec4(theme.backgroundApp));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0F, 4.0F));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6.0F, 0.0F));
+        if (ImGui::BeginChild("##ViewportTopToolbar", ImVec2(0.0F, topBarHeight), false,
+                              ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
+            ImGui::AlignTextToFramePadding();
+            const char* viewModes[] = {"Lit", "Wireframe", "Normals"};
+            ImGui::SetNextItemWidth(85.0F);
+            ImGui::Combo("##ViewModeCombo", &s_viewMode, viewModes, 3);
+
+            ImGui::SameLine();
+            const bool isPersp = (camera_.getProjectionMode() == CameraProjectionMode::Perspective);
+            if (ImGui::Button(isPersp ? "Perspective" : "Orthographic")) {
+                camera_.setProjectionMode(isPersp ? CameraProjectionMode::Orthographic
+                                                  : CameraProjectionMode::Perspective);
+            }
+
+            ImGui::SameLine();
+            const bool isFlyMode = (camera_.getCameraMode() == EditorCameraMode::Fly);
+            if (ImGui::Button(isFlyMode ? "Cam: Fly" : "Cam: Orbit")) {
+                camera_.setCameraMode(isFlyMode ? EditorCameraMode::Orbit : EditorCameraMode::Fly);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "Toggle Camera Mode (Current: %s)\n"
+                    "- Orbit: RMB + WASD Fly, MMB/Alt+LMB Orbit, Shift+MMB Pan, Scroll Zoom\n"
+                    "- Fly: First-person WASD + QE Fly, RMB Look, Scroll adjusts speed",
+                    isFlyMode ? "Fly" : "Orbit");
+            }
+
+            ImGui::SameLine();
+            float currentSpeed = camera_.getMoveSpeed();
+            ImGui::SetNextItemWidth(75.0F);
+            if (ImGui::DragFloat("##CamSpeed", &currentSpeed, 0.2F, EditorCamera::kMinMoveSpeed,
+                                 EditorCamera::kMaxMoveSpeed, "%.1f m/s")) {
+                camera_.setMoveSpeed(currentSpeed);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "Base Fly Speed (Shift: 4x, Ctrl: 0.2x, Scroll wheel in Fly mode)");
+            }
+
+            ImGui::SameLine();
+            ImGui::TextColored(toImVec4(theme.borderMedium), "|");
+            ImGui::SameLine();
+
+            auto drawGizmoBtn = [&](int mode, const char* label, const char* tooltip) {
+                bool active = (s_transformMode == mode);
+                if (active) {
+                    ImGui::PushStyleColor(ImGuiCol_Button, toImVec4(theme.accentPrimary));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, toImVec4(theme.accentHovered));
+                    ImGui::PushStyleColor(ImGuiCol_Text, toImVec4(theme.textPrimary));
+                } else {
+                    ImGui::PushStyleColor(ImGuiCol_Button, toImVec4(theme.buttonNormal));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, toImVec4(theme.buttonHovered));
+                    ImGui::PushStyleColor(ImGuiCol_Text, toImVec4(theme.textSecondary));
+                }
+                if (ImGui::Button(label, ImVec2(24.0F, 0.0F))) {
+                    s_transformMode = mode;
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("%s", tooltip);
+                }
+                ImGui::PopStyleColor(3);
+                ImGui::SameLine();
+            };
+
+            drawGizmoBtn(0, "W", "Translate Gizmo (W)");
+            drawGizmoBtn(1, "E", "Rotate Gizmo (E)");
+            drawGizmoBtn(2, "R", "Scale Gizmo (R)");
+
+            if (ImGui::Button(s_coordSpace == 0 ? "World" : "Local")) {
+                s_coordSpace = (s_coordSpace == 0) ? 1 : 0;
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Toggle Coordinate Space (World / Local)");
+            }
+
+            ImGui::SameLine();
+            const char* snapModes[] = {"Snap: Off", "Snap: 0.1m", "Snap: 0.5m", "Snap: 1.0m"};
+            ImGui::SetNextItemWidth(100.0F);
+            ImGui::Combo("##SnapCombo", &s_snappingMode, snapModes, 4);
+
+            ImGui::SameLine();
+            ImGui::TextColored(toImVec4(theme.borderMedium), "|");
+            ImGui::SameLine();
+
+            if (ImGui::Button(s_showGrid ? "Grid: ON" : "Grid: OFF")) {
+                s_showGrid = !s_showGrid;
+            }
+
+            ImGui::SameLine();
+            if (ImGui::Button("Frame (F)")) {
+                if (ctx.selection != nullptr && !ctx.selection->empty() && ctx.world != nullptr) {
+                    auto primary = ctx.selection->getPrimarySelected();
+                    if (ctx.world->isAlive(primary)) {
+                        Transform tr{};
+                        if (getEntityWorldTransform(ctx.world->getRawWorld().entity(primary.id),
+                                                    tr)) {
+                            camera_.frame(tr.position, 2.5F);
+                        }
+                    }
+                } else {
+                    camera_.frame(Vec3::zero(), 5.0F);
+                }
+            }
+
+            ImGui::SameLine();
+            ImGui::TextColored(toImVec4(theme.borderMedium), "|");
+            ImGui::SameLine();
+            const char* rendererLabel =
+                (isGpuAvailable && s_useGpuRenderer) ? "Renderer: GPU" : "Renderer: CPU";
+            if (ImGui::Button(rendererLabel)) {
+                s_useGpuRenderer = !s_useGpuRenderer;
+            }
+        }
+        ImGui::EndChild();
+        ImGui::PopStyleVar(2);
+        ImGui::PopStyleColor();
+
+        // Hairline separator below toolbar
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        ImVec2 sepPos = ImGui::GetCursorScreenPos();
+        drawList->AddLine(sepPos, ImVec2(sepPos.x + ImGui::GetContentRegionAvail().x, sepPos.y),
+                          ImGui::GetColorU32(toImVec4(theme.borderSubtle)));
+        ImGui::SetCursorScreenPos(ImVec2(sepPos.x, sepPos.y + 1.0F));
+
+        ImVec2 canvasPos = ImGui::GetCursorScreenPos();
+        ImVec2 canvasSize = ImGui::GetContentRegionAvail();
 
         if (canvasSize.x <= 1.0F || canvasSize.y <= 1.0F) {
             ImGui::End();
@@ -152,8 +281,6 @@ void ViewportPanel::draw(EditorContext& ctx) {
 
         const Vec3 canvasOrigin3D{canvasPos.x, canvasPos.y, 0.0F};
         const Vec3 canvasSize3D{canvasSize.x, canvasSize.y, 0.0F};
-
-        const bool isGpuAvailable = (ctx.gpuRenderingActive && ctx.viewportTextureId != nullptr);
 
         // 1. Viewport canvas background & GPU texture
         if (isGpuAvailable && s_useGpuRenderer) {
@@ -1126,119 +1253,6 @@ void ViewportPanel::draw(EditorContext& ctx) {
                     ctx.selectedEntityId = 0;
                 }
             }
-        }
-
-        // ---------------------------------------------------------------------
-        // 7. Embedded Studio Top Toolbar
-        // ---------------------------------------------------------------------
-        ImGui::SetCursorPos(ImVec2(6.0F, 5.0F));
-        const char* viewModes[] = {"Lit", "Wireframe", "Normals"};
-        ImGui::SetNextItemWidth(85.0F);
-        ImGui::Combo("##ViewModeCombo", &s_viewMode, viewModes, 3);
-
-        ImGui::SameLine();
-        const bool isPersp = (camera_.getProjectionMode() == CameraProjectionMode::Perspective);
-        if (ImGui::Button(isPersp ? "Perspective" : "Orthographic")) {
-            camera_.setProjectionMode(isPersp ? CameraProjectionMode::Orthographic
-                                              : CameraProjectionMode::Perspective);
-        }
-
-        ImGui::SameLine();
-        const bool isFlyMode = (camera_.getCameraMode() == EditorCameraMode::Fly);
-        if (ImGui::Button(isFlyMode ? "Cam: Fly" : "Cam: Orbit")) {
-            camera_.setCameraMode(isFlyMode ? EditorCameraMode::Orbit : EditorCameraMode::Fly);
-        }
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip(
-                "Toggle Camera Mode (Current: %s)\n"
-                "- Orbit: RMB + WASD Fly, MMB/Alt+LMB Orbit, Shift+MMB Pan, Scroll Zoom\n"
-                "- Fly: First-person WASD + QE Fly, RMB Look, Scroll adjusts speed",
-                isFlyMode ? "Fly" : "Orbit");
-        }
-
-        ImGui::SameLine();
-        float currentSpeed = camera_.getMoveSpeed();
-        ImGui::SetNextItemWidth(75.0F);
-        if (ImGui::DragFloat("##CamSpeed", &currentSpeed, 0.2F, EditorCamera::kMinMoveSpeed,
-                             EditorCamera::kMaxMoveSpeed, "%.1f m/s")) {
-            camera_.setMoveSpeed(currentSpeed);
-        }
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Base Fly Speed (Shift: 4x, Ctrl: 0.2x, Scroll wheel in Fly mode)");
-        }
-
-        ImGui::SameLine();
-        ImGui::TextDisabled("|");
-        ImGui::SameLine();
-
-        auto drawGizmoBtn = [&](int mode, const char* label, const char* tooltip) {
-            bool active = (s_transformMode == mode);
-            const auto& theme = getActiveThemeColors();
-            if (active) {
-                ImGui::PushStyleColor(ImGuiCol_Button, toImVec4(theme.accentPrimary));
-                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, toImVec4(theme.accentHovered));
-                ImGui::PushStyleColor(ImGuiCol_Text, toImVec4(theme.textPrimary));
-            } else {
-                ImGui::PushStyleColor(ImGuiCol_Button, toImVec4(theme.buttonNormal));
-                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, toImVec4(theme.buttonHovered));
-                ImGui::PushStyleColor(ImGuiCol_Text, toImVec4(theme.textSecondary));
-            }
-            if (ImGui::Button(label, ImVec2(24.0F, 0.0F))) {
-                s_transformMode = mode;
-            }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("%s", tooltip);
-            }
-            ImGui::PopStyleColor(3);
-            ImGui::SameLine();
-        };
-
-        drawGizmoBtn(0, "W", "Translate Gizmo (W)");
-        drawGizmoBtn(1, "E", "Rotate Gizmo (E)");
-        drawGizmoBtn(2, "R", "Scale Gizmo (R)");
-
-        if (ImGui::Button(s_coordSpace == 0 ? "World" : "Local")) {
-            s_coordSpace = (s_coordSpace == 0) ? 1 : 0;
-        }
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Toggle Coordinate Space (World / Local)");
-        }
-
-        ImGui::SameLine();
-        const char* snapModes[] = {"Snap: Off", "Snap: 0.1m", "Snap: 0.5m", "Snap: 1.0m"};
-        ImGui::SetNextItemWidth(100.0F);
-        ImGui::Combo("##SnapCombo", &s_snappingMode, snapModes, 4);
-
-        ImGui::SameLine();
-        ImGui::TextDisabled("|");
-        ImGui::SameLine();
-
-        if (ImGui::Button(s_showGrid ? "Grid: ON" : "Grid: OFF")) {
-            s_showGrid = !s_showGrid;
-        }
-
-        ImGui::SameLine();
-        if (ImGui::Button("Frame (F)")) {
-            if (ctx.selection != nullptr && !ctx.selection->empty() && ctx.world != nullptr) {
-                auto primary = ctx.selection->getPrimarySelected();
-                if (ctx.world->isAlive(primary)) {
-                    Transform tr{};
-                    if (getEntityWorldTransform(ctx.world->getRawWorld().entity(primary.id), tr)) {
-                        camera_.frame(tr.position, 2.5F);
-                    }
-                }
-            } else {
-                camera_.frame(Vec3::zero(), 5.0F);
-            }
-        }
-
-        ImGui::SameLine();
-        ImGui::TextDisabled("|");
-        ImGui::SameLine();
-        const char* rendererLabel =
-            (isGpuAvailable && s_useGpuRenderer) ? "Renderer: GPU" : "Renderer: CPU";
-        if (ImGui::Button(rendererLabel)) {
-            s_useGpuRenderer = !s_useGpuRenderer;
         }
 
         // ---------------------------------------------------------------------

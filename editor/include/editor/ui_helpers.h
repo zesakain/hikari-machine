@@ -25,49 +25,49 @@ namespace eng::editor {
 /// @brief Standardized Unicode and ASCII icon glyphs for consistent editor iconography.
 struct EditorIcons {
     // Simulation transport
-    static constexpr const char* kPlay = "▶";
-    static constexpr const char* kPause = "⏸";
-    static constexpr const char* kResume = "⏩";
-    static constexpr const char* kStep = "⏭";
-    static constexpr const char* kStop = "⏹";
+    static constexpr const char* kPlay = ">";
+    static constexpr const char* kPause = "||";
+    static constexpr const char* kResume = ">>";
+    static constexpr const char* kStep = ">|";
+    static constexpr const char* kStop = "[]";
 
     // Viewport & camera
-    static constexpr const char* kCamera = "🎥";
-    static constexpr const char* kOrbit = "↺";
-    static constexpr const char* kFly = "✈";
-    static constexpr const char* kGpu = "⚡";
-    static constexpr const char* kCpu = "💻";
-    static constexpr const char* kGrid = "⊞";
+    static constexpr const char* kCamera = "[Cam]";
+    static constexpr const char* kOrbit = "[Orbit]";
+    static constexpr const char* kFly = "[Fly]";
+    static constexpr const char* kGpu = "GPU";
+    static constexpr const char* kCpu = "CPU";
+    static constexpr const char* kGrid = "#";
 
     // Content & assets
-    static constexpr const char* kFolder = "📁";
-    static constexpr const char* kFile = "📄";
-    static constexpr const char* kMesh = "🧊";
-    static constexpr const char* kScene = "🎬";
-    static constexpr const char* kTexture = "🖼";
-    static constexpr const char* kScript = "📜";
-    static constexpr const char* kAudio = "🔊";
-    static constexpr const char* kPhysics = "⚛";
-    static constexpr const char* kTransform = "📐";
+    static constexpr const char* kFolder = "[D]";
+    static constexpr const char* kFile = "[F]";
+    static constexpr const char* kMesh = "[Mesh]";
+    static constexpr const char* kScene = "[Scene]";
+    static constexpr const char* kTexture = "[Tex]";
+    static constexpr const char* kScript = "[Lua]";
+    static constexpr const char* kAudio = "[Snd]";
+    static constexpr const char* kPhysics = "[Phys]";
+    static constexpr const char* kTransform = "[Tr]";
 
     // Common actions
     static constexpr const char* kAdd = "+";
-    static constexpr const char* kTrash = "🗑";
-    static constexpr const char* kClose = "✕";
-    static constexpr const char* kSearch = "🔍";
-    static constexpr const char* kSettings = "⚙";
-    static constexpr const char* kSave = "💾";
-    static constexpr const char* kReset = "⟲";
-    static constexpr const char* kMenu = "☰";
-    static constexpr const char* kEyeOpen = "👁";
-    static constexpr const char* kEyeClosed = "⊘";
+    static constexpr const char* kTrash = "Del";
+    static constexpr const char* kClose = "x";
+    static constexpr const char* kSearch = "Find";
+    static constexpr const char* kSettings = "*";
+    static constexpr const char* kSave = "Save";
+    static constexpr const char* kReset = "R";
+    static constexpr const char* kMenu = "=";
+    static constexpr const char* kEyeOpen = "O";
+    static constexpr const char* kEyeClosed = "-";
 
     // Status indicators
-    static constexpr const char* kDot = "●";
-    static constexpr const char* kCheck = "✓";
-    static constexpr const char* kInfo = "ℹ";
-    static constexpr const char* kWarning = "⚠";
-    static constexpr const char* kError = "✖";
+    static constexpr const char* kDot = "*";
+    static constexpr const char* kCheck = "[x]";
+    static constexpr const char* kInfo = "(i)";
+    static constexpr const char* kWarning = "(!)";
+    static constexpr const char* kError = "(X)";
 };
 
 /// Draws a stylized format/status badge with rounded corners and contrasting text.
