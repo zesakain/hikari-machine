@@ -8,6 +8,8 @@
 #include "framework/scene.h"
 #include "physics/physics_components.h"
 #include "script/script_components.h"
+#include "world/components.h"
+#include "world/hierarchy_systems.h"
 #include "world/world.h"
 
 #include <cmath>
@@ -402,6 +404,69 @@ int testRuntimeSessionPhysicsPipelineOrdering() {
     return 0;
 }
 
+static int testRuntimeSessionPreservesEntityHierarchyAndTransforms() {
+    World editWorld;
+    auto parent = editWorld.createEntity("ParentNode");
+    editWorld.setComponent(parent, world::TransformComponent{Transform{Vec3{10.0F, 0.0F, 0.0F}}});
+
+    auto child = editWorld.createEntity("ChildNode");
+    editWorld.setComponent(child, world::TransformComponent{Transform{Vec3{2.0F, 0.0F, 0.0F}}});
+    TEST_CHECK(editWorld.setParent(child, parent, false));
+
+    world::updateHierarchyTransforms(editWorld);
+
+    const auto* childWtEdit = editWorld.getComponent<world::WorldTransformComponent>(child);
+    TEST_CHECK(childWtEdit != nullptr);
+    TEST_CHECK(std::abs(childWtEdit->worldTransform.position.x - 12.0F) < 1e-4F);
+
+    RuntimeSession session;
+    session.setEditWorld(&editWorld);
+    auto playRes = session.play();
+    TEST_CHECK(playRes.hasValue());
+
+    auto* rtWorld = session.getRuntimeWorld();
+    TEST_CHECK(rtWorld != nullptr);
+
+    // Locate child and parent in runtime world by name
+    auto rtEntities = rtWorld->getAllEntities();
+    TEST_CHECK(rtEntities.size() == 2);
+
+    world::EntityHandle rtParent{};
+    world::EntityHandle rtChild{};
+    for (auto h : rtEntities) {
+        std::string_view name = rtWorld->getEntityName(h);
+        if (name == "ParentNode") {
+            rtParent = h;
+        } else if (name == "ChildNode") {
+            rtChild = h;
+        }
+    }
+
+    TEST_CHECK(rtParent.isValid());
+    TEST_CHECK(rtChild.isValid());
+
+    // Verify parent-child relationship was cloned into Runtime World
+    auto resolvedParent = rtWorld->getParent(rtChild);
+    TEST_CHECK(resolvedParent.isValid());
+    TEST_CHECK(resolvedParent == rtParent);
+
+    // Verify local and world transforms in Runtime World
+    const auto* rtChildTc = rtWorld->getComponent<world::TransformComponent>(rtChild);
+    TEST_CHECK(rtChildTc != nullptr);
+    TEST_CHECK(std::abs(rtChildTc->transform.position.x - 2.0F) < 1e-4F);
+
+    const auto* rtChildWt = rtWorld->getComponent<world::WorldTransformComponent>(rtChild);
+    TEST_CHECK(rtChildWt != nullptr);
+    TEST_CHECK(std::abs(rtChildWt->worldTransform.position.x - 12.0F) < 1e-4F);
+
+    // Clean teardown upon stop
+    TEST_CHECK(session.stop().hasValue());
+    TEST_CHECK(session.getSimulationState() == SimulationState::Edit);
+
+    std::cout << "[PASS] testRuntimeSessionPreservesEntityHierarchyAndTransforms\n";
+    return 0;
+}
+
 } // namespace
 
 int main() {
@@ -415,6 +480,8 @@ int main() {
     if (testFailureHandlingAndCleanup() != 0)
         return 1;
     if (testRuntimeSessionPhysicsPipelineOrdering() != 0)
+        return 1;
+    if (testRuntimeSessionPreservesEntityHierarchyAndTransforms() != 0)
         return 1;
     std::cout << "All RuntimeSession tests PASSED!\n";
     return 0;

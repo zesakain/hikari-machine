@@ -9,6 +9,8 @@
 #include "physics/physics_components.h"
 #include "render/mesh_component.h"
 #include "script/script_components.h"
+#include "world/components.h"
+#include "world/hierarchy_systems.h"
 
 #include <cmath>
 #include <fstream>
@@ -55,6 +57,7 @@ struct StagedMesh {
 
 struct StagedEntity {
     uint64_t stableId{0};
+    uint64_t parentStableId{0};
     std::string name;
     StagedTransform transform{};
     StagedRigidBody rigidBody{};
@@ -207,10 +210,29 @@ Result<std::string> SceneSerializer::serializeToString(world::World& world,
             entObj.set("name", name);
         }
 
+        world::EntityHandle parent = world.getParent(h);
+        if (parent.isValid() && world.isAlive(parent)) {
+            uint64_t parentStableId = 0;
+            if (const auto* ps = world.getComponent<StableIdComponent>(parent)) {
+                parentStableId = ps->id;
+            }
+            if (parentStableId == 0) {
+                parentStableId = nextAvailableId++;
+                world.setComponent(parent, StableIdComponent{parentStableId});
+            }
+            entObj.set("parent", parentStableId);
+        }
+
         JsonValue compsObj = JsonValue::makeObject();
 
-        // 1. Transform / PhysicsTransformComponent
-        if (const auto* pt = world.getComponent<physics::PhysicsTransformComponent>(h)) {
+        // 1. Transform / TransformComponent / PhysicsTransformComponent
+        if (const auto* tc = world.getComponent<world::TransformComponent>(h)) {
+            JsonValue tObj = JsonValue::makeObject();
+            tObj.set("position", vec3ToJson(tc->transform.position));
+            tObj.set("rotation", quatToJson(tc->transform.rotation));
+            tObj.set("scale", vec3ToJson(tc->transform.scale));
+            compsObj.set("Transform", std::move(tObj));
+        } else if (const auto* pt = world.getComponent<physics::PhysicsTransformComponent>(h)) {
             JsonValue tObj = JsonValue::makeObject();
             tObj.set("position", vec3ToJson(pt->transform.position));
             tObj.set("rotation", quatToJson(pt->transform.rotation));
@@ -394,6 +416,7 @@ Result<DeserializationResult> SceneSerializer::deserializeFromString(world::Worl
 
         StagedEntity staged{};
         staged.stableId = stableId;
+        staged.parentStableId = entVal.getUInt64("parent", 0);
         staged.name = std::string(entVal.getString("name", ""));
 
         const auto* compsObj = entVal.getObject("components");
@@ -480,17 +503,20 @@ Result<DeserializationResult> SceneSerializer::deserializeFromString(world::Worl
         world.clearUserEntities();
     }
 
+    std::unordered_map<uint64_t, world::EntityHandle> stableIdToHandle;
+    stableIdToHandle.reserve(stagedEntities.size());
+
     for (const auto& staged : stagedEntities) {
         world::EntityHandle h =
             staged.name.empty() ? world.createEntity() : world.createEntity(staged.name);
         world.setComponent(h, StableIdComponent{staged.stableId});
+        stableIdToHandle[staged.stableId] = h;
 
         if (staged.transform.present) {
-            world.setComponent(
-                h, physics::PhysicsTransformComponent{
-                       .transform = Transform(staged.transform.position, staged.transform.rotation,
-                                              staged.transform.scale),
-                   });
+            Transform tr(staged.transform.position, staged.transform.rotation,
+                         staged.transform.scale);
+            world.setComponent(h, world::TransformComponent{tr});
+            world.setComponent(h, physics::PhysicsTransformComponent{.transform = tr});
         }
 
         if (staged.rigidBody.present) {
@@ -530,6 +556,20 @@ Result<DeserializationResult> SceneSerializer::deserializeFromString(world::Worl
             world.setComponent(h, mc);
         }
     }
+
+    // 6. Establish parent-child hierarchy
+    for (const auto& staged : stagedEntities) {
+        if (staged.parentStableId != 0) {
+            auto it = stableIdToHandle.find(staged.parentStableId);
+            if (it != stableIdToHandle.end()) {
+                world::EntityHandle childHandle = stableIdToHandle[staged.stableId];
+                world.setParent(childHandle, it->second, false);
+            }
+        }
+    }
+
+    // 7. Propagate hierarchy transforms to initialize WorldTransformComponent
+    world::updateHierarchyTransforms(world);
 
     ENG_LOG_INFO("Scene", "Deserialization completed successfully");
 
