@@ -4,6 +4,8 @@
 #include "panels/metrics_panel.h"
 
 #include "editor/editor_theme.h"
+#include "editor/ui_helpers.h"
+#include "imgui_utils.h"
 #include "rhi/rhi_device.h"
 #include "world/world.h"
 
@@ -35,35 +37,47 @@ void MetricsPanel::draw(EditorContext& ctx) {
         }
         avgMs /= static_cast<float>(frameHistory_.size());
 
+        const auto& theme = getActiveThemeColors();
+
         // 1. Metric Cards Row
         ImGui::Columns(4, nullptr, false);
 
         // Card 1: FPS
+        beginCard("KpiFps", 0.0F, 56.0F);
         ImGui::TextDisabled("Frame Rate");
-        ImVec4 fpsColor = (io.Framerate >= 55.0F)   ? ImVec4(0.06F, 0.73F, 0.51F, 1.0F)
-                          : (io.Framerate >= 30.0F) ? ImVec4(0.96F, 0.62F, 0.04F, 1.0F)
-                                                    : ImVec4(0.94F, 0.27F, 0.27F, 1.0F);
-        ImGui::TextColored(fpsColor, "%.1f FPS", static_cast<double>(io.Framerate));
+        Color4f fpsColor = (io.Framerate >= 55.0F)   ? theme.statusSuccess
+                           : (io.Framerate >= 30.0F) ? theme.statusWarning
+                                                     : theme.statusError;
+        ImGui::TextColored(toImVec4(fpsColor), "%.1f FPS", static_cast<double>(io.Framerate));
+        endCard();
         ImGui::NextColumn();
 
         // Card 2: Frame Time
+        beginCard("KpiFrameTime", 0.0F, 56.0F);
         ImGui::TextDisabled("Frame Time");
-        ImGui::Text("%.2f ms", static_cast<double>(currentFrameMs));
+        ImGui::TextColored(toImVec4(theme.textPrimary), "%.2f ms",
+                           static_cast<double>(currentFrameMs));
+        endCard();
         ImGui::NextColumn();
 
         // Card 3: Draw Calls
+        beginCard("KpiDrawCalls", 0.0F, 56.0F);
         ImGui::TextDisabled("Draw Calls");
-        ImGui::Text("%u calls", ctx.lastDrawCalls);
+        ImGui::TextColored(toImVec4(theme.textPrimary), "%u calls", ctx.lastDrawCalls);
+        endCard();
         ImGui::NextColumn();
 
         // Card 4: Entities
+        beginCard("KpiEntities", 0.0F, 56.0F);
         ImGui::TextDisabled("ECS Entities");
         if (ctx.world != nullptr) {
             flecs::world& ecs = ctx.world->getRawWorld();
-            ImGui::Text("%d entities", ecs.count<flecs::Component>());
+            ImGui::TextColored(toImVec4(theme.textPrimary), "%d entities",
+                               ecs.count<flecs::Component>());
         } else {
             ImGui::TextDisabled("0");
         }
+        endCard();
         ImGui::NextColumn();
 
         ImGui::Columns(1);

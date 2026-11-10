@@ -98,14 +98,14 @@ void applyEditorTheme(const ThemeColors& colors) {
 
     // Docking & tabs
     imColors[ImGuiCol_Tab] = toImVec4(colors.surfaceHeader);
-    imColors[ImGuiCol_TabHovered] = toImVec4(colors.buttonHovered);
+    imColors[ImGuiCol_TabHovered] = toImVec4(colors.surfaceElevated);
     imColors[ImGuiCol_TabActive] = toImVec4(colors.backgroundPanel);
     imColors[ImGuiCol_TabUnfocused] = toImVec4(colors.backgroundApp);
     imColors[ImGuiCol_TabUnfocusedActive] = toImVec4(colors.surfaceHeader);
 
 #if defined(ImGuiConfigFlags_DockingEnable)
     imColors[ImGuiCol_DockingPreview] =
-        ImVec4(colors.accentPrimary.r, colors.accentPrimary.g, colors.accentPrimary.b, 0.40F);
+        ImVec4(colors.accentPrimary.r, colors.accentPrimary.g, colors.accentPrimary.b, 0.30F);
     imColors[ImGuiCol_DockingEmptyBg] = toImVec4(colors.backgroundWorkspace);
 #endif
 
@@ -114,7 +114,8 @@ void applyEditorTheme(const ThemeColors& colors) {
     imColors[ImGuiCol_TableBorderStrong] = toImVec4(colors.borderMedium);
     imColors[ImGuiCol_TableBorderLight] = toImVec4(colors.borderSubtle);
     imColors[ImGuiCol_TableRowBg] = ImVec4(0.0F, 0.0F, 0.0F, 0.0F);
-    imColors[ImGuiCol_TableRowBgAlt] = toImVec4(colors.surfaceHeader);
+    imColors[ImGuiCol_TableRowBgAlt] =
+        ImVec4(colors.surfaceHeader.r, colors.surfaceHeader.g, colors.surfaceHeader.b, 0.40F);
 
     // Plots & highlights
     imColors[ImGuiCol_PlotLines] = toImVec4(colors.statusInfo);
@@ -139,14 +140,14 @@ void applyEditorTheme(const ThemeColors& colors) {
     style.FrameBorderSize = ThemeMetrics::kFrameBorderSize;
     style.TabBorderSize = ThemeMetrics::kTabBorderSize;
 
-    style.WindowPadding = ImVec2(10.0F, 10.0F);
-    style.FramePadding = ImVec2(8.0F, 5.0F);
-    style.ItemSpacing = ImVec2(8.0F, 6.0F);
-    style.ItemInnerSpacing = ImVec2(6.0F, 4.0F);
+    style.WindowPadding = ImVec2(8.0F, 8.0F);
+    style.FramePadding = ImVec2(6.0F, 4.0F);
+    style.ItemSpacing = ImVec2(6.0F, 5.0F);
+    style.ItemInnerSpacing = ImVec2(5.0F, 4.0F);
     style.CellPadding = ImVec2(6.0F, 4.0F);
-    style.IndentSpacing = 16.0F;
-    style.ScrollbarSize = 12.0F;
-    style.GrabMinSize = 10.0F;
+    style.IndentSpacing = 14.0F;
+    style.ScrollbarSize = 10.0F;
+    style.GrabMinSize = 9.0F;
 }
 
 ThemeType getActiveThemeType() noexcept {
@@ -174,7 +175,18 @@ bool loadEditorFonts(float fontScale) {
     ImGuiIO& io = ImGui::GetIO();
     io.Fonts->Clear();
 
-    const float baseFontSize = 15.0F * (fontScale > 0.0F ? fontScale : 1.0F);
+    const float baseFontSize = 14.0F * (fontScale > 0.0F ? fontScale : 1.0F);
+
+    static const ImWchar glyphRanges[] = {
+        0x0020, 0x00FF, // Basic Latin + Latin Supplement
+        0x2000, 0x206F, // General Punctuation
+        0x2190, 0x21FF, // Arrows
+        0x2200, 0x22FF, // Mathematical Operators
+        0x25A0, 0x25FF, // Geometric Shapes (▶, ◀, ■, ●, ⊞, etc.)
+        0x2600, 0x26FF, // Miscellaneous Symbols (⚙, ⚠, etc.)
+        0x2700, 0x27BF, // Dingbats (✓, ✕, etc.)
+        0,
+    };
 
     const char* candidatePaths[] = {
         "/usr/share/fonts/noto/NotoSans-Regular.ttf",
@@ -188,7 +200,7 @@ bool loadEditorFonts(float fontScale) {
     for (const char* path : candidatePaths) {
         std::ifstream f(path);
         if (f.good()) {
-            ImFont* font = io.Fonts->AddFontFromFileTTF(path, baseFontSize);
+            ImFont* font = io.Fonts->AddFontFromFileTTF(path, baseFontSize, nullptr, glyphRanges);
             if (font != nullptr) {
                 ENG_LOG_INFO("Editor", "Loaded desktop UI font from system");
                 return true;

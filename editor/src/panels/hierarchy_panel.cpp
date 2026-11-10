@@ -7,6 +7,8 @@
 #include "core/log.h"
 #include "editor/editor_theme.h"
 #include "editor/selection_model.h"
+#include "editor/ui_helpers.h"
+#include "imgui_utils.h"
 #include "physics/physics_components.h"
 #include "render/mesh_component.h"
 #include "script/script_components.h"
@@ -324,11 +326,15 @@ void HierarchyPanel::drawEntityNode(EditorContext& ctx, world::EntityHandle hand
         ++entityCount;
     }
 
-    const char* icon = "[E]";
-    if (e.has<physics::RigidBodyComponent>()) {
-        icon = "[3D]";
+    const char* icon = EditorIcons::kFile;
+    if (e.has<render::MeshComponent>()) {
+        icon = EditorIcons::kMesh;
+    } else if (e.has<physics::RigidBodyComponent>()) {
+        icon = EditorIcons::kPhysics;
     } else if (e.has<script::ScriptComponent>()) {
-        icon = "[JS]";
+        icon = EditorIcons::kScript;
+    } else if (!children.empty()) {
+        icon = EditorIcons::kScene;
     }
 
     bool isRenamingThis = (renamingEntity_ == handle);
@@ -570,26 +576,29 @@ void HierarchyPanel::draw(EditorContext& ctx) {
             // Component filter chips
             auto drawFilterChip = [&](const char* label, ComponentFilter filter) {
                 bool active = (componentFilter_ == filter);
+                const auto& theme = getActiveThemeColors();
                 if (active) {
-                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.23F, 0.51F, 0.96F, 1.0F));
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0F, 1.0F, 1.0F, 1.0F));
+                    ImGui::PushStyleColor(ImGuiCol_Button, toImVec4(theme.accentPrimary));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, toImVec4(theme.accentHovered));
+                    ImGui::PushStyleColor(ImGuiCol_Text, toImVec4(theme.textPrimary));
                 } else {
-                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.15F, 0.17F, 0.22F, 1.0F));
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65F, 0.65F, 0.65F, 1.0F));
+                    ImGui::PushStyleColor(ImGuiCol_Button, toImVec4(theme.buttonNormal));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, toImVec4(theme.buttonHovered));
+                    ImGui::PushStyleColor(ImGuiCol_Text, toImVec4(theme.textSecondary));
                 }
                 if (ImGui::SmallButton(label)) {
                     componentFilter_ = filter;
                 }
-                ImGui::PopStyleColor(2);
+                ImGui::PopStyleColor(3);
             };
 
             drawFilterChip("All", ComponentFilter::All);
             ImGui::SameLine();
-            drawFilterChip("[Tr]", ComponentFilter::Transform);
+            drawFilterChip("Transform", ComponentFilter::Transform);
             ImGui::SameLine();
-            drawFilterChip("[RB]", ComponentFilter::Physics);
+            drawFilterChip("Physics", ComponentFilter::Physics);
             ImGui::SameLine();
-            drawFilterChip("[Script]", ComponentFilter::Script);
+            drawFilterChip("Script", ComponentFilter::Script);
 
             if (ImGui::BeginPopup("AddEntityPopup")) {
                 flecs::world& ecs = ctx.world->getRawWorld();

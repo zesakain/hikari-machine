@@ -6,6 +6,8 @@
 #include "core/log.h"
 #include "editor/editor_theme.h"
 #include "editor/selection_model.h"
+#include "editor/ui_helpers.h"
+#include "imgui_utils.h"
 #include "physics/physics_components.h"
 #include "render/asset_manager.h"
 #include "render/mesh_component.h"
@@ -105,88 +107,9 @@ bool drawVec3Property(const char* label, float values[3], float resetValue = 0.0
                       float speed = 0.1F, float minValue = -1e9F, float maxValue = 1e9F,
                       Vec3MixedState mixed = {}, bool* outModX = nullptr, bool* outModY = nullptr,
                       bool* outModZ = nullptr) {
-    bool modX = false;
-    bool modY = false;
-    bool modZ = false;
-    ImGui::PushID(label);
-    ImGui::Columns(2, nullptr, false);
-    ImGui::SetColumnWidth(0, ThemeMetrics::kPropertyLabelWidth);
-    ImGui::TextDisabled("%s", label);
-    ImGui::NextColumn();
-
-    float availW = ImGui::GetContentRegionAvail().x;
-    float itemW = (availW - 70.0F) / 3.0F;
-    if (itemW < 35.0F) {
-        itemW = 35.0F;
-    }
-
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0F, 0.0F));
-
-    // X Axis (Red)
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.85F, 0.20F, 0.20F, 1.0F));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.95F, 0.30F, 0.30F, 1.0F));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.70F, 0.15F, 0.15F, 1.0F));
-    if (ImGui::Button("X", ImVec2(18.0F, 0.0F))) {
-        values[0] = resetValue;
-        modX = true;
-    }
-    ImGui::PopStyleColor(3);
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(itemW);
-    const char* fmtX = mixed.x ? "---" : "%.2f";
-    if (ImGui::DragFloat("##X", &values[0], speed, minValue, maxValue, fmtX)) {
-        modX = true;
-    }
-    ImGui::SameLine();
-
-    // Y Axis (Green)
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.15F, 0.70F, 0.25F, 1.0F));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.25F, 0.80F, 0.35F, 1.0F));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.10F, 0.60F, 0.20F, 1.0F));
-    if (ImGui::Button("Y", ImVec2(18.0F, 0.0F))) {
-        values[1] = resetValue;
-        modY = true;
-    }
-    ImGui::PopStyleColor(3);
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(itemW);
-    const char* fmtY = mixed.y ? "---" : "%.2f";
-    if (ImGui::DragFloat("##Y", &values[1], speed, minValue, maxValue, fmtY)) {
-        modY = true;
-    }
-    ImGui::SameLine();
-
-    // Z Axis (Blue)
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.20F, 0.45F, 0.85F, 1.0F));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.30F, 0.55F, 0.95F, 1.0F));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.15F, 0.35F, 0.75F, 1.0F));
-    if (ImGui::Button("Z", ImVec2(18.0F, 0.0F))) {
-        values[2] = resetValue;
-        modZ = true;
-    }
-    ImGui::PopStyleColor(3);
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(itemW);
-    const char* fmtZ = mixed.z ? "---" : "%.2f";
-    if (ImGui::DragFloat("##Z", &values[2], speed, minValue, maxValue, fmtZ)) {
-        modZ = true;
-    }
-
-    ImGui::PopStyleVar();
-    ImGui::Columns(1);
-    ImGui::PopID();
-
-    if (outModX != nullptr) {
-        *outModX = modX;
-    }
-    if (outModY != nullptr) {
-        *outModY = modY;
-    }
-    if (outModZ != nullptr) {
-        *outModZ = modZ;
-    }
-
-    return modX || modY || modZ;
+    const bool mixedArr[3] = {mixed.x, mixed.y, mixed.z};
+    return drawVec3Control(label, values, resetValue, speed, minValue, maxValue, mixedArr, outModX,
+                           outModY, outModZ);
 }
 
 } // namespace
@@ -266,7 +189,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
             if (allHaveTransform) {
                 bool removeMultiTransform = false;
                 bool headerOpen =
-                    ImGui::CollapsingHeader("Transform##Multi", ImGuiTreeNodeFlags_DefaultOpen);
+                    ImGui::CollapsingHeader("📐 Transform##Multi", ImGuiTreeNodeFlags_DefaultOpen);
                 if (ImGui::BeginPopupContextItem("TransformMultiCtx")) {
                     if (ImGui::MenuItem("Reset Transform for All")) {
                         for (auto h : selected) {
@@ -417,7 +340,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
             if (allHaveRigidBody) {
                 bool removeMultiRb = false;
                 bool headerOpen =
-                    ImGui::CollapsingHeader("Rigid Body##Multi", ImGuiTreeNodeFlags_DefaultOpen);
+                    ImGui::CollapsingHeader("⚛ Rigid Body##Multi", ImGuiTreeNodeFlags_DefaultOpen);
                 if (ImGui::BeginPopupContextItem("RigidBodyMultiCtx")) {
                     if (ImGui::MenuItem("Reset to Dynamic for All")) {
                         for (auto h : selected) {
@@ -517,7 +440,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
             if (allHaveCollider) {
                 bool removeMultiCollider = false;
                 bool headerOpen =
-                    ImGui::CollapsingHeader("Collider##Multi", ImGuiTreeNodeFlags_DefaultOpen);
+                    ImGui::CollapsingHeader("🛡 Collider##Multi", ImGuiTreeNodeFlags_DefaultOpen);
                 if (ImGui::BeginPopupContextItem("ColliderMultiCtx")) {
                     if (ImGui::MenuItem("Reset to Default Box for All")) {
                         for (auto h : selected) {
@@ -588,7 +511,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
             // 4. Multi-Selection Script Card
             if (allHaveScript) {
                 bool removeMultiScript = false;
-                bool headerOpen = ImGui::CollapsingHeader("Script Component##Multi",
+                bool headerOpen = ImGui::CollapsingHeader("📜 Script Component##Multi",
                                                           ImGuiTreeNodeFlags_DefaultOpen);
                 if (ImGui::BeginPopupContextItem("ScriptMultiCtx")) {
                     if (ImGui::MenuItem("Clear Routine for All")) {
@@ -791,10 +714,18 @@ void InspectorPanel::draw(EditorContext& ctx) {
                 char nameBuf[64];
                 std::snprintf(nameBuf, sizeof(nameBuf), "%s", entityName);
 
+                const auto& theme = getActiveThemeColors();
+                const char* entityIcon =
+                    e.has<render::MeshComponent>()
+                        ? EditorIcons::kMesh
+                        : (e.has<physics::RigidBodyComponent>() ? EditorIcons::kPhysics
+                                                                : EditorIcons::kFile);
+
                 ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6.0F, 4.0F));
-                ImGui::TextDisabled("Entity");
+                ImGui::AlignTextToFramePadding();
+                ImGui::Text("%s", entityIcon);
                 ImGui::SameLine();
-                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 90.0F);
+                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 75.0F);
                 if (ImGui::InputText("##EntityNameInput", nameBuf, sizeof(nameBuf),
                                      ImGuiInputTextFlags_EnterReturnsTrue) ||
                     ImGui::IsItemDeactivatedAfterEdit()) {
@@ -802,28 +733,35 @@ void InspectorPanel::draw(EditorContext& ctx) {
                     ctx.markDirty();
                 }
                 ImGui::SameLine();
-                ImGui::TextDisabled("#%llu", static_cast<unsigned long long>(e.id()));
+                char idBuf[32];
+                std::snprintf(idBuf, sizeof(idBuf), "#%llu",
+                              static_cast<unsigned long long>(e.id()));
+                drawBadge(idBuf, theme.surfaceElevated, theme.textSecondary);
                 ImGui::PopStyleVar();
 
                 // Component Chips Tag List
                 ImGui::Spacing();
-                ImGui::TextDisabled("Components:");
+                ImGui::TextColored(toImVec4(theme.textMuted), "Components:");
                 ImGui::SameLine();
                 if (e.has<world::TransformComponent>() ||
                     e.has<physics::PhysicsTransformComponent>()) {
-                    ImGui::TextColored(ImVec4(0.40F, 0.75F, 1.0F, 1.0F), "[Transform]");
+                    drawBadge("Transform", theme.accentPrimary);
                     ImGui::SameLine();
                 }
                 if (e.has<physics::RigidBodyComponent>()) {
-                    ImGui::TextColored(ImVec4(0.95F, 0.65F, 0.30F, 1.0F), "[RigidBody]");
+                    drawBadge("RigidBody", theme.badgePhysics);
                     ImGui::SameLine();
                 }
                 if (e.has<physics::ColliderComponent>()) {
-                    ImGui::TextColored(ImVec4(0.85F, 0.45F, 0.85F, 1.0F), "[Collider]");
+                    drawBadge("Collider", theme.statusWarning);
+                    ImGui::SameLine();
+                }
+                if (e.has<render::MeshComponent>()) {
+                    drawBadge("Mesh", theme.badgeGlb);
                     ImGui::SameLine();
                 }
                 if (e.has<script::ScriptComponent>()) {
-                    ImGui::TextColored(ImVec4(0.45F, 0.85F, 0.45F, 1.0F), "[Script]");
+                    drawBadge("Script", theme.badgeScript);
                     ImGui::SameLine();
                 }
                 ImGui::NewLine();
@@ -836,7 +774,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                 if (e.has<world::TransformComponent>() ||
                     e.has<physics::PhysicsTransformComponent>()) {
                     bool headerOpen =
-                        ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen);
+                        ImGui::CollapsingHeader("📐 Transform", ImGuiTreeNodeFlags_DefaultOpen);
                     if (ImGui::BeginPopupContextItem("TransformHeaderCtx")) {
                         if (ImGui::MenuItem("Reset Transform")) {
                             resetEntityTransform(e);
@@ -903,7 +841,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                 bool removeRigidBody = false;
                 if (e.has<physics::RigidBodyComponent>()) {
                     bool headerOpen =
-                        ImGui::CollapsingHeader("Rigid Body", ImGuiTreeNodeFlags_DefaultOpen);
+                        ImGui::CollapsingHeader("⚛ Rigid Body", ImGuiTreeNodeFlags_DefaultOpen);
                     if (ImGui::BeginPopupContextItem("RigidBodyHeaderCtx")) {
                         if (ImGui::MenuItem("Reset to Dynamic")) {
                             e.set<physics::RigidBodyComponent>({
@@ -971,7 +909,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                 bool removeCollider = false;
                 if (e.has<physics::ColliderComponent>()) {
                     bool headerOpen =
-                        ImGui::CollapsingHeader("Collider", ImGuiTreeNodeFlags_DefaultOpen);
+                        ImGui::CollapsingHeader("🛡 Collider", ImGuiTreeNodeFlags_DefaultOpen);
                     if (ImGui::BeginPopupContextItem("ColliderHeaderCtx")) {
                         if (ImGui::MenuItem("Reset to Default Box")) {
                             e.set<physics::ColliderComponent>({
@@ -1102,8 +1040,8 @@ void InspectorPanel::draw(EditorContext& ctx) {
                 // 4. Script Component Card
                 bool removeScript = false;
                 if (e.has<script::ScriptComponent>()) {
-                    bool headerOpen =
-                        ImGui::CollapsingHeader("Script Component", ImGuiTreeNodeFlags_DefaultOpen);
+                    bool headerOpen = ImGui::CollapsingHeader("📜 Script Component",
+                                                              ImGuiTreeNodeFlags_DefaultOpen);
                     if (ImGui::BeginPopupContextItem("ScriptHeaderCtx")) {
                         if (ImGui::MenuItem("Clear Routine")) {
                             auto* sc = e.get_mut<script::ScriptComponent>();
@@ -1193,8 +1131,8 @@ void InspectorPanel::draw(EditorContext& ctx) {
                 // 5. Mesh Component Card
                 bool removeMesh = false;
                 if (e.has<render::MeshComponent>()) {
-                    bool headerOpen =
-                        ImGui::CollapsingHeader("Mesh Component", ImGuiTreeNodeFlags_DefaultOpen);
+                    bool headerOpen = ImGui::CollapsingHeader("🧊 Mesh Component",
+                                                              ImGuiTreeNodeFlags_DefaultOpen);
                     if (ImGui::BeginPopupContextItem("MeshHeaderCtx")) {
                         if (ImGui::MenuItem("Remove Component")) {
                             removeMesh = true;

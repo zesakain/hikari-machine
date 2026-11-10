@@ -15,6 +15,7 @@
 #include "framework/simulation_state.h"
 #include "imgui_utils.h"
 #include "physics/physics_components.h"
+#include "render/mesh_component.h"
 #include "rhi/rhi_device.h"
 #include "script/script_components.h"
 #include "world/components.h"
@@ -674,30 +675,38 @@ struct WorkspaceManager::Impl {
                                  ImGuiWindowFlags_NoScrollWithMouse |
                                  ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking;
 
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,
-                            ImVec2(ThemeMetrics::kSpacingL, ThemeMetrics::kSpacingS));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(ThemeMetrics::kSpacingL, 4.0F));
         ImGui::PushStyleColor(ImGuiCol_WindowBg, toImVec4(theme.backgroundApp));
 
         if (ImGui::Begin("##EditorToolbar", nullptr, flags)) {
-            // Group 1: Workspace layout selector
-            ImGui::AlignTextToFramePadding();
-            ImGui::TextColored(toImVec4(theme.textSecondary), "Layout:");
-            ImGui::SameLine();
-            const char* layoutNames[] = {"Default Studio", "Wide Viewport", "Inspector Focus"};
-            ImGui::SetNextItemWidth(140.0F);
-            if (ImGui::Combo("##LayoutCombo", &activeLayoutPreset, layoutNames, 3)) {
-                buildDefaultLayout(ImGui::GetID("HikariRootDockSpace"), activeLayoutPreset);
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Reset", ImVec2(0.0F, ThemeMetrics::kButtonHeightStandard))) {
-                layoutResetPending = true;
-            }
+            // Group 1: Scene identity badge & Workspace layout selector
+            char sceneBuf[128];
+            std::snprintf(sceneBuf, sizeof(sceneBuf), "%s %s%s", EditorIcons::kScene,
+                          currentSceneName.c_str(), isSceneDirty ? "*" : "");
+            drawBadge(sceneBuf, isSceneDirty ? theme.statusWarning : theme.accentPrimary);
 
             ImGui::SameLine();
             ImGui::TextColored(toImVec4(theme.borderMedium), "|");
             ImGui::SameLine();
 
-            // Group 2: Transport simulation controls (Centered UX)
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextColored(toImVec4(theme.textSecondary), "Layout:");
+            ImGui::SameLine();
+            const char* layoutNames[] = {"Default Studio", "Wide Viewport", "Inspector Focus"};
+            ImGui::SetNextItemWidth(130.0F);
+            if (ImGui::Combo("##LayoutCombo", &activeLayoutPreset, layoutNames, 3)) {
+                buildDefaultLayout(ImGui::GetID("HikariRootDockSpace"), activeLayoutPreset);
+            }
+            ImGui::SameLine();
+            if (ImGui::Button(EditorIcons::kReset,
+                              ImVec2(24.0F, ThemeMetrics::kButtonHeightStandard))) {
+                layoutResetPending = true;
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Reset Docking Layout to Default");
+            }
+
+            // Group 2: Transport simulation controls (Centered Island)
             auto simState =
                 ctx.runtimeSession
                     ? ctx.runtimeSession->getSimulationState()
@@ -711,6 +720,14 @@ struct WorkspaceManager::Impl {
             bool canStep = (simState == framework::SimulationState::Paused);
             bool canStop = (simState == framework::SimulationState::Playing ||
                             simState == framework::SimulationState::Paused);
+
+            constexpr float kTransportIslandWidth = 470.0F;
+            float centerPosX = (viewport->Size.x - kTransportIslandWidth) * 0.5F;
+            if (centerPosX > ImGui::GetCursorPosX()) {
+                ImGui::SameLine(centerPosX);
+            } else {
+                ImGui::SameLine();
+            }
 
             // Play button
             if (drawTransportButton(EditorIcons::kPlay, "Play", theme.transportPlay, !canPlay,
@@ -732,6 +749,9 @@ struct WorkspaceManager::Impl {
                     ctx.isPaused = false;
                 }
             }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Start Simulation (F5 / Ctrl+P)");
+            }
 
             ImGui::SameLine();
 
@@ -745,6 +765,9 @@ struct WorkspaceManager::Impl {
                 } else {
                     ctx.isPaused = true;
                 }
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Pause Simulation (Ctrl+P)");
             }
 
             ImGui::SameLine();
@@ -770,6 +793,9 @@ struct WorkspaceManager::Impl {
                 }
                 ENG_LOG_INFO("Editor", "Simulation Step executed");
             }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Advance Single Frame Step (F10)");
+            }
 
             ImGui::SameLine();
 
@@ -794,6 +820,9 @@ struct WorkspaceManager::Impl {
                 }
                 ENG_LOG_INFO("Editor", "Simulation Stopped; returned to Edit Mode");
             }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Stop Simulation & Restore Edit State (Shift+F5 / Ctrl+X)");
+            }
 
             ImGui::SameLine();
             ImGui::AlignTextToFramePadding();
@@ -807,12 +836,15 @@ struct WorkspaceManager::Impl {
                 drawStatusPill("EDIT MODE", theme.textMuted);
             }
 
-            ImGui::SameLine();
-            ImGui::TextColored(toImVec4(theme.borderMedium), "|");
-            ImGui::SameLine();
-
             // Group 3: Two-State Conductor badge & quick switch
             if (ctx.conductor != nullptr) {
+                float rightAnchor = viewport->Size.x - 240.0F;
+                if (ImGui::GetCursorPosX() < rightAnchor) {
+                    ImGui::SameLine(rightAnchor);
+                } else {
+                    ImGui::SameLine();
+                }
+
                 auto activeSlot = ctx.conductor->getActiveSlot();
                 auto state = ctx.conductor->getState();
 
@@ -847,16 +879,9 @@ struct WorkspaceManager::Impl {
                     }
                 }
             } else {
+                ImGui::SameLine();
                 ImGui::TextDisabled("[Conductor: Standalone]");
             }
-
-            ImGui::SameLine();
-            ImGui::TextColored(toImVec4(theme.borderMedium), "|");
-            ImGui::SameLine();
-            char sceneBuf[128];
-            std::snprintf(sceneBuf, sizeof(sceneBuf), "%s%s", currentSceneName.c_str(),
-                          isSceneDirty ? "*" : "");
-            drawBadge(sceneBuf, isSceneDirty ? theme.statusWarning : theme.accentPrimary);
         }
         ImGui::End();
         ImGui::PopStyleColor();
@@ -875,7 +900,7 @@ struct WorkspaceManager::Impl {
                                  ImGuiWindowFlags_NoScrollWithMouse |
                                  ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking;
 
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0F, 4.0F));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0F, 5.0F));
         ImGui::PushStyleColor(ImGuiCol_WindowBg, toImVec4(theme.backgroundDarkest));
 
         if (ImGui::Begin("##EditorStatusBar", nullptr, flags)) {
@@ -893,11 +918,12 @@ struct WorkspaceManager::Impl {
             ImGui::TextColored(toImVec4(theme.borderMedium), "|");
             ImGui::SameLine();
             if (!currentScenePath.empty()) {
-                ImGui::TextColored(toImVec4(theme.textSecondary), "Scene: %s%s",
-                                   currentScenePath.c_str(), isSceneDirty ? "*" : "");
-            } else {
-                ImGui::TextColored(toImVec4(theme.textMuted), "Scene: [Untitled]%s",
+                ImGui::TextColored(toImVec4(theme.textSecondary), "%s Scene: %s%s",
+                                   EditorIcons::kScene, currentScenePath.c_str(),
                                    isSceneDirty ? "*" : "");
+            } else {
+                ImGui::TextColored(toImVec4(theme.textMuted), "%s Scene: [Untitled]%s",
+                                   EditorIcons::kScene, isSceneDirty ? "*" : "");
             }
             ImGui::SameLine();
             ImGui::TextColored(toImVec4(theme.borderMedium), "|");
@@ -905,22 +931,27 @@ struct WorkspaceManager::Impl {
             // Selected entity badge
             ImGui::SameLine();
             if (ctx.selection != nullptr && ctx.selection->count() > 1) {
-                ImGui::TextColored(toImVec4(theme.textPrimary), "Selected: %zu Entities",
-                                   ctx.selection->count());
+                ImGui::TextColored(toImVec4(theme.textPrimary), "%s Selected: %zu Entities",
+                                   EditorIcons::kFolder, ctx.selection->count());
             } else if (ctx.selectedEntityId != 0 && ctx.world != nullptr &&
                        ctx.world->isAlive(world::EntityHandle(ctx.selectedEntityId))) {
                 flecs::world& ecs = ctx.world->getRawWorld();
                 flecs::entity e = ecs.entity(ctx.selectedEntityId);
                 const char* name = e.name().c_str();
+                const char* icon =
+                    e.has<render::MeshComponent>()
+                        ? EditorIcons::kMesh
+                        : (e.has<physics::RigidBodyComponent>() ? EditorIcons::kPhysics
+                                                                : EditorIcons::kFile);
                 if (name != nullptr && name[0] != '\0') {
-                    ImGui::TextColored(toImVec4(theme.textPrimary), "Selected: %s (#%llu)", name,
+                    ImGui::TextColored(toImVec4(theme.textPrimary), "%s %s (#%llu)", icon, name,
                                        static_cast<unsigned long long>(ctx.selectedEntityId));
                 } else {
-                    ImGui::TextColored(toImVec4(theme.textPrimary), "Selected: Entity #%llu",
+                    ImGui::TextColored(toImVec4(theme.textPrimary), "%s Entity #%llu", icon,
                                        static_cast<unsigned long long>(ctx.selectedEntityId));
                 }
             } else {
-                ImGui::TextColored(toImVec4(theme.textMuted), "No Entity Selected");
+                ImGui::TextColored(toImVec4(theme.textMuted), "No Selection");
             }
 
             // ECS stats
@@ -953,7 +984,11 @@ struct WorkspaceManager::Impl {
             ImGui::SameLine();
             ImGui::TextColored(toImVec4(theme.borderMedium), "|");
             ImGui::SameLine();
-            ImGui::TextColored(toImVec4(theme.textPrimary), "FPS: %.1f (%.2f ms)",
+
+            Color4f fpsColor = (ctx.currentFps >= 55.0F)   ? theme.statusSuccess
+                               : (ctx.currentFps >= 30.0F) ? theme.statusWarning
+                                                           : theme.statusError;
+            ImGui::TextColored(toImVec4(fpsColor), "%s %.1f FPS (%.2f ms)", EditorIcons::kDot,
                                static_cast<double>(ctx.currentFps),
                                static_cast<double>(ctx.lastFrameTimeMs));
         }

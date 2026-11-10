@@ -5,6 +5,7 @@
 
 #include "editor/editor_theme.h"
 #include "framework/conductor.h"
+#include "imgui_utils.h"
 
 #include <imgui.h>
 
@@ -17,6 +18,7 @@ void ConductorPanel::draw(EditorContext& ctx) {
 
     if (ImGui::Begin(getDisplayName().data(), &isOpen_)) {
         if (ctx.conductor != nullptr) {
+            const auto& theme = getActiveThemeColors();
             auto activeSlot = ctx.conductor->getActiveSlot();
             auto state = ctx.conductor->getState();
 
@@ -34,22 +36,22 @@ void ConductorPanel::draw(EditorContext& ctx) {
             // Card 1: Slot A
             bool isSlotAActive = (activeSlot == framework::ActiveSlot::SlotA);
             if (isSlotAActive) {
-                ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.12F, 0.18F, 0.28F, 1.0F));
+                ImGui::PushStyleColor(ImGuiCol_ChildBg, toImVec4(theme.accentSubtle));
             }
             ImGui::BeginChild("SlotACard", ImVec2(0.0F, 110.0F), true);
             if (metaA.displayName.empty()) {
-                ImGui::TextColored(isSlotAActive ? ImVec4(0.38F, 0.74F, 0.98F, 1.0F)
-                                                 : ImVec4(0.6F, 0.6F, 0.6F, 1.0F),
+                ImGui::TextColored(isSlotAActive ? toImVec4(theme.accentPrimary)
+                                                 : toImVec4(theme.textSecondary),
                                    "State A");
             } else {
-                ImGui::TextColored(isSlotAActive ? ImVec4(0.38F, 0.74F, 0.98F, 1.0F)
-                                                 : ImVec4(0.6F, 0.6F, 0.6F, 1.0F),
+                ImGui::TextColored(isSlotAActive ? toImVec4(theme.accentPrimary)
+                                                 : toImVec4(theme.textSecondary),
                                    "State A (%.*s)", static_cast<int>(metaA.displayName.size()),
                                    metaA.displayName.data());
             }
             ImGui::Separator();
             if (isSlotAActive) {
-                ImGui::TextColored(ImVec4(0.06F, 0.73F, 0.51F, 1.0F), "[ACTIVE]");
+                ImGui::TextColored(toImVec4(theme.statusSuccess), "[ACTIVE]");
                 ImGui::TextDisabled("Role: Authoritative Execution");
                 if (!metaA.description.empty()) {
                     ImGui::TextDisabled("%.*s", static_cast<int>(metaA.description.size()),
@@ -58,7 +60,7 @@ void ConductorPanel::draw(EditorContext& ctx) {
                     ImGui::TextDisabled("Simulation: Continuous + State A");
                 }
             } else {
-                ImGui::TextColored(ImVec4(0.96F, 0.62F, 0.04F, 1.0F), "[STANDBY]");
+                ImGui::TextColored(toImVec4(theme.statusWarning), "[STANDBY]");
                 ImGui::TextDisabled("Role: Standby Preparation");
                 ImGui::TextDisabled("Budget: 0.50 ms/frame");
             }
@@ -71,22 +73,23 @@ void ConductorPanel::draw(EditorContext& ctx) {
             // Card 2: Slot B
             bool isSlotBActive = (activeSlot == framework::ActiveSlot::SlotB);
             if (isSlotBActive) {
-                ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.28F, 0.20F, 0.12F, 1.0F));
+                ImGui::PushStyleColor(ImGuiCol_ChildBg,
+                                      toImVec4(theme.statusWarning.withAlpha(0.18F)));
             }
             ImGui::BeginChild("SlotBCard", ImVec2(0.0F, 110.0F), true);
             if (metaB.displayName.empty()) {
-                ImGui::TextColored(isSlotBActive ? ImVec4(0.96F, 0.62F, 0.04F, 1.0F)
-                                                 : ImVec4(0.6F, 0.6F, 0.6F, 1.0F),
+                ImGui::TextColored(isSlotBActive ? toImVec4(theme.statusWarning)
+                                                 : toImVec4(theme.textSecondary),
                                    "State B");
             } else {
-                ImGui::TextColored(isSlotBActive ? ImVec4(0.96F, 0.62F, 0.04F, 1.0F)
-                                                 : ImVec4(0.6F, 0.6F, 0.6F, 1.0F),
+                ImGui::TextColored(isSlotBActive ? toImVec4(theme.statusWarning)
+                                                 : toImVec4(theme.textSecondary),
                                    "State B (%.*s)", static_cast<int>(metaB.displayName.size()),
                                    metaB.displayName.data());
             }
             ImGui::Separator();
             if (isSlotBActive) {
-                ImGui::TextColored(ImVec4(0.06F, 0.73F, 0.51F, 1.0F), "[ACTIVE]");
+                ImGui::TextColored(toImVec4(theme.statusSuccess), "[ACTIVE]");
                 ImGui::TextDisabled("Role: Authoritative Execution");
                 if (!metaB.description.empty()) {
                     ImGui::TextDisabled("%.*s", static_cast<int>(metaB.description.size()),
@@ -95,7 +98,7 @@ void ConductorPanel::draw(EditorContext& ctx) {
                     ImGui::TextDisabled("Simulation: Continuous + State B");
                 }
             } else {
-                ImGui::TextColored(ImVec4(0.96F, 0.62F, 0.04F, 1.0F), "[STANDBY]");
+                ImGui::TextColored(toImVec4(theme.statusWarning), "[STANDBY]");
                 ImGui::TextDisabled("Role: Standby Preparation");
                 ImGui::TextDisabled("Budget: 0.50 ms/frame");
             }

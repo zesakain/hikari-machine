@@ -5,6 +5,7 @@
 
 #include "core/log.h"
 #include "editor/editor_theme.h"
+#include "imgui_utils.h"
 
 #include <cstring>
 #include <imgui.h>
@@ -46,10 +47,12 @@ void ConsolePanel::draw([[maybe_unused]] EditorContext& ctx) {
             ImGui::SameLine();
         };
 
-        drawFilterBtn(0, "All", ImVec4(0.25F, 0.28F, 0.35F, 1.0F));
-        drawFilterBtn(1, "Info", ImVec4(0.20F, 0.45F, 0.85F, 1.0F));
-        drawFilterBtn(2, "Warning", ImVec4(0.85F, 0.55F, 0.05F, 1.0F));
-        drawFilterBtn(3, "Error", ImVec4(0.85F, 0.20F, 0.20F, 1.0F));
+        const auto& theme = getActiveThemeColors();
+
+        drawFilterBtn(0, "All", toImVec4(theme.accentPrimary));
+        drawFilterBtn(1, "Info", toImVec4(theme.statusInfo));
+        drawFilterBtn(2, "Warning", toImVec4(theme.statusWarning));
+        drawFilterBtn(3, "Error", toImVec4(theme.statusError));
 
         ImGui::SetNextItemWidth(140.0F);
         ImGui::InputTextWithHint("##LogSearch", "Search logs...", filterBuffer_.data(),

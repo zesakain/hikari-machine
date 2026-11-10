@@ -17,6 +17,8 @@
 
 #include "editor/editor_theme.h"
 
+#include <cstddef>
+
 namespace eng::editor {
 
 /// @struct EditorIcons
@@ -46,6 +48,7 @@ struct EditorIcons {
     static constexpr const char* kScript = "📜";
     static constexpr const char* kAudio = "🔊";
     static constexpr const char* kPhysics = "⚛";
+    static constexpr const char* kTransform = "📐";
 
     // Common actions
     static constexpr const char* kAdd = "+";
@@ -80,6 +83,21 @@ bool drawSectionHeader(const char* label, bool defaultOpen = true);
 /// Draws a standard property label aligned to kPropertyLabelWidth with optional tooltip.
 void drawPropertyLabel(const char* label, const char* tooltip = nullptr,
                        float width = ThemeMetrics::kPropertyLabelWidth);
+
+/// Draws an aligned 3-component vector property control with stylized axis badges.
+bool drawVec3Control(const char* label, float values[3], float resetValue = 0.0F,
+                     float speed = 0.05F, float minValue = -1e9F, float maxValue = 1e9F,
+                     const bool mixed[3] = nullptr, bool* outModX = nullptr,
+                     bool* outModY = nullptr, bool* outModZ = nullptr);
+
+/// Draws a modern search input field with placeholder hint and quick clear button.
+bool drawSearchField(const char* id, char* buffer, size_t bufferSize,
+                     const char* placeholder = "Search...");
+
+/// Draws a stylized icon button with optional active highlight and tooltip.
+bool drawIconButton(const char* id, const char* icon, const char* tooltip = nullptr,
+                    bool active = false, const Color4f* customColor = nullptr, float width = 0.0F,
+                    float height = 0.0F);
 
 /// Draws muted/placeholder text using theme textMuted color.
 void drawMutedText(const char* fmt, ...);

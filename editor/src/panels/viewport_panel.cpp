@@ -10,6 +10,7 @@
 #include "editor/hierarchy_panel.h"
 #include "editor/selection_model.h"
 #include "framework/conductor.h"
+#include "imgui_utils.h"
 #include "physics/physics_components.h"
 #include "render/asset_manager.h"
 #include "render/mesh_component.h"
@@ -1170,13 +1171,37 @@ void ViewportPanel::draw(EditorContext& ctx) {
         ImGui::TextDisabled("|");
         ImGui::SameLine();
 
-        const char* gizmoModes[] = {"Translate (W)", "Rotate (E)", "Scale (R)"};
-        ImGui::SetNextItemWidth(115.0F);
-        ImGui::Combo("##GizmoCombo", &s_transformMode, gizmoModes, 3);
+        auto drawGizmoBtn = [&](int mode, const char* label, const char* tooltip) {
+            bool active = (s_transformMode == mode);
+            const auto& theme = getActiveThemeColors();
+            if (active) {
+                ImGui::PushStyleColor(ImGuiCol_Button, toImVec4(theme.accentPrimary));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, toImVec4(theme.accentHovered));
+                ImGui::PushStyleColor(ImGuiCol_Text, toImVec4(theme.textPrimary));
+            } else {
+                ImGui::PushStyleColor(ImGuiCol_Button, toImVec4(theme.buttonNormal));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, toImVec4(theme.buttonHovered));
+                ImGui::PushStyleColor(ImGuiCol_Text, toImVec4(theme.textSecondary));
+            }
+            if (ImGui::Button(label, ImVec2(24.0F, 0.0F))) {
+                s_transformMode = mode;
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("%s", tooltip);
+            }
+            ImGui::PopStyleColor(3);
+            ImGui::SameLine();
+        };
 
-        ImGui::SameLine();
+        drawGizmoBtn(0, "W", "Translate Gizmo (W)");
+        drawGizmoBtn(1, "E", "Rotate Gizmo (E)");
+        drawGizmoBtn(2, "R", "Scale Gizmo (R)");
+
         if (ImGui::Button(s_coordSpace == 0 ? "World" : "Local")) {
             s_coordSpace = (s_coordSpace == 0) ? 1 : 0;
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Toggle Coordinate Space (World / Local)");
         }
 
         ImGui::SameLine();
