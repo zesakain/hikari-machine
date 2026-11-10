@@ -27,14 +27,51 @@ void registerPhysicsComponents(world::World& world) {
         });
 
     // Observer: If an entity already has a parent and receives Dynamic RigidBodyComponent, detach
-    // it to root
+    // it to root while preserving its exact world-space placement
     ecs.observer<RigidBodyComponent>()
         .event(flecs::OnSet)
         .each([](flecs::iter& it, size_t index, RigidBodyComponent& rb) {
             if (rb.motionType == MotionType::Dynamic) {
                 flecs::entity e = it.entity(index);
-                if (e.target(flecs::ChildOf).is_valid()) {
+                flecs::entity parent = e.target(flecs::ChildOf);
+                if (parent.is_valid()) {
+                    // Compute world transform before removing ChildOf
+                    Transform worldTr{};
+                    if (const auto* wt = e.get<world::WorldTransformComponent>()) {
+                        worldTr = wt->worldTransform;
+                    } else if (const auto* tc = e.get<world::TransformComponent>()) {
+                        Transform parentTr{};
+                        if (const auto* pwt = parent.get<world::WorldTransformComponent>()) {
+                            parentTr = pwt->worldTransform;
+                        } else if (const auto* ptc = parent.get<world::TransformComponent>()) {
+                            parentTr = ptc->transform;
+                        }
+                        worldTr = parentTr.combine(tc->transform);
+                    } else if (const auto* ptc = e.get<PhysicsTransformComponent>()) {
+                        Transform parentTr{};
+                        if (const auto* pwt = parent.get<world::WorldTransformComponent>()) {
+                            parentTr = pwt->worldTransform;
+                        } else if (const auto* pt = parent.get<PhysicsTransformComponent>()) {
+                            parentTr = pt->transform;
+                        }
+                        worldTr = parentTr.combine(ptc->transform);
+                    }
+
+                    // Detach from parent
                     e.remove(flecs::ChildOf, flecs::Wildcard);
+
+                    // Reassign preserved world transform as root local transform
+                    if (auto* tc = e.get_mut<world::TransformComponent>()) {
+                        tc->transform = worldTr;
+                        tc->isDirty = true;
+                    }
+                    if (auto* ptc = e.get_mut<PhysicsTransformComponent>()) {
+                        ptc->transform = worldTr;
+                    }
+                    if (auto* wt = e.get_mut<world::WorldTransformComponent>()) {
+                        wt->worldTransform = worldTr;
+                        wt->worldMatrix = worldTr.toMatrix();
+                    }
                 }
             }
         });

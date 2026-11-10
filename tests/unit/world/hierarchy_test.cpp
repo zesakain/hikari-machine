@@ -5,9 +5,11 @@
 #include "physics/physics_components.h"
 #include "world/components.h"
 #include "world/entity.h"
+#include "world/hierarchy_systems.h"
 #include "world/world.h"
 
 #include <algorithm>
+#include <cmath>
 #include <iostream>
 
 using namespace eng;
@@ -235,11 +237,18 @@ static int testDynamicRigidBodyParentingRejection() {
     TEST_CHECK(world.getParent(staticChild) == parent);
 
     // 3. If an entity is already a child and receives a Dynamic RigidBodyComponent, it is detached
-    // to root
+    // to root preserving its exact world-space placement
+    world.setComponent(parent, TransformComponent{Transform{Vec3{10.0F, 0.0F, 0.0F}}});
+
     EntityHandle newChild = world.createEntity("NewChild");
-    TEST_CHECK(world.setParent(newChild, parent));
+    world.setComponent(newChild, TransformComponent{Transform{Vec3{5.0F, 0.0F, 0.0F}}});
+    TEST_CHECK(world.setParent(newChild, parent, false));
     TEST_CHECK(world.getParent(newChild) == parent);
 
+    // Compute world transforms: parent at 10, child at 15
+    updateHierarchyTransforms(world);
+
+    // Receiving Dynamic RigidBodyComponent detaches it to root
     world.setComponent(newChild, RigidBodyComponent{
                                      .bodyHandle = {},
                                      .motionType = MotionType::Dynamic,
@@ -247,6 +256,11 @@ static int testDynamicRigidBodyParentingRejection() {
 
     // Flecs observer on Dynamic RigidBodyComponent detaches it to root
     TEST_CHECK(!world.getParent(newChild).isValid());
+
+    // Coordinate preservation: local position must now be 15.0F, NOT snapped to 5.0F
+    const auto* tc = world.getComponent<TransformComponent>(newChild);
+    TEST_CHECK(tc != nullptr);
+    TEST_CHECK(std::abs(tc->transform.position.x - 15.0F) < 1e-4F);
 
     return 0;
 }
