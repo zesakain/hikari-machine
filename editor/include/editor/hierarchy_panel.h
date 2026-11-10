@@ -67,6 +67,10 @@ public:
     static bool reparentEntity(world::World& world, world::EntityHandle child,
                                world::EntityHandle parent, bool preserveWorldTransform = true);
 
+    /// Duplicates an entity and its child hierarchy in the World, preserving supported components.
+    static world::EntityHandle duplicateEntity(world::World& world, world::EntityHandle source,
+                                               world::EntityHandle parent = world::EntityHandle{});
+
     /// Initiates an inline rename for an entity.
     void startRenaming(world::EntityHandle entity, std::string_view currentName);
 

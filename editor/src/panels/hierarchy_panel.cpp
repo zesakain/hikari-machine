@@ -3,10 +3,12 @@
 
 #include "editor/hierarchy_panel.h"
 
+#include "anim/animation_components.h"
 #include "core/log.h"
 #include "editor/editor_theme.h"
 #include "editor/selection_model.h"
 #include "physics/physics_components.h"
+#include "render/mesh_component.h"
 #include "script/script_components.h"
 #include "world/components.h"
 #include "world/world.h"
@@ -52,10 +54,8 @@ bool HierarchyPanel::reparentEntity(world::World& world, world::EntityHandle chi
     return ok;
 }
 
-namespace {
-
-world::EntityHandle duplicateEntity(world::World& world, world::EntityHandle source,
-                                    world::EntityHandle parent = world::EntityHandle{}) {
+world::EntityHandle HierarchyPanel::duplicateEntity(world::World& world, world::EntityHandle source,
+                                                    world::EntityHandle parent) {
     if (!world.isAlive(source)) {
         return world::EntityHandle{};
     }
@@ -109,6 +109,27 @@ world::EntityHandle duplicateEntity(world::World& world, world::EntityHandle sou
         }
     }
 
+    if (srcEntity.has<physics::ColliderComponent>()) {
+        const auto* cc = srcEntity.get<physics::ColliderComponent>();
+        if (cc != nullptr) {
+            world.setComponent(clone, *cc);
+        }
+    }
+
+    if (srcEntity.has<render::MeshComponent>()) {
+        const auto* mc = srcEntity.get<render::MeshComponent>();
+        if (mc != nullptr) {
+            world.setComponent(clone, *mc);
+        }
+    }
+
+    if (srcEntity.has<anim::AnimationComponent>()) {
+        const auto* ac = srcEntity.get<anim::AnimationComponent>();
+        if (ac != nullptr) {
+            world.setComponent(clone, *ac);
+        }
+    }
+
     if (srcEntity.has<script::ScriptComponent>()) {
         const auto* sc = srcEntity.get<script::ScriptComponent>();
         if (sc != nullptr) {
@@ -128,6 +149,8 @@ world::EntityHandle duplicateEntity(world::World& world, world::EntityHandle sou
 
     return clone;
 }
+
+namespace {
 
 void deleteSelectedEntities(world::World& world, SelectionModel* selection, uint64_t& selectedId) {
     if (selection != nullptr && !selection->empty()) {

@@ -78,6 +78,8 @@ target_link_libraries(editor_lib
         hikari::engine_world
         hikari::engine_framework
         hikari::engine_physics
+        hikari::engine_render
+        hikari::engine_anim
         hikari::engine_script
     PRIVATE
         imgui_static

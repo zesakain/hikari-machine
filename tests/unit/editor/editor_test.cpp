@@ -2681,6 +2681,138 @@ static void testHierarchyDragDropPayloadContract() {
     std::cout << "[PASS] testHierarchyDragDropPayloadContract\n";
 }
 
+static void testUnifiedTransformComponentInEditor() {
+    world::World world;
+
+    // Entity with only world::TransformComponent (no PhysicsTransformComponent)
+    auto entity = world.createEntity("TransformOnlyEntity");
+    world.setComponent(entity, world::TransformComponent{Transform{Vec3{3.0F, 4.0F, 5.0F}}});
+
+    TEST_CHECK(world.hasComponent<world::TransformComponent>(entity));
+    TEST_CHECK(!world.hasComponent<physics::PhysicsTransformComponent>(entity));
+
+    // Propagate hierarchy transforms
+    world::updateHierarchyTransforms(world);
+
+    const auto* wt = world.getComponent<world::WorldTransformComponent>(entity);
+    TEST_CHECK(wt != nullptr);
+    TEST_CHECK(std::abs(wt->worldTransform.position.x - 3.0F) < 1e-4F);
+    TEST_CHECK(std::abs(wt->worldTransform.position.y - 4.0F) < 1e-4F);
+    TEST_CHECK(std::abs(wt->worldTransform.position.z - 5.0F) < 1e-4F);
+
+    // Non-allocating root and child iteration
+    size_t rootCount = 0;
+    world.forEachRootEntity([&rootCount, entity](world::EntityHandle h) {
+        if (h == entity) {
+            ++rootCount;
+        }
+    });
+    TEST_CHECK(rootCount == 1);
+
+    auto child = world.createEntity("ChildEntity");
+    world.setComponent(child, world::TransformComponent{Transform{Vec3{1.0F, 0.0F, 0.0F}}});
+    TEST_CHECK(world.setParent(child, entity, false));
+
+    size_t childCount = 0;
+    world.forEachChild(entity, [&childCount, child](world::EntityHandle h) {
+        if (h == child) {
+            ++childCount;
+        }
+    });
+    TEST_CHECK(childCount == 1);
+
+    world::updateHierarchyTransforms(world);
+    const auto* childWt = world.getComponent<world::WorldTransformComponent>(child);
+    TEST_CHECK(childWt != nullptr);
+    TEST_CHECK(std::abs(childWt->worldTransform.position.x - 4.0F) < 1e-4F);
+    TEST_CHECK(std::abs(childWt->worldTransform.position.y - 4.0F) < 1e-4F);
+    TEST_CHECK(std::abs(childWt->worldTransform.position.z - 5.0F) < 1e-4F);
+
+    std::cout << "[PASS] testUnifiedTransformComponentInEditor\n";
+}
+
+static void testHierarchyDuplicationFullComponentPreservation() {
+    world::World world;
+
+    auto source = world.createEntity("PropEntity");
+    world.setComponent(source, world::TransformComponent{Transform{Vec3{1.0F, 2.0F, 3.0F}}});
+    world.setComponent(source, physics::RigidBodyComponent{
+                                   .bodyHandle = physics::BodyHandle(99, 1),
+                                   .motionType = physics::MotionType::Kinematic,
+                                   .collisionLayer = physics::CollisionLayer::kNonMoving,
+                               });
+    world.setComponent(source, physics::ColliderComponent{
+                                   .desc = physics::ColliderDesc::makeBox(Vec3{0.5F, 0.5F, 0.5F}),
+                               });
+    world.setComponent(source,
+                       render::MeshComponent{
+                           .meshAsset = render::makeAssetIdFromPath("assets/models/cube.obj"),
+                           .assetPath = "assets/models/cube.obj",
+                           .submeshIndex = 0,
+                           .visible = true,
+                           .castShadows = true,
+                       });
+
+    script::ScriptComponent sc{};
+    const std::string scriptName = "scripts/rotate.lua";
+    std::memcpy(sc.scriptName, scriptName.c_str(), scriptName.size() + 1);
+    sc.enabled = true;
+    world.setComponent(source, sc);
+
+    // Add child with MeshComponent
+    auto child = world.createEntity("ChildProp");
+    world.setComponent(child, world::TransformComponent{Transform{Vec3{0.0F, 1.0F, 0.0F}}});
+    world.setComponent(child,
+                       render::MeshComponent{
+                           .meshAsset = render::makeAssetIdFromPath("assets/models/sphere.obj"),
+                           .assetPath = "assets/models/sphere.obj",
+                       });
+    TEST_CHECK(world.setParent(child, source, false));
+
+    // Duplicate source entity hierarchy
+    auto clone = HierarchyPanel::duplicateEntity(world, source, {});
+    TEST_CHECK(clone.isValid());
+
+    // 1. Verify cloned root components
+    const auto* cloneTc = world.getComponent<world::TransformComponent>(clone);
+    TEST_CHECK(cloneTc != nullptr);
+    TEST_CHECK(std::abs(cloneTc->transform.position.x - 1.5F) < 1e-4F); // 1.0 + 0.5 offset
+
+    const auto* cloneRb = world.getComponent<physics::RigidBodyComponent>(clone);
+    TEST_CHECK(cloneRb != nullptr);
+    TEST_CHECK(!cloneRb->bodyHandle.isValid()); // Reset runtime handle
+    TEST_CHECK(cloneRb->motionType == physics::MotionType::Kinematic);
+    TEST_CHECK(cloneRb->collisionLayer == physics::CollisionLayer::kNonMoving);
+
+    const auto* cloneCol = world.getComponent<physics::ColliderComponent>(clone);
+    TEST_CHECK(cloneCol != nullptr);
+    TEST_CHECK(cloneCol->desc.type == physics::ColliderType::Box);
+    TEST_CHECK(std::abs(cloneCol->desc.halfExtents.x - 0.5F) < 1e-4F);
+
+    const auto* cloneMc = world.getComponent<render::MeshComponent>(clone);
+    TEST_CHECK(cloneMc != nullptr);
+    TEST_CHECK(cloneMc->assetPath == "assets/models/cube.obj");
+    TEST_CHECK(cloneMc->meshAsset == render::makeAssetIdFromPath("assets/models/cube.obj"));
+
+    const auto* cloneSc = world.getComponent<script::ScriptComponent>(clone);
+    TEST_CHECK(cloneSc != nullptr);
+    TEST_CHECK(std::string_view(cloneSc->scriptName) == "scripts/rotate.lua");
+    TEST_CHECK(cloneSc->enabled);
+
+    // 2. Verify cloned child entity
+    auto cloneChildren = world.getChildren(clone);
+    TEST_CHECK(cloneChildren.size() == 1);
+    auto clonedChild = cloneChildren[0];
+    TEST_CHECK(clonedChild.isValid());
+    TEST_CHECK(world.getParent(clonedChild) == clone);
+
+    const auto* clonedChildMc = world.getComponent<render::MeshComponent>(clonedChild);
+    TEST_CHECK(clonedChildMc != nullptr);
+    TEST_CHECK(clonedChildMc->assetPath == "assets/models/sphere.obj");
+
+    std::cout << "[PASS] testHierarchyDuplicationFullComponentPreservation\n";
+}
+
 int main() {
     std::cout << "Running Editor subsystem unit tests...\n";
     const std::filesystem::path candidates[] = {"assets/models", "../../../assets/models",
@@ -2734,6 +2866,8 @@ int main() {
     testHierarchyCascadingDestructionInEditor();
     testHierarchyReparentingPreserveWorldTransform();
     testHierarchyReparentingRejectionAndSafeguards();
+    testUnifiedTransformComponentInEditor();
+    testHierarchyDuplicationFullComponentPreservation();
 
     std::cout << "All Editor subsystem tests PASSED!\n";
     return 0;
