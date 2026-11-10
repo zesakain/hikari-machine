@@ -7,7 +7,9 @@
 #include "core/error.h"
 #include "core/log.h"
 #include "core/math.h"
+#include "render/asset_manager.h"
 #include "render/asset_types.h"
+#include "render/mesh.h"
 #include "render/mesh_component.h"
 #include "world/components.h"
 #include "world/world.h"
@@ -25,6 +27,7 @@
 #pragma GCC diagnostic pop
 #endif
 
+#include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <string>
@@ -97,6 +100,119 @@ struct CgltfGuard {
     return t;
 }
 
+[[nodiscard]] MeshData extractMeshGeometry(const cgltf_data* /*data*/, const cgltf_mesh* mesh,
+                                           const std::string& meshName) {
+    MeshData meshData{};
+    meshData.name = meshName;
+
+    bool anyMissingNormals = false;
+
+    for (cgltf_size pIdx = 0; pIdx < mesh->primitives_count; ++pIdx) {
+        const auto& prim = mesh->primitives[pIdx];
+        if (prim.type != cgltf_primitive_type_triangles) {
+            continue;
+        }
+
+        const cgltf_attribute* posAttr = nullptr;
+        const cgltf_attribute* normAttr = nullptr;
+        const cgltf_attribute* uvAttr = nullptr;
+        const cgltf_attribute* colAttr = nullptr;
+
+        for (cgltf_size a = 0; a < prim.attributes_count; ++a) {
+            const auto& attr = prim.attributes[a];
+            if (attr.type == cgltf_attribute_type_position) {
+                posAttr = &attr;
+            } else if (attr.type == cgltf_attribute_type_normal) {
+                normAttr = &attr;
+            } else if (attr.type == cgltf_attribute_type_texcoord && attr.index == 0) {
+                uvAttr = &attr;
+            } else if (attr.type == cgltf_attribute_type_color && attr.index == 0) {
+                colAttr = &attr;
+            }
+        }
+
+        if (posAttr == nullptr || posAttr->data == nullptr) {
+            continue;
+        }
+
+        const size_t vertCount = posAttr->data->count;
+        if (vertCount == 0) {
+            continue;
+        }
+
+        const uint32_t vertexBase = static_cast<uint32_t>(meshData.vertices.size());
+        const uint32_t firstIndex = static_cast<uint32_t>(meshData.indices.size());
+
+        if (normAttr == nullptr) {
+            anyMissingNormals = true;
+        }
+
+        for (size_t v = 0; v < vertCount; ++v) {
+            float p[3] = {0.0F, 0.0F, 0.0F};
+            cgltf_accessor_read_float(posAttr->data, v, p, 3);
+            const Vec3 localPos{p[0], p[1], p[2]};
+
+            Vec3 localNorm{0.0F, 1.0F, 0.0F};
+            if (normAttr != nullptr && normAttr->data != nullptr) {
+                float n[3] = {0.0F, 1.0F, 0.0F};
+                cgltf_accessor_read_float(normAttr->data, v, n, 3);
+                const float len = std::sqrt((n[0] * n[0]) + (n[1] * n[1]) + (n[2] * n[2]));
+                localNorm =
+                    (len > 1e-6F) ? Vec3{n[0] / len, n[1] / len, n[2] / len} : Vec3::unitY();
+            }
+
+            Vec2 uv{0.0F, 0.0F};
+            if (uvAttr != nullptr && uvAttr->data != nullptr) {
+                float t[2] = {0.0F, 0.0F};
+                cgltf_accessor_read_float(uvAttr->data, v, t, 2);
+                uv = Vec2{t[0], t[1]};
+            }
+
+            Vec4 col{1.0F, 1.0F, 1.0F, 1.0F};
+            if (colAttr != nullptr && colAttr->data != nullptr) {
+                float c[4] = {1.0F, 1.0F, 1.0F, 1.0F};
+                cgltf_accessor_read_float(colAttr->data, v, c, 4);
+                col =
+                    Vec4{c[0], c[1], c[2], (colAttr->data->type == cgltf_type_vec3 ? 1.0F : c[3])};
+            }
+
+            meshData.vertices.emplace_back(localPos, localNorm, uv, col);
+        }
+
+        if (prim.indices != nullptr) {
+            const size_t idxCount = prim.indices->count;
+            for (size_t i = 0; i < idxCount; ++i) {
+                const uint32_t idx =
+                    static_cast<uint32_t>(cgltf_accessor_read_index(prim.indices, i));
+                meshData.indices.push_back(vertexBase + idx);
+            }
+        } else {
+            for (size_t i = 0; i < vertCount; ++i) {
+                meshData.indices.push_back(vertexBase + static_cast<uint32_t>(i));
+            }
+        }
+
+        Submesh submesh{};
+        submesh.name = meshName + "_Submesh_" + std::to_string(pIdx);
+        submesh.firstIndex = firstIndex;
+        submesh.indexCount = static_cast<uint32_t>(meshData.indices.size() - firstIndex);
+        submesh.vertexOffset = 0;
+        submesh.materialIndex = static_cast<uint32_t>(pIdx);
+        meshData.submeshes.push_back(std::move(submesh));
+    }
+
+    if (anyMissingNormals && !meshData.indices.empty()) {
+        meshData.generateNormals();
+    }
+    meshData.recalculateBounds();
+
+    if (meshData.materials.empty()) {
+        meshData.materials.push_back(Material::createDefault());
+    }
+
+    return meshData;
+}
+
 /// @brief Recursively traverses the glTF node hierarchy and instantiates entities in World.
 void importNodeRecursive(const cgltf_data* data, const cgltf_node* node,
                          world::EntityHandle parentEntity, world::World& world,
@@ -167,7 +283,8 @@ void importNodeRecursive(const cgltf_data* data, const cgltf_node* node,
 } // namespace
 
 GltfSceneImportResult GltfSceneImporter::importScene(const std::string& filePath,
-                                                     world::World& world) noexcept {
+                                                     world::World& world,
+                                                     AssetManager* assetManager) noexcept {
     if (filePath.empty()) {
         return GltfSceneImportResult{.success = false, .errorMessage = "Empty glTF file path"};
     }
@@ -194,6 +311,20 @@ GltfSceneImportResult GltfSceneImporter::importScene(const std::string& filePath
         return GltfSceneImportResult{
             .success = false,
             .errorMessage = "glTF validation failed: invalid accessor ranges or corrupt mesh data"};
+    }
+
+    // Extract and register all meshes if an AssetManager was supplied
+    for (cgltf_size m = 0; m < parsedData->meshes_count; ++m) {
+        const auto* mesh = &parsedData->meshes[m];
+        const std::string meshName = (mesh->name != nullptr && mesh->name[0] != '\0')
+                                         ? std::string(mesh->name)
+                                         : ("Mesh_" + std::to_string(m));
+        const std::string meshUri = filePath + "#mesh_" + std::to_string(m);
+        MeshData meshData = extractMeshGeometry(parsedData, mesh, meshName);
+
+        if (assetManager != nullptr) {
+            (void)assetManager->registerMesh(meshUri, std::move(meshData));
+        }
     }
 
     GltfSceneImportResult result{};

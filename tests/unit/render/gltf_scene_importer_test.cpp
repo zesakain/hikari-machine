@@ -16,6 +16,7 @@
 ///   {NodeName}_Primitive_{i}.
 ///   9. NonexistentFile: Invalid/missing file path returns failure cleanly.
 
+#include "render/asset_manager.h"
 #include "render/gltf_scene_importer.h"
 #include "render/mesh_component.h"
 #include "world/components.h"
@@ -311,6 +312,45 @@ static int testNonexistentFileReturnsFailure() {
 }
 
 // ---------------------------------------------------------------------------
+// Scenario 10: Mesh Extraction & AssetManager Registration
+// ---------------------------------------------------------------------------
+static int testGltfSceneMeshExtractionAndAssetManagerRegistration() {
+    AssetManager assetManager;
+    World world;
+    auto result = GltfSceneImporter::importScene(kFixturesDir + "cube.glb", world, &assetManager);
+
+    TEST_CHECK(result.success);
+    TEST_CHECK(result.nodeCount > 0);
+
+    bool foundMesh = false;
+    for (const auto& node : result.nodes) {
+        if (node.hasMesh) {
+            foundMesh = true;
+            const auto* mc = world.getComponent<MeshComponent>(node.entity);
+            TEST_CHECK(mc != nullptr);
+            TEST_CHECK(mc->meshAsset.isValid());
+
+            // Asset must be loaded and registered in AssetManager
+            TEST_CHECK(assetManager.isLoaded(mc->meshAsset));
+            const MeshData* meshData = assetManager.getMeshData(mc->meshAsset);
+            TEST_CHECK(meshData != nullptr);
+            TEST_CHECK(!meshData->vertices.empty());
+            TEST_CHECK(!meshData->indices.empty());
+            TEST_CHECK(!meshData->submeshes.empty());
+
+            // Loading by URI fragment returns the registered mesh asset
+            auto loadRes = assetManager.loadMesh(mc->assetPath);
+            TEST_CHECK(loadRes.hasValue());
+            TEST_CHECK(loadRes.value() == mc->meshAsset);
+        }
+    }
+    TEST_CHECK(foundMesh);
+
+    std::cout << "[PASS] testGltfSceneMeshExtractionAndAssetManagerRegistration\n";
+    return 0;
+}
+
+// ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
 int main() {
@@ -325,6 +365,7 @@ int main() {
     failures += testGeometryInstancing();
     failures += testMultiPrimitiveSplits();
     failures += testNonexistentFileReturnsFailure();
+    failures += testGltfSceneMeshExtractionAndAssetManagerRegistration();
 
     if (failures == 0) {
         std::cout << "\nAll gltf_scene_importer_test scenarios passed.\n";

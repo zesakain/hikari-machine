@@ -43,6 +43,8 @@ class World;
 
 namespace eng::render {
 
+class AssetManager;
+
 /// @struct GltfSceneNode
 /// @brief Describes one entity created during hierarchical glTF scene import.
 ///
@@ -87,9 +89,11 @@ public:
     ///
     /// @param filePath Path to .gltf or .glb file on the filesystem.
     /// @param world The World in which entities are instantiated.
+    /// @param assetManager Optional pointer to AssetManager to register extracted mesh assets.
     /// @return GltfSceneImportResult containing success status, created nodes, and root entity.
-    [[nodiscard]] static GltfSceneImportResult importScene(const std::string& filePath,
-                                                           world::World& world) noexcept;
+    [[nodiscard]] static GltfSceneImportResult
+    importScene(const std::string& filePath, world::World& world,
+                AssetManager* assetManager = nullptr) noexcept;
 };
 
 } // namespace eng::render

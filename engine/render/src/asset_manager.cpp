@@ -5,7 +5,9 @@
 
 #include "core/log.h"
 #include "render/gltf_importer.h"
+#include "render/gltf_scene_importer.h"
 #include "render/obj_importer.h"
+#include "world/world.h"
 
 #include <algorithm>
 #include <cctype>
@@ -39,6 +41,21 @@ Result<AssetId> AssetManager::loadMesh(std::string_view path) {
             entryIt->second.metadata.loadState == AssetLoadState::Loaded) {
             return Result<AssetId>::success(pathIt->second);
         }
+    }
+
+    const auto hashPos = normPath.find('#');
+    if (hashPos != std::string::npos) {
+        std::string baseFile = normPath.substr(0, hashPos);
+        world::World dummyWorld;
+        auto importRes = GltfSceneImporter::importScene(baseFile, dummyWorld, this);
+        if (importRes.success) {
+            auto it = pathToId_.find(normPath);
+            if (it != pathToId_.end()) {
+                return Result<AssetId>::success(it->second);
+            }
+        }
+        return Result<AssetId>::failure(
+            Error(ErrorCode::InvalidArgument, "Mesh URI fragment not found in scene: " + normPath));
     }
 
     std::string ext{};
