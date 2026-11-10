@@ -13,6 +13,7 @@
 #include "physics/physics_components.h"
 #include "render/asset_manager.h"
 #include "render/mesh_component.h"
+#include "world/components.h"
 
 #include <algorithm>
 #include <cmath>
@@ -25,6 +26,29 @@ namespace eng::editor {
 
 namespace {
 
+inline bool getEntityWorldTransform(flecs::entity e, Transform& outTr) {
+    if (!e.is_alive()) {
+        return false;
+    }
+    if (e.has<world::WorldTransformComponent>()) {
+        outTr = e.get<world::WorldTransformComponent>()->worldTransform;
+        return true;
+    }
+    if (e.has<world::TransformComponent>()) {
+        outTr = e.get<world::TransformComponent>()->transform;
+        return true;
+    }
+    if (e.has<physics::PhysicsTransformComponent>()) {
+        outTr = e.get<physics::PhysicsTransformComponent>()->transform;
+        return true;
+    }
+    return false;
+}
+
+} // namespace
+
+namespace {
+
 enum class GizmoAxis : uint8_t { None = 0, X = 1, Y = 2, Z = 3, Center = 4 };
 
 // Viewport state persistence
@@ -34,7 +58,8 @@ int s_snappingMode = 2;  // 0 = Off, 1 = 0.1m, 2 = 0.5m, 3 = 1.0m
 int s_coordSpace = 0;    // 0 = World, 1 = Local
 bool s_showGrid = true;
 bool s_showStats = true;
-bool s_useGpuRenderer = true; // True = GPU Viewport (SceneRenderer), False = CPU Software Rasterizer
+bool s_useGpuRenderer =
+    true; // True = GPU Viewport (SceneRenderer), False = CPU Software Rasterizer
 
 // Active gizmo dragging state
 bool s_isDraggingGizmo = false;
@@ -133,10 +158,8 @@ void ViewportPanel::draw(EditorContext& ctx) {
         if (isGpuAvailable && s_useGpuRenderer) {
             drawList->AddImage(
                 static_cast<ImTextureID>(reinterpret_cast<uintptr_t>(ctx.viewportTextureId)),
-                canvasPos,
-                ImVec2(canvasPos.x + canvasSize.x, canvasPos.y + canvasSize.y),
-                ImVec2(0.0F, 0.0F),
-                ImVec2(1.0F, 1.0F));
+                canvasPos, ImVec2(canvasPos.x + canvasSize.x, canvasPos.y + canvasSize.y),
+                ImVec2(0.0F, 0.0F), ImVec2(1.0F, 1.0F));
         } else {
             drawList->AddRectFilled(canvasPos,
                                     ImVec2(canvasPos.x + canvasSize.x, canvasPos.y + canvasSize.y),
@@ -164,10 +187,9 @@ void ViewportPanel::draw(EditorContext& ctx) {
                     const std::string uniqueName =
                         HierarchyPanel::generateUniqueEntityName(*ctx.world, stem.c_str());
                     auto h = ctx.world->createEntity(uniqueName);
-                    ctx.world->setComponent(
-                        h, physics::PhysicsTransformComponent{
-                               .transform = Transform{camera_.getPivot()},
-                           });
+                    ctx.world->setComponent(h, physics::PhysicsTransformComponent{
+                                                   .transform = Transform{camera_.getPivot()},
+                                               });
                     const render::AssetId id = render::makeAssetIdFromPath(meshPath);
                     ctx.world->setComponent(h, render::MeshComponent{
                                                    .meshAsset = id,
@@ -209,7 +231,8 @@ void ViewportPanel::draw(EditorContext& ctx) {
         // ---------------------------------------------------------------------
         if (isCanvasHovered || isCanvasActive) {
             const bool isFlyMode = (camera_.getCameraMode() == EditorCameraMode::Fly);
-            const bool isRmbDown = ImGui::IsMouseDown(ImGuiMouseButton_Right) && !io.KeyShift && !s_isDraggingGizmo;
+            const bool isRmbDown =
+                ImGui::IsMouseDown(ImGuiMouseButton_Right) && !io.KeyShift && !s_isDraggingGizmo;
 
             // First-person look orientation: RMB drag
             if (isRmbDown) {
@@ -224,8 +247,9 @@ void ViewportPanel::draw(EditorContext& ctx) {
             }
 
             // Fly navigation active condition
-            const bool canFlyMove = !io.WantTextInput && !s_isDraggingGizmo &&
-                                    (isRmbDown || (isFlyMode && (isCanvasHovered || isCanvasActive)));
+            const bool canFlyMove =
+                !io.WantTextInput && !s_isDraggingGizmo &&
+                (isRmbDown || (isFlyMode && (isCanvasHovered || isCanvasActive)));
             s_isFlying = canFlyMove;
 
             // Scroll wheel: Adjust flight speed in Fly mode or while RMB looking; otherwise zoom
@@ -239,8 +263,9 @@ void ViewportPanel::draw(EditorContext& ctx) {
 
             // Orbit Navigation: Alt + Left Drag OR Middle Mouse Drag (when not flying)
             const bool isOrbiting =
-                !isRmbDown && ((ImGui::IsMouseDown(ImGuiMouseButton_Middle) && !io.KeyShift) ||
-                               (ImGui::IsMouseDown(ImGuiMouseButton_Left) && io.KeyAlt && !s_isDraggingGizmo));
+                !isRmbDown &&
+                ((ImGui::IsMouseDown(ImGuiMouseButton_Middle) && !io.KeyShift) ||
+                 (ImGui::IsMouseDown(ImGuiMouseButton_Left) && io.KeyAlt && !s_isDraggingGizmo));
             if (isOrbiting && (io.MouseDelta.x != 0.0F || io.MouseDelta.y != 0.0F)) {
                 camera_.orbit(io.MouseDelta.x * 0.005F, io.MouseDelta.y * 0.005F);
             }
@@ -295,12 +320,11 @@ void ViewportPanel::draw(EditorContext& ctx) {
             if (ImGui::IsKeyPressed(ImGuiKey_F) && !io.WantTextInput && !isRmbDown) {
                 if (ctx.selection != nullptr && !ctx.selection->empty() && ctx.world != nullptr) {
                     auto primary = ctx.selection->getPrimarySelected();
-                    if (ctx.world->isAlive(primary) &&
-                        ctx.world->hasComponent<physics::PhysicsTransformComponent>(primary)) {
-                        const auto* pt =
-                            ctx.world->getComponent<physics::PhysicsTransformComponent>(primary);
-                        if (pt != nullptr) {
-                            camera_.frame(pt->transform.position, 2.5F);
+                    if (ctx.world->isAlive(primary)) {
+                        Transform tr{};
+                        if (getEntityWorldTransform(ctx.world->getRawWorld().entity(primary.id),
+                                                    tr)) {
+                            camera_.frame(tr.position, 2.5F);
                         }
                     }
                 } else {
@@ -424,16 +448,11 @@ void ViewportPanel::draw(EditorContext& ctx) {
 
             for (auto h : aliveHandles) {
                 auto e = ecs.entity(h.id);
-                if (!e.is_alive() || !e.has<physics::PhysicsTransformComponent>()) {
+                Transform tr{};
+                if (!getEntityWorldTransform(e, tr)) {
                     continue;
                 }
 
-                const auto* ptc = e.get<physics::PhysicsTransformComponent>();
-                if (ptc == nullptr) {
-                    continue;
-                }
-
-                const Transform& tr = ptc->transform;
                 const bool isSelected = (ctx.selection != nullptr && ctx.selection->isSelected(h));
                 if (isSelected && !hasPrimarySelected) {
                     primarySelectedHandle = h;
@@ -473,7 +492,8 @@ void ViewportPanel::draw(EditorContext& ctx) {
                                 for (size_t vi = 0; vi < meshData->vertices.size(); ++vi) {
                                     const Vec3 worldPos =
                                         tr.position +
-                                        tr.rotation.rotate(meshData->vertices[vi].position * tr.scale);
+                                        tr.rotation.rotate(meshData->vertices[vi].position *
+                                                           tr.scale);
                                     vertexVisible[vi] =
                                         camera_.project(worldPos, canvasOrigin3D, canvasSize3D,
                                                         screenVertices[vi], vertexDepths[vi]);
@@ -518,8 +538,8 @@ void ViewportPanel::draw(EditorContext& ctx) {
                                                                 screenVertices[i2].y);
 
                                                 if (s_viewMode != 1) { // Lit mode
-                                                    float diffuse =
-                                                        std::max(0.0F, Vec3::dot(triNormal, lightDir));
+                                                    float diffuse = std::max(
+                                                        0.0F, Vec3::dot(triNormal, lightDir));
                                                     float lightFactor = 0.35F + (0.65F * diffuse);
 
                                                     ImU32 triColor{};
@@ -536,7 +556,8 @@ void ViewportPanel::draw(EditorContext& ctx) {
                                                             static_cast<int>(125.0F * lightFactor),
                                                             220);
                                                     }
-                                                    drawList->AddTriangleFilled(p0, p1, p2, triColor);
+                                                    drawList->AddTriangleFilled(p0, p1, p2,
+                                                                                triColor);
                                                 }
 
                                                 // Wireframe edges
@@ -876,13 +897,23 @@ void ViewportPanel::draw(EditorContext& ctx) {
                             const Vec3 moveVec = constraintAxis * projectedDelta;
 
                             for (auto h : selectedEntities) {
-                                if (ctx.world->isAlive(h) &&
-                                    ctx.world->hasComponent<physics::PhysicsTransformComponent>(
-                                        h)) {
-                                    auto* tc = ctx.world->getMutableComponent<
-                                        physics::PhysicsTransformComponent>(h);
-                                    if (tc != nullptr) {
-                                        tc->transform.position = s_dragStartEntityPos + moveVec;
+                                if (ctx.world->isAlive(h)) {
+                                    if (ctx.world->hasComponent<world::TransformComponent>(h)) {
+                                        auto* tc =
+                                            ctx.world
+                                                ->getMutableComponent<world::TransformComponent>(h);
+                                        if (tc != nullptr) {
+                                            tc->transform.position = s_dragStartEntityPos + moveVec;
+                                            tc->isDirty = true;
+                                        }
+                                    }
+                                    if (ctx.world->hasComponent<physics::PhysicsTransformComponent>(
+                                            h)) {
+                                        auto* tc = ctx.world->getMutableComponent<
+                                            physics::PhysicsTransformComponent>(h);
+                                        if (tc != nullptr) {
+                                            tc->transform.position = s_dragStartEntityPos + moveVec;
+                                        }
                                     }
                                 }
                             }
@@ -895,14 +926,25 @@ void ViewportPanel::draw(EditorContext& ctx) {
                             const Quat deltaRot = Quat::fromAxisAngle(constraintAxis, rotAngle);
 
                             for (auto h : selectedEntities) {
-                                if (ctx.world->isAlive(h) &&
-                                    ctx.world->hasComponent<physics::PhysicsTransformComponent>(
-                                        h)) {
-                                    auto* tc = ctx.world->getMutableComponent<
-                                        physics::PhysicsTransformComponent>(h);
-                                    if (tc != nullptr) {
-                                        tc->transform.rotation =
-                                            (deltaRot * s_dragStartEntityRot).normalized();
+                                if (ctx.world->isAlive(h)) {
+                                    if (ctx.world->hasComponent<world::TransformComponent>(h)) {
+                                        auto* tc =
+                                            ctx.world
+                                                ->getMutableComponent<world::TransformComponent>(h);
+                                        if (tc != nullptr) {
+                                            tc->transform.rotation =
+                                                (deltaRot * s_dragStartEntityRot).normalized();
+                                            tc->isDirty = true;
+                                        }
+                                    }
+                                    if (ctx.world->hasComponent<physics::PhysicsTransformComponent>(
+                                            h)) {
+                                        auto* tc = ctx.world->getMutableComponent<
+                                            physics::PhysicsTransformComponent>(h);
+                                        if (tc != nullptr) {
+                                            tc->transform.rotation =
+                                                (deltaRot * s_dragStartEntityRot).normalized();
+                                        }
                                     }
                                 }
                             }
@@ -914,21 +956,32 @@ void ViewportPanel::draw(EditorContext& ctx) {
                             }
 
                             for (auto h : selectedEntities) {
-                                if (ctx.world->isAlive(h) &&
-                                    ctx.world->hasComponent<physics::PhysicsTransformComponent>(
-                                        h)) {
-                                    auto* tc = ctx.world->getMutableComponent<
-                                        physics::PhysicsTransformComponent>(h);
-                                    if (tc != nullptr) {
-                                        Vec3 newScale = s_dragStartEntityScale;
-                                        if (s_activeGizmoAxis == GizmoAxis::X) {
-                                            newScale.x = std::max(0.05F, newScale.x + scaleDelta);
-                                        } else if (s_activeGizmoAxis == GizmoAxis::Y) {
-                                            newScale.y = std::max(0.05F, newScale.y + scaleDelta);
-                                        } else {
-                                            newScale.z = std::max(0.05F, newScale.z + scaleDelta);
+                                if (ctx.world->isAlive(h)) {
+                                    Vec3 newScale = s_dragStartEntityScale;
+                                    if (s_activeGizmoAxis == GizmoAxis::X) {
+                                        newScale.x = std::max(0.05F, newScale.x + scaleDelta);
+                                    } else if (s_activeGizmoAxis == GizmoAxis::Y) {
+                                        newScale.y = std::max(0.05F, newScale.y + scaleDelta);
+                                    } else {
+                                        newScale.z = std::max(0.05F, newScale.z + scaleDelta);
+                                    }
+
+                                    if (ctx.world->hasComponent<world::TransformComponent>(h)) {
+                                        auto* tc =
+                                            ctx.world
+                                                ->getMutableComponent<world::TransformComponent>(h);
+                                        if (tc != nullptr) {
+                                            tc->transform.scale = newScale;
+                                            tc->isDirty = true;
                                         }
-                                        tc->transform.scale = newScale;
+                                    }
+                                    if (ctx.world->hasComponent<physics::PhysicsTransformComponent>(
+                                            h)) {
+                                        auto* tc = ctx.world->getMutableComponent<
+                                            physics::PhysicsTransformComponent>(h);
+                                        if (tc != nullptr) {
+                                            tc->transform.scale = newScale;
+                                        }
                                     }
                                 }
                             }
@@ -985,16 +1038,10 @@ void ViewportPanel::draw(EditorContext& ctx) {
 
             for (auto h : aliveHandles) {
                 auto e = ecs.entity(h.id);
-                if (!e.is_alive() || !e.has<physics::PhysicsTransformComponent>()) {
+                Transform tr{};
+                if (!getEntityWorldTransform(e, tr)) {
                     continue;
                 }
-
-                const auto* ptc = e.get<physics::PhysicsTransformComponent>();
-                if (ptc == nullptr) {
-                    continue;
-                }
-
-                const Transform& tr = ptc->transform;
 
                 // Test Ray intersection against MeshComponent bounds if present
                 if (e.has<render::MeshComponent>() && ctx.assetManager != nullptr) {
@@ -1147,12 +1194,10 @@ void ViewportPanel::draw(EditorContext& ctx) {
         if (ImGui::Button("Frame (F)")) {
             if (ctx.selection != nullptr && !ctx.selection->empty() && ctx.world != nullptr) {
                 auto primary = ctx.selection->getPrimarySelected();
-                if (ctx.world->isAlive(primary) &&
-                    ctx.world->hasComponent<physics::PhysicsTransformComponent>(primary)) {
-                    const auto* pt =
-                        ctx.world->getComponent<physics::PhysicsTransformComponent>(primary);
-                    if (pt != nullptr) {
-                        camera_.frame(pt->transform.position, 2.5F);
+                if (ctx.world->isAlive(primary)) {
+                    Transform tr{};
+                    if (getEntityWorldTransform(ctx.world->getRawWorld().entity(primary.id), tr)) {
+                        camera_.frame(tr.position, 2.5F);
                     }
                 }
             } else {
@@ -1221,8 +1266,7 @@ void ViewportPanel::draw(EditorContext& ctx) {
                 canvasSize.y > 0.0F ? static_cast<double>(canvasSize.x / canvasSize.y) : 1.0,
                 static_cast<double>(camera_.getPosition().x),
                 static_cast<double>(camera_.getPosition().y),
-                static_cast<double>(camera_.getPosition().z),
-                rendererTag);
+                static_cast<double>(camera_.getPosition().z), rendererTag);
 
             const char* simBadge = "[EDIT MODE]";
             ImVec4 badgeColor(0.2F, 0.8F, 0.4F, 1.0F);
@@ -1253,7 +1297,8 @@ void ViewportPanel::draw(EditorContext& ctx) {
 
             if (isNav) {
                 ImGui::TextColored(ImVec4(0.3F, 0.9F, 0.4F, 1.0F), "| [NAV] %s (%.1f m/s)",
-                                   isFly ? "Fly" : "Orbit-Fly", static_cast<double>(effectiveSpeed));
+                                   isFly ? "Fly" : "Orbit-Fly",
+                                   static_cast<double>(effectiveSpeed));
             } else {
                 ImGui::TextDisabled("| Cam: %s (%.1f m/s)", isFly ? "Fly" : "Orbit",
                                     static_cast<double>(camera_.getMoveSpeed()));
@@ -1261,7 +1306,8 @@ void ViewportPanel::draw(EditorContext& ctx) {
 
             ImGui::SetCursorScreenPos(ImVec2(cardPos.x + 10.0F, cardPos.y + 45.0F));
             if (hasPrimarySelected) {
-                ImGui::TextColored(ImVec4(0.9F, 0.8F, 0.2F, 1.0F), "Selected Entity: #%llu | Cam: %s",
+                ImGui::TextColored(ImVec4(0.9F, 0.8F, 0.2F, 1.0F),
+                                   "Selected Entity: #%llu | Cam: %s",
                                    static_cast<unsigned long long>(primarySelectedHandle.id),
                                    isFly ? "Fly" : "Orbit");
             } else {

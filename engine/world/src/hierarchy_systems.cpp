@@ -25,12 +25,14 @@ void updateHierarchyTransforms(World& world) {
     // Reusable BFS queue to guarantee zero hot-path heap allocations once warm.
     // Invariant: Simulation progress and continuous systems execute on the main thread.
     static thread_local std::vector<QueueItem> queue;
+    if (queue.capacity() < 128) {
+        queue.reserve(128);
+    }
     queue.clear();
 
-    const auto roots = world.getRootEntities();
-    for (EntityHandle root : roots) {
+    world.forEachRootEntity([&](EntityHandle root) {
         if (!world.isAlive(root)) {
-            continue;
+            return;
         }
 
         auto* tc = world.getMutableComponent<TransformComponent>(root);
@@ -66,20 +68,19 @@ void updateHierarchyTransforms(World& world) {
             currentWorldTransform = wt->worldTransform;
         } else {
             // Root has neither TransformComponent nor WorldTransformComponent: skip hierarchy
-            continue;
+            return;
         }
 
         // Enqueue direct children of this root
-        const auto children = world.getChildren(root);
-        for (EntityHandle child : children) {
+        world.forEachChild(root, [&](EntityHandle child) {
             queue.push_back(QueueItem{
                 .handle = child,
                 .parentDirty = rootWasDirty,
                 .parentMatrix = currentWorldMatrix,
                 .parentTransform = currentWorldTransform,
             });
-        }
-    }
+        });
+    });
 
     // Process BFS queue: Breadth-first ensures parents are evaluated strictly before their children
     size_t head = 0;
@@ -126,15 +127,14 @@ void updateHierarchyTransforms(World& world) {
         }
 
         // Enqueue direct children of this entity
-        const auto children = world.getChildren(item.handle);
-        for (EntityHandle child : children) {
+        world.forEachChild(item.handle, [&](EntityHandle child) {
             queue.push_back(QueueItem{
                 .handle = child,
                 .parentDirty = branchDirty,
                 .parentMatrix = currentWorldMatrix,
                 .parentTransform = currentWorldTransform,
             });
-        }
+        });
     }
 }
 

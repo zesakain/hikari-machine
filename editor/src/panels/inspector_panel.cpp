@@ -21,6 +21,49 @@ namespace eng::editor {
 
 namespace {
 
+inline Transform getEntityLocalTransform(flecs::entity e) {
+    if (e.has<world::TransformComponent>()) {
+        return e.get<world::TransformComponent>()->transform;
+    }
+    if (e.has<physics::PhysicsTransformComponent>()) {
+        return e.get<physics::PhysicsTransformComponent>()->transform;
+    }
+    return Transform::identity();
+}
+
+inline void setEntityLocalTransform(flecs::entity e, const Transform& tr) {
+    if (e.has<world::TransformComponent>()) {
+        auto* tc = e.get_mut<world::TransformComponent>();
+        tc->transform = tr;
+        tc->isDirty = true;
+        e.modified<world::TransformComponent>();
+    }
+    if (e.has<physics::PhysicsTransformComponent>()) {
+        auto* ptc = e.get_mut<physics::PhysicsTransformComponent>();
+        ptc->transform = tr;
+        e.modified<physics::PhysicsTransformComponent>();
+    }
+    if (!e.has<world::TransformComponent>() && !e.has<physics::PhysicsTransformComponent>()) {
+        e.set<world::TransformComponent>(world::TransformComponent{tr});
+    }
+}
+
+inline void resetEntityTransform(flecs::entity e) {
+    setEntityLocalTransform(e, Transform::identity());
+}
+
+inline void removeEntityTransform(flecs::entity e) {
+    if (e.has<world::TransformComponent>()) {
+        e.remove<world::TransformComponent>();
+    }
+    if (e.has<world::WorldTransformComponent>()) {
+        e.remove<world::WorldTransformComponent>();
+    }
+    if (e.has<physics::PhysicsTransformComponent>()) {
+        e.remove<physics::PhysicsTransformComponent>();
+    }
+}
+
 void quatToEulerDegrees(const Quat& qIn, float outEuler[3]) {
     Quat q = qIn.normalized();
     constexpr float kRadToDeg = 57.29577951308232F;
@@ -204,7 +247,8 @@ void InspectorPanel::draw(EditorContext& ctx) {
 
             for (auto h : selected) {
                 flecs::entity e = ecs.entity(h.id);
-                if (!e.has<physics::PhysicsTransformComponent>()) {
+                if (!e.has<world::TransformComponent>() &&
+                    !e.has<physics::PhysicsTransformComponent>()) {
                     allHaveTransform = false;
                 }
                 if (!e.has<physics::RigidBodyComponent>()) {
@@ -226,7 +270,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                 if (ImGui::BeginPopupContextItem("TransformMultiCtx")) {
                     if (ImGui::MenuItem("Reset Transform for All")) {
                         for (auto h : selected) {
-                            ecs.entity(h.id).set<physics::PhysicsTransformComponent>({});
+                            resetEntityTransform(ecs.entity(h.id));
                         }
                     }
                     ImGui::Separator();
@@ -237,11 +281,10 @@ void InspectorPanel::draw(EditorContext& ctx) {
                 }
 
                 if (headerOpen) {
-                    auto* firstTc =
-                        ecs.entity(selected[0].id).get<physics::PhysicsTransformComponent>();
-                    Vec3 firstPos = firstTc->transform.position;
-                    Quat firstRot = firstTc->transform.rotation;
-                    Vec3 firstScl = firstTc->transform.scale;
+                    Transform firstTr = getEntityLocalTransform(ecs.entity(selected[0].id));
+                    Vec3 firstPos = firstTr.position;
+                    Quat firstRot = firstTr.rotation;
+                    Vec3 firstScl = firstTr.scale;
 
                     Vec3MixedState mixedPos{false, false, false};
                     Vec3MixedState mixedRot{false, false, false};
@@ -251,20 +294,19 @@ void InspectorPanel::draw(EditorContext& ctx) {
                     quatToEulerDegrees(firstRot, firstRotEuler);
 
                     for (size_t i = 1; i < selected.size(); ++i) {
-                        auto* tc =
-                            ecs.entity(selected[i].id).get<physics::PhysicsTransformComponent>();
-                        if (std::abs(tc->transform.position.x - firstPos.x) > 1e-4F) {
+                        Transform tcTr = getEntityLocalTransform(ecs.entity(selected[i].id));
+                        if (std::abs(tcTr.position.x - firstPos.x) > 1e-4F) {
                             mixedPos.x = true;
                         }
-                        if (std::abs(tc->transform.position.y - firstPos.y) > 1e-4F) {
+                        if (std::abs(tcTr.position.y - firstPos.y) > 1e-4F) {
                             mixedPos.y = true;
                         }
-                        if (std::abs(tc->transform.position.z - firstPos.z) > 1e-4F) {
+                        if (std::abs(tcTr.position.z - firstPos.z) > 1e-4F) {
                             mixedPos.z = true;
                         }
 
                         float euler[3];
-                        quatToEulerDegrees(tc->transform.rotation, euler);
+                        quatToEulerDegrees(tcTr.rotation, euler);
                         if (std::abs(euler[0] - firstRotEuler[0]) > 0.1F) {
                             mixedRot.x = true;
                         }
@@ -275,13 +317,13 @@ void InspectorPanel::draw(EditorContext& ctx) {
                             mixedRot.z = true;
                         }
 
-                        if (std::abs(tc->transform.scale.x - firstScl.x) > 1e-4F) {
+                        if (std::abs(tcTr.scale.x - firstScl.x) > 1e-4F) {
                             mixedScl.x = true;
                         }
-                        if (std::abs(tc->transform.scale.y - firstScl.y) > 1e-4F) {
+                        if (std::abs(tcTr.scale.y - firstScl.y) > 1e-4F) {
                             mixedScl.y = true;
                         }
-                        if (std::abs(tc->transform.scale.z - firstScl.z) > 1e-4F) {
+                        if (std::abs(tcTr.scale.z - firstScl.z) > 1e-4F) {
                             mixedScl.z = true;
                         }
                     }
@@ -293,18 +335,18 @@ void InspectorPanel::draw(EditorContext& ctx) {
                     if (drawVec3Property("Position", posVals, 0.0F, 0.05F, -1e9F, 1e9F, mixedPos,
                                          &modPosX, &modPosY, &modPosZ)) {
                         for (auto h : selected) {
-                            auto* tc =
-                                ecs.entity(h.id).get_mut<physics::PhysicsTransformComponent>();
+                            auto e = ecs.entity(h.id);
+                            Transform tr = getEntityLocalTransform(e);
                             if (modPosX) {
-                                tc->transform.position.x = posVals[0];
+                                tr.position.x = posVals[0];
                             }
                             if (modPosY) {
-                                tc->transform.position.y = posVals[1];
+                                tr.position.y = posVals[1];
                             }
                             if (modPosZ) {
-                                tc->transform.position.z = posVals[2];
+                                tr.position.z = posVals[2];
                             }
-                            ecs.entity(h.id).modified<physics::PhysicsTransformComponent>();
+                            setEntityLocalTransform(e, tr);
                         }
                         ctx.markDirty();
                     }
@@ -316,10 +358,10 @@ void InspectorPanel::draw(EditorContext& ctx) {
                     if (drawVec3Property("Rotation", rotVals, 0.0F, 0.5F, -1e9F, 1e9F, mixedRot,
                                          &modRotX, &modRotY, &modRotZ)) {
                         for (auto h : selected) {
-                            auto* tc =
-                                ecs.entity(h.id).get_mut<physics::PhysicsTransformComponent>();
+                            auto e = ecs.entity(h.id);
+                            Transform tr = getEntityLocalTransform(e);
                             float curEuler[3];
-                            quatToEulerDegrees(tc->transform.rotation, curEuler);
+                            quatToEulerDegrees(tr.rotation, curEuler);
                             if (modRotX) {
                                 curEuler[0] = rotVals[0];
                             }
@@ -329,8 +371,8 @@ void InspectorPanel::draw(EditorContext& ctx) {
                             if (modRotZ) {
                                 curEuler[2] = rotVals[2];
                             }
-                            tc->transform.rotation = eulerDegreesToQuat(curEuler);
-                            ecs.entity(h.id).modified<physics::PhysicsTransformComponent>();
+                            tr.rotation = eulerDegreesToQuat(curEuler);
+                            setEntityLocalTransform(e, tr);
                         }
                         ctx.markDirty();
                     }
@@ -342,18 +384,18 @@ void InspectorPanel::draw(EditorContext& ctx) {
                     if (drawVec3Property("Scale", sclVals, 1.0F, 0.05F, 0.001F, 1000.0F, mixedScl,
                                          &modSclX, &modSclY, &modSclZ)) {
                         for (auto h : selected) {
-                            auto* tc =
-                                ecs.entity(h.id).get_mut<physics::PhysicsTransformComponent>();
+                            auto e = ecs.entity(h.id);
+                            Transform tr = getEntityLocalTransform(e);
                             if (modSclX) {
-                                tc->transform.scale.x = std::max(0.001F, sclVals[0]);
+                                tr.scale.x = std::max(0.001F, sclVals[0]);
                             }
                             if (modSclY) {
-                                tc->transform.scale.y = std::max(0.001F, sclVals[1]);
+                                tr.scale.y = std::max(0.001F, sclVals[1]);
                             }
                             if (modSclZ) {
-                                tc->transform.scale.z = std::max(0.001F, sclVals[2]);
+                                tr.scale.z = std::max(0.001F, sclVals[2]);
                             }
-                            ecs.entity(h.id).modified<physics::PhysicsTransformComponent>();
+                            setEntityLocalTransform(e, tr);
                         }
                         ctx.markDirty();
                     }
@@ -365,7 +407,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                 }
                 if (removeMultiTransform) {
                     for (auto h : selected) {
-                        ecs.entity(h.id).remove<physics::PhysicsTransformComponent>();
+                        removeEntityTransform(ecs.entity(h.id));
                     }
                     ctx.markDirty();
                 }
@@ -653,6 +695,9 @@ void InspectorPanel::draw(EditorContext& ctx) {
                 if (ImGui::MenuItem("Transform", nullptr, false, !allHaveTransform)) {
                     for (auto h : selected) {
                         auto e = ecs.entity(h.id);
+                        if (!e.has<world::TransformComponent>()) {
+                            e.set<world::TransformComponent>({});
+                        }
                         if (!e.has<physics::PhysicsTransformComponent>()) {
                             e.set<physics::PhysicsTransformComponent>({});
                         }
@@ -764,7 +809,8 @@ void InspectorPanel::draw(EditorContext& ctx) {
                 ImGui::Spacing();
                 ImGui::TextDisabled("Components:");
                 ImGui::SameLine();
-                if (e.has<physics::PhysicsTransformComponent>()) {
+                if (e.has<world::TransformComponent>() ||
+                    e.has<physics::PhysicsTransformComponent>()) {
                     ImGui::TextColored(ImVec4(0.40F, 0.75F, 1.0F, 1.0F), "[Transform]");
                     ImGui::SameLine();
                 }
@@ -787,12 +833,13 @@ void InspectorPanel::draw(EditorContext& ctx) {
 
                 // 1. Transform Component Card
                 bool removeTransform = false;
-                if (e.has<physics::PhysicsTransformComponent>()) {
+                if (e.has<world::TransformComponent>() ||
+                    e.has<physics::PhysicsTransformComponent>()) {
                     bool headerOpen =
                         ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen);
                     if (ImGui::BeginPopupContextItem("TransformHeaderCtx")) {
                         if (ImGui::MenuItem("Reset Transform")) {
-                            e.set<physics::PhysicsTransformComponent>({});
+                            resetEntityTransform(e);
                         }
                         ImGui::Separator();
                         if (ImGui::MenuItem("Remove Component")) {
@@ -802,28 +849,26 @@ void InspectorPanel::draw(EditorContext& ctx) {
                     }
 
                     if (headerOpen) {
-                        auto* tc = e.get_mut<physics::PhysicsTransformComponent>();
+                        Transform curTr = getEntityLocalTransform(e);
                         bool changed = false;
 
                         // Position
-                        float pos[3] = {tc->transform.position.x, tc->transform.position.y,
-                                        tc->transform.position.z};
+                        float pos[3] = {curTr.position.x, curTr.position.y, curTr.position.z};
                         if (drawVec3Property("Position", pos, 0.0F, 0.05F)) {
-                            tc->transform.position = Vec3(pos[0], pos[1], pos[2]);
+                            curTr.position = Vec3(pos[0], pos[1], pos[2]);
                             changed = true;
                         }
 
                         // Display Euler angles in degrees
                         float rot[3]{0.0F, 0.0F, 0.0F};
-                        quatToEulerDegrees(tc->transform.rotation, rot);
+                        quatToEulerDegrees(curTr.rotation, rot);
                         if (drawVec3Property("Rotation", rot, 0.0F, 0.5F)) {
-                            tc->transform.rotation = eulerDegreesToQuat(rot);
+                            curTr.rotation = eulerDegreesToQuat(rot);
                             changed = true;
                         }
 
                         // Scale with minimum positive threshold
-                        float scl[3] = {tc->transform.scale.x, tc->transform.scale.y,
-                                        tc->transform.scale.z};
+                        float scl[3] = {curTr.scale.x, curTr.scale.y, curTr.scale.z};
                         if (drawVec3Property("Scale", scl, 1.0F, 0.05F, 0.001F, 1000.0F)) {
                             if (scl[0] < 0.001F) {
                                 scl[0] = 0.001F;
@@ -834,12 +879,12 @@ void InspectorPanel::draw(EditorContext& ctx) {
                             if (scl[2] < 0.001F) {
                                 scl[2] = 0.001F;
                             }
-                            tc->transform.scale = Vec3(scl[0], scl[1], scl[2]);
+                            curTr.scale = Vec3(scl[0], scl[1], scl[2]);
                             changed = true;
                         }
 
                         if (changed) {
-                            e.modified<physics::PhysicsTransformComponent>();
+                            setEntityLocalTransform(e, curTr);
                             ctx.markDirty();
                         }
 
@@ -850,7 +895,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
                     }
                 }
                 if (removeTransform) {
-                    e.remove<physics::PhysicsTransformComponent>();
+                    removeEntityTransform(e);
                     ctx.markDirty();
                 }
 
@@ -1277,7 +1322,8 @@ void InspectorPanel::draw(EditorContext& ctx) {
                     ImGui::OpenPopup("AddComponentPopup");
                 }
                 if (ImGui::BeginPopup("AddComponentPopup")) {
-                    bool hasTransform = e.has<physics::PhysicsTransformComponent>();
+                    bool hasTransform = e.has<world::TransformComponent>() ||
+                                        e.has<physics::PhysicsTransformComponent>();
                     bool hasRigidBody = e.has<physics::RigidBodyComponent>();
                     bool hasCollider = e.has<physics::ColliderComponent>();
                     bool hasScript = e.has<script::ScriptComponent>();
@@ -1285,6 +1331,7 @@ void InspectorPanel::draw(EditorContext& ctx) {
 
                     ImGui::TextDisabled("Physics");
                     if (ImGui::MenuItem("Transform", nullptr, false, !hasTransform)) {
+                        e.set<world::TransformComponent>({});
                         e.set<physics::PhysicsTransformComponent>({});
                         ctx.markDirty();
                     }

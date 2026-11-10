@@ -176,11 +176,29 @@ public:
     /// Retrieves all immediate children of the specified parent entity.
     [[nodiscard]] std::vector<EntityHandle> getChildren(EntityHandle parent) const;
 
+    /// Iterates immediate children of parent without allocating dynamic memory.
+    template <typename Fn> void forEachChild(EntityHandle parent, Fn&& fn) const {
+        if (!isAlive(parent)) {
+            return;
+        }
+        flecs::entity p = ecs_.entity(parent.id);
+        p.children([&fn](flecs::entity child) { fn(EntityHandle(child.id())); });
+    }
+
     /// Checks if 'descendant' is an ancestor-descendant child of 'ancestor'.
     [[nodiscard]] bool isDescendantOf(EntityHandle descendant, EntityHandle ancestor) const;
 
     /// Retrieves all root entities (alive entities without a parent).
     [[nodiscard]] std::vector<EntityHandle> getRootEntities() const;
+
+    /// Iterates all root entities without allocating dynamic memory.
+    template <typename Fn> void forEachRootEntity(Fn&& fn) const {
+        for (EntityHandle h : activeEntities_) {
+            if (isAlive(h) && !getParent(h).isValid()) {
+                fn(h);
+            }
+        }
+    }
 
     /// Registers a validation callback invoked by setParent() before establishing relationships.
     void addHierarchyValidator(HierarchyValidator validator);

@@ -263,11 +263,7 @@ EntityHandle World::getParent(EntityHandle child) const {
 
 std::vector<EntityHandle> World::getChildren(EntityHandle parent) const {
     std::vector<EntityHandle> result;
-    if (!isAlive(parent)) {
-        return result;
-    }
-    ecs_.entity(parent.id).children(
-        [&result](flecs::entity child) { result.push_back(EntityHandle(child.id())); });
+    forEachChild(parent, [&result](EntityHandle child) { result.push_back(child); });
     return result;
 }
 
@@ -287,11 +283,7 @@ bool World::isDescendantOf(EntityHandle descendant, EntityHandle ancestor) const
 
 std::vector<EntityHandle> World::getRootEntities() const {
     std::vector<EntityHandle> roots;
-    for (EntityHandle h : activeEntities_) {
-        if (isAlive(h) && !getParent(h).isValid()) {
-            roots.push_back(h);
-        }
-    }
+    forEachRootEntity([&roots](EntityHandle root) { roots.push_back(root); });
     return roots;
 }
 

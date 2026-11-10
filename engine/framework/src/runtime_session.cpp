@@ -165,6 +165,14 @@ end
                     const auto* tc = ent.get<physics::PhysicsTransformComponent>();
                     desc.position = tc->transform.position;
                     desc.rotation = tc->transform.rotation;
+                } else if (ent.has<world::WorldTransformComponent>()) {
+                    const auto* wt = ent.get<world::WorldTransformComponent>();
+                    desc.position = wt->worldTransform.position;
+                    desc.rotation = wt->worldTransform.rotation;
+                } else if (ent.has<world::TransformComponent>()) {
+                    const auto* tc = ent.get<world::TransformComponent>();
+                    desc.position = tc->transform.position;
+                    desc.rotation = tc->transform.rotation;
                 }
                 if (ent.has<physics::ColliderComponent>()) {
                     const auto* cc = ent.get<physics::ColliderComponent>();
