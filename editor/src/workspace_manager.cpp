@@ -17,6 +17,7 @@
 #include "physics/physics_components.h"
 #include "rhi/rhi_device.h"
 #include "script/script_components.h"
+#include "world/components.h"
 #include "world/world.h"
 
 #include <cstdio>
@@ -278,6 +279,8 @@ struct WorkspaceManager::Impl {
                                 ctx.world->getRawWorld(), "PhysicsCube");
                             auto h = ctx.world->createEntity(name);
                             ctx.world->setComponent(
+                                h, world::TransformComponent{Transform{Vec3{0.0F, 5.0F, 0.0F}}});
+                            ctx.world->setComponent(
                                 h, physics::PhysicsTransformComponent{
                                        .transform = Transform{Vec3{0.0F, 5.0F, 0.0F}},
                                    });
@@ -298,6 +301,8 @@ struct WorkspaceManager::Impl {
                             auto name = HierarchyPanel::generateUniqueEntityName(
                                 ctx.world->getRawWorld(), "PhysicsSphere");
                             auto h = ctx.world->createEntity(name);
+                            ctx.world->setComponent(
+                                h, world::TransformComponent{Transform{Vec3{2.0F, 8.0F, 0.0F}}});
                             ctx.world->setComponent(
                                 h, physics::PhysicsTransformComponent{
                                        .transform = Transform{Vec3{2.0F, 8.0F, 0.0F}},

@@ -2813,6 +2813,43 @@ static void testHierarchyDuplicationFullComponentPreservation() {
     std::cout << "[PASS] testHierarchyDuplicationFullComponentPreservation\n";
 }
 
+static void testEditorSpawnPathsConsistentTransformInitialization() {
+    world::World world;
+
+    // Simulate spawn of PhysicsCube via editor creation path
+    auto cube = world.createEntity("PhysicsCube");
+    world.setComponent(cube, world::TransformComponent{Transform{Vec3{0.0F, 2.0F, 0.0F}}});
+    world.setComponent(cube, physics::PhysicsTransformComponent{
+                                 .transform = Transform{Vec3{0.0F, 2.0F, 0.0F}},
+                             });
+    world.setComponent(cube, physics::RigidBodyComponent{
+                                 .bodyHandle = {},
+                                 .motionType = physics::MotionType::Dynamic,
+                                 .collisionLayer = physics::CollisionLayer::kMoving,
+                             });
+
+    TEST_CHECK(world.hasComponent<world::TransformComponent>(cube));
+    TEST_CHECK(world.hasComponent<physics::PhysicsTransformComponent>(cube));
+
+    // Simulate drag-drop of child mesh into hierarchy
+    auto childMesh = world.createEntity("MeshAttachment");
+    world.setComponent(childMesh, world::TransformComponent{Transform{Vec3{1.0F, 0.0F, 0.0F}}});
+    world.setComponent(childMesh, physics::PhysicsTransformComponent{
+                                      .transform = Transform{Vec3{1.0F, 0.0F, 0.0F}},
+                                  });
+    TEST_CHECK(HierarchyPanel::reparentEntity(world, childMesh, cube, false));
+
+    // Update hierarchy transforms
+    world::updateHierarchyTransforms(world);
+
+    const auto* childWt = world.getComponent<world::WorldTransformComponent>(childMesh);
+    TEST_CHECK(childWt != nullptr);
+    TEST_CHECK(std::abs(childWt->worldTransform.position.x - 1.0F) < 1e-4F);
+    TEST_CHECK(std::abs(childWt->worldTransform.position.y - 2.0F) < 1e-4F);
+
+    std::cout << "[PASS] testEditorSpawnPathsConsistentTransformInitialization\n";
+}
+
 int main() {
     std::cout << "Running Editor subsystem unit tests...\n";
     const std::filesystem::path candidates[] = {"assets/models", "../../../assets/models",
@@ -2868,6 +2905,7 @@ int main() {
     testHierarchyReparentingRejectionAndSafeguards();
     testUnifiedTransformComponentInEditor();
     testHierarchyDuplicationFullComponentPreservation();
+    testEditorSpawnPathsConsistentTransformInitialization();
 
     std::cout << "All Editor subsystem tests PASSED!\n";
     return 0;

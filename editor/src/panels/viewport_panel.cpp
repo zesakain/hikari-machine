@@ -187,6 +187,8 @@ void ViewportPanel::draw(EditorContext& ctx) {
                     const std::string uniqueName =
                         HierarchyPanel::generateUniqueEntityName(*ctx.world, stem.c_str());
                     auto h = ctx.world->createEntity(uniqueName);
+                    ctx.world->setComponent(
+                        h, world::TransformComponent{Transform{camera_.getPivot()}});
                     ctx.world->setComponent(h, physics::PhysicsTransformComponent{
                                                    .transform = Transform{camera_.getPivot()},
                                                });

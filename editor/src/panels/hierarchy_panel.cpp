@@ -616,6 +616,8 @@ void HierarchyPanel::draw(EditorContext& ctx) {
                 if (ImGui::MenuItem("3D Physics Cube")) {
                     auto name = generateUniqueEntityName(ecs, "PhysicsCube");
                     auto h = ctx.world->createEntity(name);
+                    ctx.world->setComponent(
+                        h, world::TransformComponent{Transform{Vec3{0.0F, 2.0F, 0.0F}}});
                     ctx.world->setComponent(h, physics::PhysicsTransformComponent{
                                                    .transform = Transform{Vec3{0.0F, 2.0F, 0.0F}},
                                                });
@@ -634,6 +636,8 @@ void HierarchyPanel::draw(EditorContext& ctx) {
                 if (ImGui::MenuItem("3D Physics Sphere")) {
                     auto name = generateUniqueEntityName(ecs, "PhysicsSphere");
                     auto h = ctx.world->createEntity(name);
+                    ctx.world->setComponent(
+                        h, world::TransformComponent{Transform{Vec3{1.0F, 4.0F, 0.0F}}});
                     ctx.world->setComponent(h, physics::PhysicsTransformComponent{
                                                    .transform = Transform{Vec3{1.0F, 4.0F, 0.0F}},
                                                });
@@ -730,6 +734,8 @@ void HierarchyPanel::draw(EditorContext& ctx) {
                 if (ImGui::MenuItem("Create Physics Cube")) {
                     auto name = generateUniqueEntityName(ecs, "PhysicsCube");
                     auto h = ctx.world->createEntity(name);
+                    ctx.world->setComponent(
+                        h, world::TransformComponent{Transform{Vec3{0.0F, 2.0F, 0.0F}}});
                     ctx.world->setComponent(h, physics::PhysicsTransformComponent{
                                                    .transform = Transform{Vec3{0.0F, 2.0F, 0.0F}},
                                                });

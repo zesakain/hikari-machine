@@ -11,6 +11,7 @@
 #include "physics/physics_components.h"
 #include "render/asset_manager.h"
 #include "render/mesh_component.h"
+#include "world/components.h"
 #include "world/world.h"
 
 #include <SDL3/SDL.h>
@@ -500,6 +501,7 @@ void ContentBrowserPanel::drawListView(EditorContext& ctx) {
                             const std::string uniqueName =
                                 HierarchyPanel::generateUniqueEntityName(*ctx.world, stem.c_str());
                             auto h = ctx.world->createEntity(uniqueName);
+                            ctx.world->setComponent(h, world::TransformComponent{});
                             ctx.world->setComponent(h, physics::PhysicsTransformComponent{});
                             const render::AssetId id =
                                 render::makeAssetIdFromPath(item.relativePath);
@@ -675,6 +677,7 @@ void ContentBrowserPanel::drawGridView(EditorContext& ctx) {
                     const std::string uniqueName =
                         HierarchyPanel::generateUniqueEntityName(*ctx.world, stem.c_str());
                     auto h = ctx.world->createEntity(uniqueName);
+                    ctx.world->setComponent(h, world::TransformComponent{});
                     ctx.world->setComponent(h, physics::PhysicsTransformComponent{});
                     const render::AssetId id = render::makeAssetIdFromPath(item.relativePath);
                     ctx.world->setComponent(h, render::MeshComponent{
@@ -780,6 +783,7 @@ void ContentBrowserPanel::drawFooter(EditorContext& ctx) {
             if (ImGui::SmallButton("+ Create Entity with Mesh")) {
                 if (ctx.world != nullptr) {
                     auto h = ctx.world->createEntity(sel->name);
+                    ctx.world->setComponent(h, world::TransformComponent{});
                     ctx.world->setComponent(h, physics::PhysicsTransformComponent{});
                     ctx.world->setComponent(h, render::MeshComponent{
                                                    .meshAsset = meshId,
