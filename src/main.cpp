@@ -23,6 +23,8 @@
 #if defined(HIKARI_BUILD_EDITOR)
 #include "editor/editor_engine.h"
 #include "framework/runtime_session.h"
+#include "framework/scene_serializer.h"
+#include "world/hierarchy_systems.h"
 #endif
 
 #include <chrono>
@@ -121,6 +123,7 @@ int main(int argc, char* argv[]) {
     uint32_t targetFrames = 0; // 0 = continuous until window close / quit
     uint32_t windowWidth = 1280;
     uint32_t windowHeight = 720;
+    std::string scenePath;
 
     for (int i = 1; i < argc; ++i) {
         std::string_view arg = argv[i];
@@ -132,6 +135,8 @@ int main(int argc, char* argv[]) {
             windowWidth = static_cast<uint32_t>(std::atoi(argv[++i]));
         } else if (arg == "--height" && i + 1 < argc) {
             windowHeight = static_cast<uint32_t>(std::atoi(argv[++i]));
+        } else if (arg == "--scene" && i + 1 < argc) {
+            scenePath = argv[++i];
         } else if (arg == "--version") {
             std::cout << "hikari version 0.1.0 (Phase 6 Architecture Complete)\n";
             std::cout << "Architecture: Two-State Conductor over Shared World (C++20)\n";
@@ -232,6 +237,17 @@ end
 )");
         script::registerScriptComponents(world);
         script::registerScriptSystems(world, scriptEngine);
+
+#if defined(HIKARI_BUILD_EDITOR)
+        if (!scenePath.empty()) {
+            auto loadRes = framework::SceneSerializer::deserializeFromFile(world, scenePath);
+            if (loadRes.hasValue()) {
+                ENG_LOG_INFO("Core", "Successfully loaded startup scene: " + scenePath);
+            } else {
+                ENG_LOG_WARN("Core", "Failed to load startup scene: " + scenePath);
+            }
+        }
+#endif
 
         ui::UiSystem uiSystem;
         (void)uiSystem.initialize({.width = 1280, .height = 720}, *rhiDevice);

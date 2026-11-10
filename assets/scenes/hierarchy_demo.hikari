@@ -1,0 +1,103 @@
+{
+  "formatVersion": 1,
+  "metadata": {
+    "name": "Milestone 8B.6 Hierarchy Demo",
+    "generator": "Hikari Engine 0.1.0",
+    "timestamp": 1731250000
+  },
+  "entities": [
+    {
+      "id": 1,
+      "name": "PlayerHero_Root",
+      "components": {
+        "Transform": {
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "parent": 1,
+      "name": "Torso_Child",
+      "components": {
+        "Transform": {
+          "position": [0, 1.2, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "parent": 2,
+      "name": "Head_Grandchild",
+      "components": {
+        "Transform": {
+          "position": [0, 0.6, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [0.6, 0.6, 0.6]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "parent": 2,
+      "name": "WeaponAttachment_Grandchild",
+      "components": {
+        "Transform": {
+          "position": [0.5, 0.1, 0.3],
+          "rotation": [0, 0, 0, 1],
+          "scale": [0.2, 0.2, 0.8]
+        }
+      }
+    },
+    {
+      "id": 5,
+      "name": "PhysicsCube_Dynamic",
+      "components": {
+        "Transform": {
+          "position": [2, 5, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "RigidBody": {
+          "motionType": "Dynamic",
+          "collisionLayer": 1
+        },
+        "Collider": {
+          "type": "Box",
+          "halfExtents": [0.5, 0.5, 0.5],
+          "radius": 0.5,
+          "halfHeight": 0.5,
+          "offset": [0, 0, 0],
+          "rotation": [0, 0, 0, 1]
+        }
+      }
+    },
+    {
+      "id": 6,
+      "name": "Ground_Static",
+      "components": {
+        "Transform": {
+          "position": [0, -0.2, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [20, 0.2, 20]
+        },
+        "RigidBody": {
+          "motionType": "Static",
+          "collisionLayer": 0
+        },
+        "Collider": {
+          "type": "Box",
+          "halfExtents": [10, 0.1, 10],
+          "radius": 0.5,
+          "halfHeight": 0.5,
+          "offset": [0, 0, 0],
+          "rotation": [0, 0, 0, 1]
+        }
+      }
+    }
+  ]
+}
