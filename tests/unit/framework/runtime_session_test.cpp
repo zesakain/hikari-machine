@@ -467,6 +467,66 @@ static int testRuntimeSessionPreservesEntityHierarchyAndTransforms() {
     return 0;
 }
 
+static int testRepeatedPlayStopCyclesWithHierarchy() {
+    World editWorld;
+    auto parent = editWorld.createEntity("ParentRoot");
+    editWorld.setComponent(parent, world::TransformComponent{Transform{Vec3{5.0F, 0.0F, 0.0F}}});
+
+    auto child = editWorld.createEntity("ChildAttachment");
+    editWorld.setComponent(child, world::TransformComponent{Transform{Vec3{3.0F, 0.0F, 0.0F}}});
+    TEST_CHECK(editWorld.setParent(child, parent, false));
+
+    world::updateHierarchyTransforms(editWorld);
+
+    RuntimeSession session;
+    session.setEditWorld(&editWorld);
+
+    // 50 consecutive Play / Stop cycles
+    for (size_t cycle = 0; cycle < 50; ++cycle) {
+        auto playRes = session.play();
+        TEST_CHECK(playRes.hasValue());
+        TEST_CHECK(session.getSimulationState() == SimulationState::Playing);
+
+        auto* rtWorld = session.getRuntimeWorld();
+        TEST_CHECK(rtWorld != nullptr);
+
+        // Find child in runtime world
+        auto rtEntities = rtWorld->getAllEntities();
+        TEST_CHECK(rtEntities.size() == 2);
+
+        world::EntityHandle rtChild{};
+        world::EntityHandle rtParent{};
+        for (auto h : rtEntities) {
+            std::string_view name = rtWorld->getEntityName(h);
+            if (name == "ChildAttachment") {
+                rtChild = h;
+            } else if (name == "ParentRoot") {
+                rtParent = h;
+            }
+        }
+        TEST_CHECK(rtChild.isValid());
+        TEST_CHECK(rtParent.isValid());
+        TEST_CHECK(rtWorld->getParent(rtChild) == rtParent);
+
+        const auto* wt = rtWorld->getComponent<world::WorldTransformComponent>(rtChild);
+        TEST_CHECK(wt != nullptr);
+        TEST_CHECK(std::abs(wt->worldTransform.position.x - 8.0F) < 1e-4F);
+
+        auto stopRes = session.stop();
+        TEST_CHECK(stopRes.hasValue());
+        TEST_CHECK(session.getSimulationState() == SimulationState::Edit);
+        TEST_CHECK(session.getRuntimeWorld() == nullptr);
+    }
+
+    // Verify editWorld remained completely pristine
+    const auto* editChildWt = editWorld.getComponent<world::WorldTransformComponent>(child);
+    TEST_CHECK(editChildWt != nullptr);
+    TEST_CHECK(std::abs(editChildWt->worldTransform.position.x - 8.0F) < 1e-4F);
+
+    std::cout << "[PASS] testRepeatedPlayStopCyclesWithHierarchy (50 cycles)\n";
+    return 0;
+}
+
 } // namespace
 
 int main() {
@@ -482,6 +542,8 @@ int main() {
     if (testRuntimeSessionPhysicsPipelineOrdering() != 0)
         return 1;
     if (testRuntimeSessionPreservesEntityHierarchyAndTransforms() != 0)
+        return 1;
+    if (testRepeatedPlayStopCyclesWithHierarchy() != 0)
         return 1;
     std::cout << "All RuntimeSession tests PASSED!\n";
     return 0;

@@ -535,6 +535,114 @@ static int testDeterministicPipelineExecutionOrder() {
     return 0;
 }
 
+// 17. Deep and wide hierarchy stress test
+static int testDeepAndWideHierarchyStress() {
+    World world;
+
+    // A. 64-level deep chain
+    constexpr size_t kDepth = 64;
+    EntityHandle prev = world.createEntity("RootDeep");
+    world.setComponent(prev, TransformComponent{Transform{Vec3{0.0F, 0.0F, 0.0F}}});
+
+    std::vector<EntityHandle> chain;
+    chain.push_back(prev);
+    for (size_t i = 1; i <= kDepth; ++i) {
+        EntityHandle node = world.createEntity("DeepNode_" + std::to_string(i));
+        world.setComponent(node, TransformComponent{Transform{Vec3{1.0F, 0.0F, 0.0F}}});
+        TEST_CHECK(world.setParent(node, prev, false));
+        chain.push_back(node);
+        prev = node;
+    }
+
+    updateHierarchyTransforms(world);
+
+    // Leaf node must be at X == 64.0F
+    const auto* leafWt = world.getComponent<WorldTransformComponent>(chain.back());
+    TEST_CHECK(leafWt != nullptr);
+    TEST_CHECK(std::abs(leafWt->worldTransform.position.x - static_cast<float>(kDepth)) < 1e-3F);
+
+    // Move root entity by 10.0F on X
+    auto* rootTc = world.getMutableComponent<TransformComponent>(chain.front());
+    rootTc->transform.position.x = 10.0F;
+    rootTc->isDirty = true;
+
+    updateHierarchyTransforms(world);
+
+    // Leaf node must now be at X == 74.0F
+    leafWt = world.getComponent<WorldTransformComponent>(chain.back());
+    TEST_CHECK(leafWt != nullptr);
+    TEST_CHECK(std::abs(leafWt->worldTransform.position.x - (static_cast<float>(kDepth) + 10.0F)) <
+               1e-3F);
+
+    // B. Wide hierarchy: 1 root with 1,024 children
+    EntityHandle wideRoot = world.createEntity("WideRoot");
+    world.setComponent(wideRoot, TransformComponent{Transform{Vec3{0.0F, 5.0F, 0.0F}}});
+
+    constexpr size_t kWideCount = 1024;
+    std::vector<EntityHandle> wideChildren;
+    wideChildren.reserve(kWideCount);
+    for (size_t i = 0; i < kWideCount; ++i) {
+        EntityHandle child = world.createEntity("WideChild_" + std::to_string(i));
+        world.setComponent(child,
+                           TransformComponent{Transform{Vec3{static_cast<float>(i), 1.0F, 0.0F}}});
+        TEST_CHECK(world.setParent(child, wideRoot, false));
+        wideChildren.push_back(child);
+    }
+
+    updateHierarchyTransforms(world);
+
+    for (size_t i = 0; i < kWideCount; ++i) {
+        const auto* wt = world.getComponent<WorldTransformComponent>(wideChildren[i]);
+        TEST_CHECK(wt != nullptr);
+        TEST_CHECK(std::abs(wt->worldTransform.position.x - static_cast<float>(i)) < 1e-4F);
+        TEST_CHECK(std::abs(wt->worldTransform.position.y - 6.0F) < 1e-4F);
+    }
+
+    return 0;
+}
+
+// 18. Repeated reparenting stress test
+static int testRepeatedReparentingStress() {
+    World world;
+    EntityHandle rootA = world.createEntity("RootA");
+    world.setComponent(rootA, TransformComponent{Transform{Vec3{0.0F, 0.0F, 0.0F}}});
+
+    EntityHandle rootB = world.createEntity("RootB");
+    world.setComponent(rootB, TransformComponent{Transform{Vec3{100.0F, 0.0F, 0.0F}}});
+
+    constexpr size_t kEntities = 50;
+    std::vector<EntityHandle> entities;
+    entities.reserve(kEntities);
+    for (size_t i = 0; i < kEntities; ++i) {
+        EntityHandle h = world.createEntity("ReparentEntity_" + std::to_string(i));
+        world.setComponent(h,
+                           TransformComponent{Transform{Vec3{static_cast<float>(i), 0.0F, 0.0F}}});
+        TEST_CHECK(world.setParent(h, rootA, false));
+        entities.push_back(h);
+    }
+
+    // Reparent back and forth 100 times
+    for (size_t round = 0; round < 100; ++round) {
+        EntityHandle targetParent = (round % 2 == 0) ? rootB : rootA;
+        const float expectedBaseX = (round % 2 == 0) ? 100.0F : 0.0F;
+
+        for (size_t i = 0; i < kEntities; ++i) {
+            TEST_CHECK(world.setParent(entities[i], targetParent, false));
+        }
+
+        updateHierarchyTransforms(world);
+
+        for (size_t i = 0; i < kEntities; ++i) {
+            const auto* wt = world.getComponent<WorldTransformComponent>(entities[i]);
+            TEST_CHECK(wt != nullptr);
+            TEST_CHECK(std::abs(wt->worldTransform.position.x -
+                                (expectedBaseX + static_cast<float>(i))) < 1e-4F);
+        }
+    }
+
+    return 0;
+}
+
 int main() {
     std::cout << "[TransformPropagationTest] Running Phase 2 transform evaluation tests...\n";
 
@@ -569,6 +677,10 @@ int main() {
     if (testDynamicBodySyncUpdatesWorldTransformAndDescendants() != 0)
         return 1;
     if (testDeterministicPipelineExecutionOrder() != 0)
+        return 1;
+    if (testDeepAndWideHierarchyStress() != 0)
+        return 1;
+    if (testRepeatedReparentingStress() != 0)
         return 1;
 
     std::cout << "[TransformPropagationTest] All Phase 2 transform propagation tests passed "
