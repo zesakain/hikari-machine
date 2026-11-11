@@ -152,6 +152,12 @@ target_link_libraries(scene_renderer_test PRIVATE hikari::engine_render hikari::
 add_test(NAME scene_renderer_test COMMAND scene_renderer_test)
 set_tests_properties(scene_renderer_test PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
+# Textured Mesh Render Unit Tests (Milestone 10B)
+add_executable(textured_mesh_render_test unit/render/textured_mesh_render_test.cpp)
+target_link_libraries(textured_mesh_render_test PRIVATE hikari::engine_render hikari::engine_rhi hikari::engine_framework hikari::engine_physics hikari::engine_world)
+add_test(NAME textured_mesh_render_test COMMAND textured_mesh_render_test)
+set_tests_properties(textured_mesh_render_test PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
 # Physics Unit Tests
 add_executable(physics_test unit/physics/physics_test.cpp)
 target_link_libraries(physics_test PRIVATE hikari::engine_physics)
