@@ -263,7 +263,7 @@ Result<MeshData> processGltfData(cgltf_data* data, std::string_view baseDir, std
                     float t[4] = {1.0F, 0.0F, 0.0F, 1.0F};
                     cgltf_accessor_read_float(tanAttr->data, v, t, 4);
                     const Vec3 localTan{t[0], t[1], t[2]};
-                    const Vec3 transformedTan = normMat.transformVector(localTan);
+                    const Vec3 transformedTan = worldMat.transformVector(localTan);
                     const float len = transformedTan.length();
                     const Vec3 worldTan = (len > 1e-6F) ? (transformedTan / len) : Vec3::unitX();
                     tangent = Vec4{worldTan.x, worldTan.y, worldTan.z, t[3]};

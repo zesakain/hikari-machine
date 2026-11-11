@@ -152,6 +152,11 @@ void MeshData::generateTangents() noexcept {
         if (t.lengthSq() > 1e-12F) {
             // Gram-Schmidt orthogonalization: t' = normalize(t - n * dot(n, t))
             Vec3 orthoT = (t - (n * Vec3::dot(n, t))).normalized();
+            if (orthoT.lengthSq() <= 1e-12F) {
+                Vec3 c1 = Vec3::cross(n, Vec3(0.0F, 0.0F, 1.0F));
+                Vec3 c2 = Vec3::cross(n, Vec3(0.0F, 1.0F, 0.0F));
+                orthoT = (c1.lengthSq() > c2.lengthSq()) ? c1.normalized() : c2.normalized();
+            }
             // Calculate handedness (w): sign of dot(cross(n, t), tan2)
             const float w = (Vec3::dot(Vec3::cross(n, t), tan2[i]) < 0.0F) ? -1.0F : 1.0F;
             vertices[i].tangent = Vec4(orthoT.x, orthoT.y, orthoT.z, w);

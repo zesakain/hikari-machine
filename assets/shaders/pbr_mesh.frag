@@ -157,6 +157,7 @@ void main() {
     }
 
     // 12. Final Radiance Output
-    vec3 finalColor = directLight * occlusion + ambient + emissive;
+    // Ambient Occlusion modulates indirect/ambient lighting, never direct illumination.
+    vec3 finalColor = directLight + ambient + emissive;
     outColor = vec4(finalColor, baseColor.a);
 }
