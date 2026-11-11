@@ -161,6 +161,96 @@ static int testAssetManagerTextureGpuUploadAndUnload() {
     return 0;
 }
 
+static int testColorSpaceSeparation() {
+    auto devRes = rhi::createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto& device = *devRes.value();
+
+    AssetManager manager;
+
+    ImageData imgSrgb{
+        .width = 2,
+        .height = 2,
+        .channels = 4,
+        .format = rhi::TextureFormat::RGBA8_SRGB,
+        .pixels = std::vector<uint8_t>(2 * 2 * 4, 180),
+    };
+    ImageData imgLinear{
+        .width = 2,
+        .height = 2,
+        .channels = 4,
+        .format = rhi::TextureFormat::RGBA8_UNORM,
+        .pixels = std::vector<uint8_t>(2 * 2 * 4, 180),
+    };
+
+    auto resSrgb = manager.registerTexture("textures/shared.png", std::move(imgSrgb));
+    TEST_CHECK(resSrgb.hasValue());
+    auto resLinear = manager.registerTexture("textures/shared.png", std::move(imgLinear));
+    TEST_CHECK(resLinear.hasValue());
+
+    // Color spaces must produce distinct AssetId handles
+    TEST_CHECK(resSrgb.value() != resLinear.value());
+
+    // Formats must be preserved accurately
+    const ImageData* srgbData = manager.getImageData(resSrgb.value());
+    const ImageData* linearData = manager.getImageData(resLinear.value());
+    TEST_CHECK(srgbData != nullptr && srgbData->format == rhi::TextureFormat::RGBA8_SRGB);
+    TEST_CHECK(linearData != nullptr && linearData->format == rhi::TextureFormat::RGBA8_UNORM);
+
+    // Upload to GPU and verify distinct GPU representations
+    auto upSrgb = manager.uploadTexture(resSrgb.value(), device, false);
+    auto upLinear = manager.uploadTexture(resLinear.value(), device, false);
+    TEST_CHECK(upSrgb.hasValue() && upLinear.hasValue());
+    TEST_CHECK(upSrgb.value() != upLinear.value());
+    TEST_CHECK(upSrgb.value()->getFormat() == rhi::TextureFormat::RGBA8_SRGB);
+    TEST_CHECK(upLinear.value()->getFormat() == rhi::TextureFormat::RGBA8_UNORM);
+
+    return 0;
+}
+
+static int testFallbackDefaultTextures() {
+    auto devRes = rhi::createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto& device = *devRes.value();
+
+    AssetManager manager;
+
+    auto whiteSrgbRes = manager.getOrCreateDefaultTexture(device, DefaultTextureType::WhiteSRGB);
+    TEST_CHECK(whiteSrgbRes.hasValue());
+    GpuTexture* whiteSrgb = whiteSrgbRes.value();
+    TEST_CHECK(whiteSrgb != nullptr && whiteSrgb->isValid());
+    TEST_CHECK(whiteSrgb->getWidth() == 1 && whiteSrgb->getHeight() == 1);
+    TEST_CHECK(whiteSrgb->getFormat() == rhi::TextureFormat::RGBA8_SRGB);
+
+    auto whiteLinearRes =
+        manager.getOrCreateDefaultTexture(device, DefaultTextureType::WhiteLinear);
+    TEST_CHECK(whiteLinearRes.hasValue());
+    GpuTexture* whiteLinear = whiteLinearRes.value();
+    TEST_CHECK(whiteLinear != nullptr && whiteLinear->isValid());
+    TEST_CHECK(whiteLinear->getFormat() == rhi::TextureFormat::RGBA8_UNORM);
+
+    auto blackSrgbRes = manager.getOrCreateDefaultTexture(device, DefaultTextureType::BlackSRGB);
+    TEST_CHECK(blackSrgbRes.hasValue());
+    GpuTexture* blackSrgb = blackSrgbRes.value();
+    TEST_CHECK(blackSrgb != nullptr && blackSrgb->isValid());
+    TEST_CHECK(blackSrgb->getFormat() == rhi::TextureFormat::RGBA8_SRGB);
+
+    auto flatNormRes =
+        manager.getOrCreateDefaultTexture(device, DefaultTextureType::FlatNormalLinear);
+    TEST_CHECK(flatNormRes.hasValue());
+    GpuTexture* flatNorm = flatNormRes.value();
+    TEST_CHECK(flatNorm != nullptr && flatNorm->isValid());
+    TEST_CHECK(flatNorm->getFormat() == rhi::TextureFormat::RGBA8_UNORM);
+
+    // Repeated query returns cached pointer
+    auto whiteSrgbRes2 = manager.getOrCreateDefaultTexture(device, DefaultTextureType::WhiteSRGB);
+    TEST_CHECK(whiteSrgbRes2.hasValue());
+    TEST_CHECK(whiteSrgbRes2.value() == whiteSrgb);
+
+    manager.unloadAll();
+    return 0;
+}
+
 static int testMeshComponentECSAndSerialization() {
     world::World world;
     physics::registerPhysicsComponents(world);
@@ -287,10 +377,14 @@ int main() {
         return 3;
     if (testAssetManagerTextureGpuUploadAndUnload() != 0)
         return 4;
-    if (testMeshComponentECSAndSerialization() != 0)
+    if (testColorSpaceSeparation() != 0)
         return 5;
-    if (testSceneRendererCommandRecording() != 0)
+    if (testFallbackDefaultTextures() != 0)
         return 6;
-    std::cout << "[AssetManager & Render Tests Passed: 6/6]\n";
+    if (testMeshComponentECSAndSerialization() != 0)
+        return 7;
+    if (testSceneRendererCommandRecording() != 0)
+        return 8;
+    std::cout << "[AssetManager & Render Tests Passed: 8/8]\n";
     return 0;
 }

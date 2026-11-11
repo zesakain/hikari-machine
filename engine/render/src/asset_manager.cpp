@@ -4,6 +4,7 @@
 #include "render/asset_manager.h"
 
 #include "core/log.h"
+#include "gltf_internal.h"
 #include "render/gltf_importer.h"
 #include "render/gltf_scene_importer.h"
 #include "render/image.h"
@@ -184,8 +185,12 @@ const MeshData* AssetManager::getMeshData(std::string_view path) const noexcept 
 
 Result<AssetId> AssetManager::loadTexture(std::string_view path, bool srgb) {
     const std::string normPath = normalizePath(path);
+    const std::string colorSuffix = (srgb ? "#srgb" : "#linear");
+    const std::string cacheKey = (normPath.ends_with("#srgb") || normPath.ends_with("#linear"))
+                                     ? normPath
+                                     : (normPath + colorSuffix);
 
-    auto pathIt = pathToId_.find(normPath);
+    auto pathIt = pathToId_.find(cacheKey);
     if (pathIt != pathToId_.end()) {
         auto entryIt = textureEntries_.find(pathIt->second);
         if (entryIt != textureEntries_.end() &&
@@ -194,24 +199,44 @@ Result<AssetId> AssetManager::loadTexture(std::string_view path, bool srgb) {
         }
     }
 
-    auto decodeRes = ImageDecoder::decodeFromFile(normPath, 4, srgb);
+    Result<ImageData> decodeRes = Result<ImageData>::failure(Error(ErrorCode::EntityNotFound, ""));
+    const auto hashImg = normPath.find("#image_");
+    if (hashImg != std::string::npos) {
+        std::string baseFile = normPath.substr(0, hashImg);
+        std::string sub = normPath.substr(hashImg + 7);
+        size_t endNum = sub.find('#');
+        size_t imgIdx = std::stoul(sub.substr(0, endNum));
+        decodeRes = detail::extractEmbeddedImageFromFile(baseFile, imgIdx, srgb);
+    } else {
+        std::string filePath = normPath;
+        if (filePath.ends_with("#srgb")) {
+            filePath = filePath.substr(0, filePath.size() - 5);
+        } else if (filePath.ends_with("#linear")) {
+            filePath = filePath.substr(0, filePath.size() - 7);
+        }
+        decodeRes = ImageDecoder::decodeFromFile(filePath, 4, srgb);
+    }
+
     if (!decodeRes.hasValue()) {
         ENG_LOG_WARN("AssetManager", "Failed to decode image from path");
         return decodeRes.error();
     }
 
-    const AssetId id = makeAssetIdFromPath(normPath);
+    const AssetId id = makeAssetIdFromPath(cacheKey);
 
     TextureEntry entry{};
     entry.metadata.id = id;
-    entry.metadata.path = normPath;
+    entry.metadata.path = cacheKey;
     entry.metadata.type = AssetType::Texture;
     entry.metadata.loadState = AssetLoadState::Loaded;
     entry.metadata.fileSize = decodeRes.value().sizeInBytes();
     entry.cpuImage = std::move(decodeRes.value());
     entry.gpuTexture = nullptr;
 
-    pathToId_[normPath] = id;
+    pathToId_[cacheKey] = id;
+    if (pathToId_.find(normPath) == pathToId_.end()) {
+        pathToId_[normPath] = id;
+    }
     textureEntries_[id] = std::move(entry);
 
     ENG_LOG_INFO("AssetManager", "Loaded texture asset successfully");
@@ -225,18 +250,27 @@ Result<AssetId> AssetManager::registerTexture(std::string_view path, ImageData i
     }
 
     const std::string normPath = normalizePath(path);
-    const AssetId id = makeAssetIdFromPath(normPath);
+    const bool isSrgb = (image.format == rhi::TextureFormat::RGBA8_SRGB);
+    const std::string colorSuffix = (isSrgb ? "#srgb" : "#linear");
+    const std::string cacheKey = (normPath.ends_with("#srgb") || normPath.ends_with("#linear"))
+                                     ? normPath
+                                     : (normPath + colorSuffix);
+
+    const AssetId id = makeAssetIdFromPath(cacheKey);
 
     TextureEntry entry{};
     entry.metadata.id = id;
-    entry.metadata.path = normPath;
+    entry.metadata.path = cacheKey;
     entry.metadata.type = AssetType::Texture;
     entry.metadata.loadState = AssetLoadState::Loaded;
     entry.metadata.fileSize = image.sizeInBytes();
     entry.cpuImage = std::move(image);
     entry.gpuTexture = nullptr;
 
-    pathToId_[normPath] = id;
+    pathToId_[cacheKey] = id;
+    if (pathToId_.find(normPath) == pathToId_.end()) {
+        pathToId_[normPath] = id;
+    }
     textureEntries_[id] = std::move(entry);
 
     return Result<AssetId>::success(id);
@@ -281,6 +315,46 @@ const GpuTexture* AssetManager::getGpuTexture(AssetId id) const noexcept {
     return nullptr;
 }
 
+Result<GpuTexture*> AssetManager::getOrCreateDefaultTexture(rhi::RhiDevice& device,
+                                                            DefaultTextureType type) {
+    auto it = defaultTextures_.find(type);
+    if (it != defaultTextures_.end() && it->second != nullptr && it->second->isValid()) {
+        return Result<GpuTexture*>::success(it->second.get());
+    }
+
+    ImageData img{};
+    img.width = 1;
+    img.height = 1;
+    img.channels = 4;
+
+    switch (type) {
+    case DefaultTextureType::WhiteSRGB:
+        img.format = rhi::TextureFormat::RGBA8_SRGB;
+        img.pixels = {255, 255, 255, 255};
+        break;
+    case DefaultTextureType::WhiteLinear:
+        img.format = rhi::TextureFormat::RGBA8_UNORM;
+        img.pixels = {255, 255, 255, 255};
+        break;
+    case DefaultTextureType::BlackSRGB:
+        img.format = rhi::TextureFormat::RGBA8_SRGB;
+        img.pixels = {0, 0, 0, 255};
+        break;
+    case DefaultTextureType::FlatNormalLinear:
+        img.format = rhi::TextureFormat::RGBA8_UNORM;
+        img.pixels = {128, 128, 255, 255};
+        break;
+    }
+
+    auto createRes = GpuTexture::create(device, img, false);
+    if (!createRes.hasValue()) {
+        return createRes.error();
+    }
+
+    defaultTextures_[type] = std::move(createRes.value());
+    return Result<GpuTexture*>::success(defaultTextures_[type].get());
+}
+
 const ImageData* AssetManager::getImageData(AssetId id) const noexcept {
     auto it = textureEntries_.find(id);
     if (it != textureEntries_.end() && it->second.metadata.loadState == AssetLoadState::Loaded) {
@@ -294,6 +368,14 @@ const ImageData* AssetManager::getImageData(std::string_view path) const noexcep
     auto it = pathToId_.find(normPath);
     if (it != pathToId_.end()) {
         return getImageData(it->second);
+    }
+    auto itSrgb = pathToId_.find(normPath + "#srgb");
+    if (itSrgb != pathToId_.end()) {
+        return getImageData(itSrgb->second);
+    }
+    auto itLinear = pathToId_.find(normPath + "#linear");
+    if (itLinear != pathToId_.end()) {
+        return getImageData(itLinear->second);
     }
     return nullptr;
 }
@@ -324,6 +406,14 @@ AssetId AssetManager::findAssetByPath(std::string_view path) const noexcept {
     if (it != pathToId_.end()) {
         return it->second;
     }
+    auto itSrgb = pathToId_.find(normPath + "#srgb");
+    if (itSrgb != pathToId_.end()) {
+        return itSrgb->second;
+    }
+    auto itLinear = pathToId_.find(normPath + "#linear");
+    if (itLinear != pathToId_.end()) {
+        return itLinear->second;
+    }
     return {};
 }
 
@@ -346,12 +436,27 @@ void AssetManager::unload(AssetId id) noexcept {
     }
     auto itTex = textureEntries_.find(id);
     if (itTex != textureEntries_.end()) {
-        pathToId_.erase(itTex->second.metadata.path);
+        const std::string& path = itTex->second.metadata.path;
+        pathToId_.erase(path);
+        if (path.ends_with("#srgb")) {
+            auto plain = path.substr(0, path.size() - 5);
+            auto pIt = pathToId_.find(plain);
+            if (pIt != pathToId_.end() && pIt->second == id) {
+                pathToId_.erase(pIt);
+            }
+        } else if (path.ends_with("#linear")) {
+            auto plain = path.substr(0, path.size() - 7);
+            auto pIt = pathToId_.find(plain);
+            if (pIt != pathToId_.end() && pIt->second == id) {
+                pathToId_.erase(pIt);
+            }
+        }
         textureEntries_.erase(itTex);
     }
 }
 
 void AssetManager::unloadAll() noexcept {
+    defaultTextures_.clear();
     pathToId_.clear();
     meshEntries_.clear();
     textureEntries_.clear();

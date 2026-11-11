@@ -34,6 +34,15 @@
 
 namespace eng::render {
 
+/// @enum DefaultTextureType
+/// @brief Identifiers for singleton fallback GPU textures.
+enum class DefaultTextureType {
+    WhiteSRGB,
+    WhiteLinear,
+    BlackSRGB,
+    FlatNormalLinear,
+};
+
 /// @class AssetManager
 /// @brief Manages loading, caching, and lifecycle of engine assets.
 class AssetManager {
@@ -100,6 +109,20 @@ public:
     [[nodiscard]] GpuTexture* getGpuTexture(AssetId id) noexcept;
     [[nodiscard]] const GpuTexture* getGpuTexture(AssetId id) const noexcept;
 
+    /// @brief Retrieves or creates a default fallback GPU texture.
+    ///
+    /// Fallback textures are 1x1 single-color textures used when a material does
+    /// not supply an optional texture map:
+    /// - WhiteSRGB: (1, 1, 1, 1) sRGB for missing BaseColor
+    /// - WhiteLinear: (1, 1, 1, 1) Linear for missing MetallicRoughness or Occlusion
+    /// - BlackSRGB: (0, 0, 0, 1) sRGB for missing Emissive
+    /// - FlatNormalLinear: (0.5, 0.5, 1.0, 1.0) Linear for missing Normal
+    ///
+    /// @param device The active RHI device for resource allocation.
+    /// @param type The default texture type to retrieve or instantiate.
+    /// @return Pointer to valid GpuTexture or error.
+    Result<GpuTexture*> getOrCreateDefaultTexture(rhi::RhiDevice& device, DefaultTextureType type);
+
     /// @brief Retrieves CPU image data for an asset, or nullptr if not loaded.
     [[nodiscard]] const ImageData* getImageData(AssetId id) const noexcept;
     [[nodiscard]] const ImageData* getImageData(std::string_view path) const noexcept;
@@ -145,6 +168,7 @@ private:
     std::unordered_map<AssetId, MeshEntry> meshEntries_{};
     std::unordered_map<AssetId, TextureEntry> textureEntries_{};
     std::unordered_map<std::string, AssetId> pathToId_{};
+    std::unordered_map<DefaultTextureType, std::unique_ptr<GpuTexture>> defaultTextures_{};
 };
 
 } // namespace eng::render
