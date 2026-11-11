@@ -123,6 +123,27 @@ VulkanDevice::~VulkanDevice() noexcept {
     }
     shaders_.clear();
 
+    for (auto& slot : descriptorPools_) {
+        if (slot.alive) {
+            if (slot.pool != VK_NULL_HANDLE) {
+                vkDestroyDescriptorPool(device_, slot.pool, nullptr);
+            }
+            slot.alive = false;
+        }
+    }
+    descriptorPools_.clear();
+    descriptorSets_.clear();
+
+    for (auto& slot : descriptorSetLayouts_) {
+        if (slot.alive) {
+            if (slot.layout != VK_NULL_HANDLE) {
+                vkDestroyDescriptorSetLayout(device_, slot.layout, nullptr);
+            }
+            slot.alive = false;
+        }
+    }
+    descriptorSetLayouts_.clear();
+
     // Destroy swapchain before device
     swapchain_.reset();
 
@@ -725,6 +746,18 @@ Result<PipelineLayoutHandle> VulkanDevice::createPipelineLayout(const PipelineLa
         return valRes.error();
     }
 
+    std::vector<VkDescriptorSetLayout> allVkLayouts;
+    allVkLayouts.reserve(desc.descriptorSetLayoutHandles.size() + desc.descriptorSetLayouts.size());
+
+    for (const auto& layoutHandle : desc.descriptorSetLayoutHandles) {
+        if (!isDescriptorSetLayoutValid(layoutHandle)) {
+            return Error{.code = ErrorCode::HandleResolutionFailed,
+                         .message =
+                             "Invalid descriptor set layout handle in pipeline layout creation"};
+        }
+        allVkLayouts.push_back(resolveDescriptorSetLayout(layoutHandle));
+    }
+
     std::vector<VkDescriptorSetLayout> createdDsls;
     createdDsls.reserve(desc.descriptorSetLayouts.size());
 
@@ -767,6 +800,7 @@ Result<PipelineLayoutHandle> VulkanDevice::createPipelineLayout(const PipelineLa
                          .message = "vkCreateDescriptorSetLayout failed"};
         }
         createdDsls.push_back(dsl);
+        allVkLayouts.push_back(dsl);
     }
 
     std::vector<VkPushConstantRange> vkPushConstants;
@@ -783,8 +817,8 @@ Result<PipelineLayoutHandle> VulkanDevice::createPipelineLayout(const PipelineLa
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .pNext = nullptr,
         .flags = 0,
-        .setLayoutCount = static_cast<uint32_t>(createdDsls.size()),
-        .pSetLayouts = createdDsls.empty() ? nullptr : createdDsls.data(),
+        .setLayoutCount = static_cast<uint32_t>(allVkLayouts.size()),
+        .pSetLayouts = allVkLayouts.empty() ? nullptr : allVkLayouts.data(),
         .pushConstantRangeCount = static_cast<uint32_t>(vkPushConstants.size()),
         .pPushConstantRanges = vkPushConstants.empty() ? nullptr : vkPushConstants.data(),
     };
@@ -1398,6 +1432,471 @@ void* VulkanDevice::getNativeTextureView(TextureHandle handle) const noexcept {
 
 void* VulkanDevice::getNativeSampler(SamplerHandle handle) const noexcept {
     return static_cast<void*>(resolveSampler(handle));
+}
+
+Result<DescriptorSetLayoutHandle>
+VulkanDevice::createDescriptorSetLayout(const DescriptorSetLayoutDesc& desc) {
+    auto valRes = validateDescriptorSetLayoutDesc(desc);
+    if (!valRes.hasValue()) {
+        return valRes.error();
+    }
+
+    std::vector<VkDescriptorSetLayoutBinding> vkBindings;
+    vkBindings.reserve(desc.bindings.size());
+
+    for (const auto& b : desc.bindings) {
+        vkBindings.push_back(VkDescriptorSetLayoutBinding{
+            .binding = b.binding,
+            .descriptorType = toVkDescriptorType(b.descriptorType),
+            .descriptorCount = b.descriptorCount,
+            .stageFlags = toVkShaderStageFlags(b.stageFlags),
+            .pImmutableSamplers = nullptr,
+        });
+    }
+
+    VkDescriptorSetLayoutCreateInfo layoutInfo{
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+        .bindingCount = static_cast<uint32_t>(vkBindings.size()),
+        .pBindings = vkBindings.empty() ? nullptr : vkBindings.data(),
+    };
+
+    VkDescriptorSetLayout dsl = VK_NULL_HANDLE;
+    VkResult res = vkCreateDescriptorSetLayout(device_, &layoutInfo, nullptr, &dsl);
+    if (res != VK_SUCCESS) {
+        return Error{.code = ErrorCode::ResourceCreationFailed,
+                     .message = "vkCreateDescriptorSetLayout failed"};
+    }
+
+    uint32_t slotIdx = UINT32_MAX;
+    for (size_t i = 0; i < descriptorSetLayouts_.size(); ++i) {
+        if (!descriptorSetLayouts_[i].alive) {
+            slotIdx = static_cast<uint32_t>(i);
+            break;
+        }
+    }
+
+    if (slotIdx == UINT32_MAX) {
+        slotIdx = static_cast<uint32_t>(descriptorSetLayouts_.size());
+        descriptorSetLayouts_.push_back(VulkanDescriptorSetLayoutSlot{});
+    }
+
+    auto& slot = descriptorSetLayouts_[slotIdx];
+    slot.layout = dsl;
+    slot.desc = desc;
+    slot.alive = true;
+
+    return DescriptorSetLayoutHandle(GenerationalHandle{slotIdx, slot.generation});
+}
+
+void VulkanDevice::destroyDescriptorSetLayout(DescriptorSetLayoutHandle handle) {
+    if (!isDescriptorSetLayoutValid(handle)) {
+        return;
+    }
+    auto& slot = descriptorSetLayouts_[handle.index()];
+    if (slot.layout != VK_NULL_HANDLE) {
+        vkDestroyDescriptorSetLayout(device_, slot.layout, nullptr);
+        slot.layout = VK_NULL_HANDLE;
+    }
+    slot.alive = false;
+    ++slot.generation;
+}
+
+Result<DescriptorPoolHandle> VulkanDevice::createDescriptorPool(const DescriptorPoolDesc& desc) {
+    auto valRes = validateDescriptorPoolDesc(desc);
+    if (!valRes.hasValue()) {
+        return valRes.error();
+    }
+
+    std::vector<VkDescriptorPoolSize> poolSizes;
+    poolSizes.reserve(desc.poolSizes.size());
+    for (const auto& ps : desc.poolSizes) {
+        poolSizes.push_back(VkDescriptorPoolSize{
+            .type = toVkDescriptorType(ps.type),
+            .descriptorCount = ps.count,
+        });
+    }
+
+    VkDescriptorPoolCreateInfo poolInfo{
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+        .maxSets = desc.maxSets,
+        .poolSizeCount = static_cast<uint32_t>(poolSizes.size()),
+        .pPoolSizes = poolSizes.data(),
+    };
+
+    VkDescriptorPool pool = VK_NULL_HANDLE;
+    VkResult res = vkCreateDescriptorPool(device_, &poolInfo, nullptr, &pool);
+    if (res != VK_SUCCESS) {
+        return Error{.code = ErrorCode::ResourceCreationFailed,
+                     .message = "vkCreateDescriptorPool failed"};
+    }
+
+    uint32_t slotIdx = UINT32_MAX;
+    for (size_t i = 0; i < descriptorPools_.size(); ++i) {
+        if (!descriptorPools_[i].alive) {
+            slotIdx = static_cast<uint32_t>(i);
+            break;
+        }
+    }
+
+    if (slotIdx == UINT32_MAX) {
+        slotIdx = static_cast<uint32_t>(descriptorPools_.size());
+        descriptorPools_.push_back(VulkanDescriptorPoolSlot{});
+    }
+
+    auto& slot = descriptorPools_[slotIdx];
+    slot.pool = pool;
+    slot.desc = desc;
+    slot.allocatedCount = 0;
+    slot.alive = true;
+
+    return DescriptorPoolHandle(GenerationalHandle{slotIdx, slot.generation});
+}
+
+void VulkanDevice::destroyDescriptorPool(DescriptorPoolHandle handle) {
+    if (!isDescriptorPoolValid(handle)) {
+        return;
+    }
+    auto& poolSlot = descriptorPools_[handle.index()];
+    if (poolSlot.pool != VK_NULL_HANDLE) {
+        vkDestroyDescriptorPool(device_, poolSlot.pool, nullptr);
+        poolSlot.pool = VK_NULL_HANDLE;
+    }
+    poolSlot.alive = false;
+    ++poolSlot.generation;
+
+    for (auto& setSlot : descriptorSets_) {
+        if (setSlot.alive && setSlot.poolHandle == handle) {
+            setSlot.alive = false;
+            setSlot.set = VK_NULL_HANDLE;
+            ++setSlot.generation;
+        }
+    }
+}
+
+Result<void> VulkanDevice::resetDescriptorPool(DescriptorPoolHandle handle) {
+    if (!isDescriptorPoolValid(handle)) {
+        return Error{.code = ErrorCode::HandleResolutionFailed,
+                     .message = "Invalid descriptor pool handle in resetDescriptorPool"};
+    }
+
+    auto& poolSlot = descriptorPools_[handle.index()];
+    VkResult res = vkResetDescriptorPool(device_, poolSlot.pool, 0);
+    if (res != VK_SUCCESS) {
+        return Error{.code = ErrorCode::ResourceCreationFailed,
+                     .message = "vkResetDescriptorPool failed"};
+    }
+    poolSlot.allocatedCount = 0;
+
+    for (auto& setSlot : descriptorSets_) {
+        if (setSlot.alive && setSlot.poolHandle == handle) {
+            setSlot.alive = false;
+            setSlot.set = VK_NULL_HANDLE;
+            ++setSlot.generation;
+        }
+    }
+
+    return Result<void>::success();
+}
+
+Result<DescriptorSetHandle> VulkanDevice::allocateDescriptorSet(DescriptorPoolHandle pool,
+                                                                DescriptorSetLayoutHandle layout) {
+    if (!isDescriptorPoolValid(pool)) {
+        return Error{.code = ErrorCode::HandleResolutionFailed,
+                     .message = "Invalid descriptor pool handle in allocateDescriptorSet"};
+    }
+    if (!isDescriptorSetLayoutValid(layout)) {
+        return Error{.code = ErrorCode::HandleResolutionFailed,
+                     .message = "Invalid descriptor set layout handle in allocateDescriptorSet"};
+    }
+
+    auto& poolSlot = descriptorPools_[pool.index()];
+    if (poolSlot.allocatedCount >= poolSlot.desc.maxSets) {
+        return Error{.code = ErrorCode::OutOfMemory,
+                     .message = "Descriptor pool capacity exhausted"};
+    }
+
+    VkDescriptorSetLayout vkLayout = resolveDescriptorSetLayout(layout);
+    VkDescriptorSetAllocateInfo allocInfo{
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .pNext = nullptr,
+        .descriptorPool = poolSlot.pool,
+        .descriptorSetCount = 1,
+        .pSetLayouts = &vkLayout,
+    };
+
+    VkDescriptorSet vkSet = VK_NULL_HANDLE;
+    VkResult res = vkAllocateDescriptorSets(device_, &allocInfo, &vkSet);
+    if (res != VK_SUCCESS) {
+        return Error{.code = ErrorCode::OutOfMemory,
+                     .message = "vkAllocateDescriptorSets failed (out of pool memory)"};
+    }
+
+    uint32_t slotIdx = UINT32_MAX;
+    for (size_t i = 0; i < descriptorSets_.size(); ++i) {
+        if (!descriptorSets_[i].alive) {
+            slotIdx = static_cast<uint32_t>(i);
+            break;
+        }
+    }
+
+    if (slotIdx == UINT32_MAX) {
+        slotIdx = static_cast<uint32_t>(descriptorSets_.size());
+        descriptorSets_.push_back(VulkanDescriptorSetSlot{});
+    }
+
+    auto& slot = descriptorSets_[slotIdx];
+    slot.set = vkSet;
+    slot.poolHandle = pool;
+    slot.layoutHandle = layout;
+    slot.alive = true;
+
+    ++poolSlot.allocatedCount;
+    return DescriptorSetHandle(GenerationalHandle{slotIdx, slot.generation});
+}
+
+Result<void> VulkanDevice::updateDescriptorSet(DescriptorSetHandle set,
+                                               std::span<const DescriptorWrite> writes) {
+    if (!isDescriptorSetValid(set)) {
+        return Error{.code = ErrorCode::HandleResolutionFailed,
+                     .message = "Invalid descriptor set handle in updateDescriptorSet"};
+    }
+
+    const auto& setSlot = descriptorSets_[set.index()];
+    const auto* layoutDesc = getDescriptorSetLayoutDesc(setSlot.layoutHandle);
+    if (layoutDesc == nullptr) {
+        return Error{.code = ErrorCode::HandleResolutionFailed,
+                     .message = "Descriptor set has invalid layout reference"};
+    }
+
+    constexpr size_t kMaxStackWrites = 8;
+    constexpr size_t kMaxStackInfos = 16;
+
+    std::array<VkWriteDescriptorSet, kMaxStackWrites> stackWrites{};
+    std::array<VkDescriptorBufferInfo, kMaxStackInfos> stackBufferInfos{};
+    std::array<VkDescriptorImageInfo, kMaxStackInfos> stackImageInfos{};
+
+    std::vector<VkWriteDescriptorSet> heapWrites;
+    std::vector<VkDescriptorBufferInfo> heapBufferInfos;
+    std::vector<VkDescriptorImageInfo> heapImageInfos;
+
+    size_t totalBufferInfos = 0;
+    size_t totalImageInfos = 0;
+    for (const auto& w : writes) {
+        totalBufferInfos += w.bufferInfos.size();
+        totalImageInfos += w.imageInfos.size();
+    }
+
+    const bool useHeap = (writes.size() > kMaxStackWrites) || (totalBufferInfos > kMaxStackInfos) ||
+                         (totalImageInfos > kMaxStackInfos);
+
+    if (useHeap) {
+        heapWrites.resize(writes.size());
+        heapBufferInfos.resize(totalBufferInfos);
+        heapImageInfos.resize(totalImageInfos);
+    }
+
+    VkWriteDescriptorSet* pWrites = useHeap ? heapWrites.data() : stackWrites.data();
+    VkDescriptorBufferInfo* pBufferInfos =
+        useHeap ? heapBufferInfos.data() : stackBufferInfos.data();
+    VkDescriptorImageInfo* pImageInfos = useHeap ? heapImageInfos.data() : stackImageInfos.data();
+
+    size_t currentBufferInfoIdx = 0;
+    size_t currentImageInfoIdx = 0;
+
+    for (size_t wIdx = 0; wIdx < writes.size(); ++wIdx) {
+        const auto& write = writes[wIdx];
+        const DescriptorBindingDesc* matchedBinding = nullptr;
+        for (const auto& b : layoutDesc->bindings) {
+            if (b.binding == write.dstBinding) {
+                matchedBinding = &b;
+                break;
+            }
+        }
+        if (matchedBinding == nullptr) {
+            return Error{.code = ErrorCode::InvalidArgument,
+                         .message = "Descriptor write binding index not declared in layout"};
+        }
+        if (matchedBinding->descriptorType != write.descriptorType) {
+            return Error{.code = ErrorCode::InvalidArgument,
+                         .message = "Descriptor write type does not match layout binding type"};
+        }
+
+        VkWriteDescriptorSet& vkWrite = pWrites[wIdx];
+        vkWrite = VkWriteDescriptorSet{
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .pNext = nullptr,
+            .dstSet = setSlot.set,
+            .dstBinding = write.dstBinding,
+            .dstArrayElement = write.dstArrayElement,
+            .descriptorCount = 0,
+            .descriptorType = toVkDescriptorType(write.descriptorType),
+            .pImageInfo = nullptr,
+            .pBufferInfo = nullptr,
+            .pTexelBufferView = nullptr,
+        };
+
+        if (write.descriptorType == DescriptorType::UniformBuffer ||
+            write.descriptorType == DescriptorType::StorageBuffer) {
+            if (write.bufferInfos.empty()) {
+                return Error{.code = ErrorCode::InvalidArgument,
+                             .message = "Descriptor buffer write has no buffer infos"};
+            }
+            vkWrite.descriptorCount = static_cast<uint32_t>(write.bufferInfos.size());
+            vkWrite.pBufferInfo = &pBufferInfos[currentBufferInfoIdx];
+
+            for (const auto& bufInfo : write.bufferInfos) {
+                if (!bufInfo.buffer.isValid() || !isBufferValid(bufInfo.buffer)) {
+                    return Error{.code = ErrorCode::HandleResolutionFailed,
+                                 .message = "Invalid buffer handle in descriptor buffer write"};
+                }
+                const auto& bSlot = buffers_[bufInfo.buffer.index()];
+                if (bufInfo.offset > bSlot.sizeInBytes) {
+                    return Error{.code = ErrorCode::OutOfBounds,
+                                 .message = "Descriptor buffer offset exceeds buffer size"};
+                }
+                if (bufInfo.range > 0 && (bufInfo.offset + bufInfo.range > bSlot.sizeInBytes)) {
+                    return Error{.code = ErrorCode::OutOfBounds,
+                                 .message = "Descriptor buffer range exceeds buffer size"};
+                }
+
+                pBufferInfos[currentBufferInfoIdx++] = VkDescriptorBufferInfo{
+                    .buffer = bSlot.buffer,
+                    .offset = bufInfo.offset,
+                    .range = (bufInfo.range == kWholeBufferSize) ? VK_WHOLE_SIZE : bufInfo.range,
+                };
+            }
+        } else if (write.descriptorType == DescriptorType::CombinedImageSampler) {
+            if (write.imageInfos.empty()) {
+                return Error{.code = ErrorCode::InvalidArgument,
+                             .message = "Descriptor image write has no image infos"};
+            }
+            vkWrite.descriptorCount = static_cast<uint32_t>(write.imageInfos.size());
+            vkWrite.pImageInfo = &pImageInfos[currentImageInfoIdx];
+
+            for (const auto& imgInfo : write.imageInfos) {
+                if (!imgInfo.texture.isValid() || !isTextureValid(imgInfo.texture)) {
+                    return Error{.code = ErrorCode::HandleResolutionFailed,
+                                 .message = "Invalid texture handle in CombinedImageSampler write"};
+                }
+                if (!imgInfo.sampler.isValid() || !isSamplerValid(imgInfo.sampler)) {
+                    return Error{.code = ErrorCode::HandleResolutionFailed,
+                                 .message = "Invalid sampler handle in CombinedImageSampler write"};
+                }
+                pImageInfos[currentImageInfoIdx++] = VkDescriptorImageInfo{
+                    .sampler = resolveSampler(imgInfo.sampler),
+                    .imageView = resolveTextureView(imgInfo.texture),
+                    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                };
+            }
+        } else if (write.descriptorType == DescriptorType::SampledImage) {
+            if (write.imageInfos.empty()) {
+                return Error{.code = ErrorCode::InvalidArgument,
+                             .message = "Descriptor image write has no image infos"};
+            }
+            vkWrite.descriptorCount = static_cast<uint32_t>(write.imageInfos.size());
+            vkWrite.pImageInfo = &pImageInfos[currentImageInfoIdx];
+
+            for (const auto& imgInfo : write.imageInfos) {
+                if (!imgInfo.texture.isValid() || !isTextureValid(imgInfo.texture)) {
+                    return Error{.code = ErrorCode::HandleResolutionFailed,
+                                 .message = "Invalid texture handle in SampledImage write"};
+                }
+                pImageInfos[currentImageInfoIdx++] = VkDescriptorImageInfo{
+                    .sampler = VK_NULL_HANDLE,
+                    .imageView = resolveTextureView(imgInfo.texture),
+                    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                };
+            }
+        } else if (write.descriptorType == DescriptorType::Sampler) {
+            if (write.imageInfos.empty()) {
+                return Error{.code = ErrorCode::InvalidArgument,
+                             .message = "Descriptor image write has no image infos"};
+            }
+            vkWrite.descriptorCount = static_cast<uint32_t>(write.imageInfos.size());
+            vkWrite.pImageInfo = &pImageInfos[currentImageInfoIdx];
+
+            for (const auto& imgInfo : write.imageInfos) {
+                if (!imgInfo.sampler.isValid() || !isSamplerValid(imgInfo.sampler)) {
+                    return Error{.code = ErrorCode::HandleResolutionFailed,
+                                 .message = "Invalid sampler handle in Sampler write"};
+                }
+                pImageInfos[currentImageInfoIdx++] = VkDescriptorImageInfo{
+                    .sampler = resolveSampler(imgInfo.sampler),
+                    .imageView = VK_NULL_HANDLE,
+                    .imageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+                };
+            }
+        }
+    }
+
+    vkUpdateDescriptorSets(device_, static_cast<uint32_t>(writes.size()), pWrites, 0, nullptr);
+    return Result<void>::success();
+}
+
+VkDescriptorSetLayout
+VulkanDevice::resolveDescriptorSetLayout(DescriptorSetLayoutHandle handle) const noexcept {
+    if (isDescriptorSetLayoutValid(handle)) {
+        return descriptorSetLayouts_[handle.index()].layout;
+    }
+    return VK_NULL_HANDLE;
+}
+
+VkDescriptorPool VulkanDevice::resolveDescriptorPool(DescriptorPoolHandle handle) const noexcept {
+    if (isDescriptorPoolValid(handle)) {
+        return descriptorPools_[handle.index()].pool;
+    }
+    return VK_NULL_HANDLE;
+}
+
+VkDescriptorSet VulkanDevice::resolveDescriptorSet(DescriptorSetHandle handle) const noexcept {
+    if (isDescriptorSetValid(handle)) {
+        return descriptorSets_[handle.index()].set;
+    }
+    return VK_NULL_HANDLE;
+}
+
+bool VulkanDevice::isDescriptorSetLayoutValid(DescriptorSetLayoutHandle handle) const noexcept {
+    if (handle.index() < descriptorSetLayouts_.size()) {
+        const auto& slot = descriptorSetLayouts_[handle.index()];
+        return slot.alive && slot.generation == handle.generation();
+    }
+    return false;
+}
+
+bool VulkanDevice::isDescriptorPoolValid(DescriptorPoolHandle handle) const noexcept {
+    if (handle.index() < descriptorPools_.size()) {
+        const auto& slot = descriptorPools_[handle.index()];
+        return slot.alive && slot.generation == handle.generation();
+    }
+    return false;
+}
+
+bool VulkanDevice::isDescriptorSetValid(DescriptorSetHandle handle) const noexcept {
+    if (handle.index() < descriptorSets_.size()) {
+        const auto& slot = descriptorSets_[handle.index()];
+        return slot.alive && slot.generation == handle.generation();
+    }
+    return false;
+}
+
+const DescriptorSetLayoutDesc*
+VulkanDevice::getDescriptorSetLayoutDesc(DescriptorSetLayoutHandle handle) const noexcept {
+    if (isDescriptorSetLayoutValid(handle)) {
+        return &descriptorSetLayouts_[handle.index()].desc;
+    }
+    return nullptr;
+}
+
+const DescriptorPoolDesc*
+VulkanDevice::getDescriptorPoolDesc(DescriptorPoolHandle handle) const noexcept {
+    if (isDescriptorPoolValid(handle)) {
+        return &descriptorPools_[handle.index()].desc;
+    }
+    return nullptr;
 }
 
 VkSampler VulkanDevice::resolveSampler(SamplerHandle handle) const noexcept {

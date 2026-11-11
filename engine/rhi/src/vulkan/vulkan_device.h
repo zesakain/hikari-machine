@@ -66,6 +66,20 @@ public:
     createGraphicsPipeline(const GraphicsPipelineDesc& desc) override;
     void destroyGraphicsPipeline(PipelineHandle handle) override;
 
+    [[nodiscard]] Result<DescriptorSetLayoutHandle>
+    createDescriptorSetLayout(const DescriptorSetLayoutDesc& desc) override;
+    void destroyDescriptorSetLayout(DescriptorSetLayoutHandle handle) override;
+
+    [[nodiscard]] Result<DescriptorPoolHandle>
+    createDescriptorPool(const DescriptorPoolDesc& desc) override;
+    void destroyDescriptorPool(DescriptorPoolHandle handle) override;
+    Result<void> resetDescriptorPool(DescriptorPoolHandle handle) override;
+
+    [[nodiscard]] Result<DescriptorSetHandle>
+    allocateDescriptorSet(DescriptorPoolHandle pool, DescriptorSetLayoutHandle layout) override;
+    Result<void> updateDescriptorSet(DescriptorSetHandle set,
+                                     std::span<const DescriptorWrite> writes) override;
+
     [[nodiscard]] Result<std::unique_ptr<RhiCommandList>> createCommandList() override;
     Result<void> submit(RhiCommandList* commandList) override;
     void waitIdle() override;
@@ -91,9 +105,18 @@ public:
     [[nodiscard]] VkPipelineLayout
     resolvePipelineLayout(PipelineLayoutHandle handle) const noexcept;
     [[nodiscard]] VkPipeline resolvePipeline(PipelineHandle handle) const noexcept;
+    [[nodiscard]] VkDescriptorSetLayout
+    resolveDescriptorSetLayout(DescriptorSetLayoutHandle handle) const noexcept;
+    [[nodiscard]] VkDescriptorPool
+    resolveDescriptorPool(DescriptorPoolHandle handle) const noexcept;
+    [[nodiscard]] VkDescriptorSet resolveDescriptorSet(DescriptorSetHandle handle) const noexcept;
     [[nodiscard]] const ShaderDesc* getShaderDesc(ShaderHandle handle) const noexcept;
     [[nodiscard]] const PipelineLayoutDesc*
     getPipelineLayoutDesc(PipelineLayoutHandle handle) const noexcept;
+    [[nodiscard]] const DescriptorSetLayoutDesc*
+    getDescriptorSetLayoutDesc(DescriptorSetLayoutHandle handle) const noexcept;
+    [[nodiscard]] const DescriptorPoolDesc*
+    getDescriptorPoolDesc(DescriptorPoolHandle handle) const noexcept;
     [[nodiscard]] const GraphicsPipelineDesc* getPipelineDesc(PipelineHandle handle) const noexcept;
     [[nodiscard]] VulkanMemoryManager& getMemoryManager() noexcept { return *memoryManager_; }
     [[nodiscard]] VulkanSwapchain* getSwapchain() noexcept { return swapchain_.get(); }
@@ -106,6 +129,9 @@ public:
     [[nodiscard]] bool isShaderValid(ShaderHandle handle) const noexcept;
     [[nodiscard]] bool isPipelineLayoutValid(PipelineLayoutHandle handle) const noexcept;
     [[nodiscard]] bool isPipelineValid(PipelineHandle handle) const noexcept;
+    [[nodiscard]] bool isDescriptorSetLayoutValid(DescriptorSetLayoutHandle handle) const noexcept;
+    [[nodiscard]] bool isDescriptorPoolValid(DescriptorPoolHandle handle) const noexcept;
+    [[nodiscard]] bool isDescriptorSetValid(DescriptorSetHandle handle) const noexcept;
 
     void registerCommandList(VulkanCommandList* cmdList);
     void unregisterCommandList(VulkanCommandList* cmdList);
@@ -135,6 +161,9 @@ private:
     std::vector<VulkanShaderSlot> shaders_;
     std::vector<VulkanPipelineLayoutSlot> pipelineLayouts_;
     std::vector<VulkanPipelineSlot> pipelines_;
+    std::vector<VulkanDescriptorSetLayoutSlot> descriptorSetLayouts_;
+    std::vector<VulkanDescriptorPoolSlot> descriptorPools_;
+    std::vector<VulkanDescriptorSetSlot> descriptorSets_;
 
     std::vector<VulkanCommandList*> commandLists_;
     mutable std::mutex commandListMutex_;
