@@ -170,6 +170,12 @@ target_link_libraries(pbr_render_test PRIVATE hikari::engine_render hikari::engi
 add_test(NAME pbr_render_test COMMAND pbr_render_test)
 set_tests_properties(pbr_render_test PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
+# Lighting & Directional Shadow Mapping Verification Tests (Milestone 10E)
+add_executable(lighting_render_test unit/render/lighting_render_test.cpp)
+target_link_libraries(lighting_render_test PRIVATE hikari::engine_render hikari::engine_rhi hikari::engine_framework hikari::engine_physics hikari::engine_world)
+add_test(NAME lighting_render_test COMMAND lighting_render_test)
+set_tests_properties(lighting_render_test PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
 # Physics Unit Tests
 add_executable(physics_test unit/physics/physics_test.cpp)
 target_link_libraries(physics_test PRIVATE hikari::engine_physics)
