@@ -200,6 +200,10 @@ if(HIKARI_BUILD_EDITOR)
     add_executable(content_browser_test unit/editor/content_browser_test.cpp)
     target_link_libraries(content_browser_test PRIVATE hikari::editor_lib hikari::engine_framework hikari::engine_world hikari::engine_rhi)
     add_test(NAME content_browser_test COMMAND content_browser_test)
+
+    add_executable(script_editor_test unit/editor/script_editor_test.cpp)
+    target_link_libraries(script_editor_test PRIVATE hikari::editor_lib hikari::engine_framework hikari::engine_world hikari::engine_rhi)
+    add_test(NAME script_editor_test COMMAND script_editor_test)
 endif()
 
 

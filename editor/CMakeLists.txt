@@ -45,6 +45,7 @@ add_library(editor_lib STATIC
     src/editor_camera.cpp
     src/editor_engine.cpp
     src/editor_theme.cpp
+    src/external_editor.cpp
     src/selection_model.cpp
     src/ui_helpers.cpp
     src/workspace_manager.cpp

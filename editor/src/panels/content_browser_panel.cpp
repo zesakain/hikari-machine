@@ -6,6 +6,7 @@
 
 #include "core/log.h"
 #include "editor/editor_theme.h"
+#include "editor/external_editor.h"
 #include "editor/hierarchy_panel.h"
 #include "editor/selection_model.h"
 #include "physics/physics_components.h"
@@ -487,11 +488,18 @@ void ContentBrowserPanel::drawListView(EditorContext& ctx) {
                 controller_.setSelectedItemIndex(static_cast<int>(i));
             }
 
-            // Double click opens folder
+            // Double click opens folder or launches external script editor for Lua scripts
             if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                 if (item.isDirectory) {
                     controller_.navigateTo(item.fullPath);
                     break;
+                }
+                if (ExternalEditorLauncher::isSupportedScriptFile(item.fullPath)) {
+                    auto res = ExternalEditorLauncher::openScript(item.fullPath);
+                    if (!res.hasValue()) {
+                        errorMessage_ = res.error().message;
+                        showErrorModal_ = true;
+                    }
                 }
             }
 
@@ -508,6 +516,17 @@ void ContentBrowserPanel::drawListView(EditorContext& ctx) {
             std::snprintf(ctxMenuId, sizeof(ctxMenuId), "ItemCtx_%zu", i);
             if (ImGui::BeginPopupContextItem(ctxMenuId)) {
                 controller_.setSelectedItemIndex(static_cast<int>(i));
+
+                if (ExternalEditorLauncher::isSupportedScriptFile(item.fullPath)) {
+                    if (ImGui::MenuItem("Open in External Editor")) {
+                        auto res = ExternalEditorLauncher::openScript(item.fullPath);
+                        if (!res.hasValue()) {
+                            errorMessage_ = res.error().message;
+                            showErrorModal_ = true;
+                        }
+                    }
+                    ImGui::Separator();
+                }
 
                 if (item.isMesh) {
                     if (ImGui::MenuItem("Create Entity with Mesh")) {
@@ -639,12 +658,19 @@ void ContentBrowserPanel::drawGridView(EditorContext& ctx) {
 
         const bool isCardHovered = ImGui::IsItemHovered();
 
-        // Double-click opens folder
+        // Double-click opens folder or launches external script editor for Lua scripts
         if (isCardHovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
             if (item.isDirectory) {
                 controller_.navigateTo(item.fullPath);
                 ImGui::PopID();
                 break;
+            }
+            if (ExternalEditorLauncher::isSupportedScriptFile(item.fullPath)) {
+                auto res = ExternalEditorLauncher::openScript(item.fullPath);
+                if (!res.hasValue()) {
+                    errorMessage_ = res.error().message;
+                    showErrorModal_ = true;
+                }
             }
         }
 
@@ -686,6 +712,17 @@ void ContentBrowserPanel::drawGridView(EditorContext& ctx) {
         // Context menu
         if (ImGui::BeginPopupContextItem("GridItemCtx")) {
             controller_.setSelectedItemIndex(static_cast<int>(i));
+
+            if (ExternalEditorLauncher::isSupportedScriptFile(item.fullPath)) {
+                if (ImGui::MenuItem("Open in External Editor")) {
+                    auto res = ExternalEditorLauncher::openScript(item.fullPath);
+                    if (!res.hasValue()) {
+                        errorMessage_ = res.error().message;
+                        showErrorModal_ = true;
+                    }
+                }
+                ImGui::Separator();
+            }
 
             if (item.isMesh && ImGui::MenuItem("Create Entity with Mesh")) {
                 if (ctx.world != nullptr) {
