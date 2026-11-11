@@ -7,6 +7,7 @@ add_library(engine_render STATIC
     src/gltf_importer.cpp
     src/gltf_scene_importer.cpp
     src/gpu_mesh.cpp
+    src/gpu_texture.cpp
     src/image_decoder.cpp
     src/mesh.cpp
     src/mesh_component.cpp

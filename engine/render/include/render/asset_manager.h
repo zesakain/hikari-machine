@@ -20,6 +20,8 @@
 #include "core/result.h"
 #include "render/asset_types.h"
 #include "render/gpu_mesh.h"
+#include "render/gpu_texture.h"
+#include "render/image.h"
 #include "render/material.h"
 #include "render/mesh.h"
 #include "rhi/rhi_device.h"
@@ -69,6 +71,39 @@ public:
     [[nodiscard]] GpuMesh* getGpuMesh(AssetId id) noexcept;
     [[nodiscard]] const GpuMesh* getGpuMesh(AssetId id) const noexcept;
 
+    /// @brief Loads an image texture asset from a relative or absolute file path.
+    /// Deduplicates if the asset is already loaded or registered.
+    ///
+    /// @param path Relative path or absolute path to the image file.
+    /// @param srgb Whether the texture format should be tagged as sRGB.
+    /// @return The persistent 64-bit AssetId for this texture.
+    Result<AssetId> loadTexture(std::string_view path, bool srgb = true);
+
+    /// @brief Registers an in-memory ImageData with a designated virtual path or name.
+    ///
+    /// @param path Identifier or virtual path for the texture.
+    /// @param image Decoded host bitmap pixel data.
+    /// @return The persistent AssetId assigned to this texture.
+    Result<AssetId> registerTexture(std::string_view path, ImageData image);
+
+    /// @brief Uploads a loaded CPU image to the GPU if not already uploaded.
+    ///
+    /// @param id Asset identifier of the texture.
+    /// @param device Active RhiDevice for texture and sampler allocation.
+    /// @param generateMips Whether to generate complete mipmap chain.
+    /// @param samplerDesc Optional custom sampler configuration.
+    /// @return Pointer to the GpuTexture on success, or Error on failure.
+    Result<GpuTexture*> uploadTexture(AssetId id, rhi::RhiDevice& device, bool generateMips = true,
+                                      const rhi::SamplerDesc* samplerDesc = nullptr);
+
+    /// @brief Retrieves the GPU texture for an asset, or nullptr if not uploaded.
+    [[nodiscard]] GpuTexture* getGpuTexture(AssetId id) noexcept;
+    [[nodiscard]] const GpuTexture* getGpuTexture(AssetId id) const noexcept;
+
+    /// @brief Retrieves CPU image data for an asset, or nullptr if not loaded.
+    [[nodiscard]] const ImageData* getImageData(AssetId id) const noexcept;
+    [[nodiscard]] const ImageData* getImageData(std::string_view path) const noexcept;
+
     /// @brief Retrieves CPU mesh data for an asset, or nullptr if not loaded.
     [[nodiscard]] const MeshData* getMeshData(AssetId id) const noexcept;
     [[nodiscard]] const MeshData* getMeshData(std::string_view path) const noexcept;
@@ -101,7 +136,14 @@ private:
         std::unique_ptr<GpuMesh> gpuMesh{nullptr};
     };
 
+    struct TextureEntry {
+        AssetMetadata metadata{};
+        ImageData cpuImage{};
+        std::unique_ptr<GpuTexture> gpuTexture{nullptr};
+    };
+
     std::unordered_map<AssetId, MeshEntry> meshEntries_{};
+    std::unordered_map<AssetId, TextureEntry> textureEntries_{};
     std::unordered_map<std::string, AssetId> pathToId_{};
 };
 

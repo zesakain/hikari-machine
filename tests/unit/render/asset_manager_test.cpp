@@ -80,6 +80,87 @@ static int testAssetManagerGpuUploadAndUnload() {
     return 0;
 }
 
+static int testAssetManagerTextureLoadingAndDeduplication() {
+    AssetManager manager;
+
+    ImageData img{
+        .width = 8,
+        .height = 8,
+        .channels = 4,
+        .format = rhi::TextureFormat::RGBA8_UNORM,
+        .pixels = std::vector<uint8_t>(8 * 8 * 4, 128),
+    };
+
+    auto regRes1 = manager.registerTexture("textures/test_diffuse.png", std::move(img));
+    TEST_CHECK(regRes1.hasValue());
+    const AssetId id1 = regRes1.value();
+
+    TEST_CHECK(manager.isLoaded(id1));
+    const ImageData* data = manager.getImageData(id1);
+    TEST_CHECK(data != nullptr);
+    TEST_CHECK(data->width == 8);
+    TEST_CHECK(data->height == 8);
+    TEST_CHECK(data->channels == 4);
+
+    const ImageData* dataByPath = manager.getImageData("textures/test_diffuse.png");
+    TEST_CHECK(dataByPath == data);
+
+    const AssetMetadata* meta = manager.getMetadata(id1);
+    TEST_CHECK(meta != nullptr);
+    TEST_CHECK(meta->type == AssetType::Texture);
+    TEST_CHECK(meta->loadState == AssetLoadState::Loaded);
+
+    // Invalid file path returns error
+    auto failRes = manager.loadTexture("assets/textures/non_existent.png");
+    TEST_CHECK(!failRes.hasValue());
+
+    return 0;
+}
+
+static int testAssetManagerTextureGpuUploadAndUnload() {
+    auto devRes = rhi::createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto& device = *devRes.value();
+
+    AssetManager manager;
+
+    ImageData img{
+        .width = 4,
+        .height = 4,
+        .channels = 4,
+        .format = rhi::TextureFormat::RGBA8_UNORM,
+        .pixels = std::vector<uint8_t>(4 * 4 * 4, 200),
+    };
+
+    auto regRes = manager.registerTexture("textures/brick.png", std::move(img));
+    TEST_CHECK(regRes.hasValue());
+    const AssetId id = regRes.value();
+
+    TEST_CHECK(manager.getGpuTexture(id) == nullptr);
+
+    auto uploadRes = manager.uploadTexture(id, device, true);
+    TEST_CHECK(uploadRes.hasValue());
+    GpuTexture* gpuTex = uploadRes.value();
+    TEST_CHECK(gpuTex != nullptr);
+    TEST_CHECK(gpuTex->isValid());
+    TEST_CHECK(gpuTex->getWidth() == 4);
+    TEST_CHECK(gpuTex->getHeight() == 4);
+    TEST_CHECK(manager.getGpuTexture(id) == gpuTex);
+
+    // Calling uploadTexture again returns the cached GpuTexture
+    auto uploadRes2 = manager.uploadTexture(id, device);
+    TEST_CHECK(uploadRes2.hasValue());
+    TEST_CHECK(uploadRes2.value() == gpuTex);
+
+    // Unload
+    manager.unload(id);
+    TEST_CHECK(!manager.isLoaded(id));
+    TEST_CHECK(manager.getImageData(id) == nullptr);
+    TEST_CHECK(manager.getGpuTexture(id) == nullptr);
+
+    return 0;
+}
+
 static int testMeshComponentECSAndSerialization() {
     world::World world;
     physics::registerPhysicsComponents(world);
@@ -202,10 +283,14 @@ int main() {
         return 1;
     if (testAssetManagerGpuUploadAndUnload() != 0)
         return 2;
-    if (testMeshComponentECSAndSerialization() != 0)
+    if (testAssetManagerTextureLoadingAndDeduplication() != 0)
         return 3;
-    if (testSceneRendererCommandRecording() != 0)
+    if (testAssetManagerTextureGpuUploadAndUnload() != 0)
         return 4;
-    std::cout << "[AssetManager & Render Tests Passed: 4/4]\n";
+    if (testMeshComponentECSAndSerialization() != 0)
+        return 5;
+    if (testSceneRendererCommandRecording() != 0)
+        return 6;
+    std::cout << "[AssetManager & Render Tests Passed: 6/6]\n";
     return 0;
 }

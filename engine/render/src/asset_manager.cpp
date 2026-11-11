@@ -6,6 +6,7 @@
 #include "core/log.h"
 #include "render/gltf_importer.h"
 #include "render/gltf_scene_importer.h"
+#include "render/image.h"
 #include "render/obj_importer.h"
 #include "world/world.h"
 
@@ -181,6 +182,122 @@ const MeshData* AssetManager::getMeshData(std::string_view path) const noexcept 
     return nullptr;
 }
 
+Result<AssetId> AssetManager::loadTexture(std::string_view path, bool srgb) {
+    const std::string normPath = normalizePath(path);
+
+    auto pathIt = pathToId_.find(normPath);
+    if (pathIt != pathToId_.end()) {
+        auto entryIt = textureEntries_.find(pathIt->second);
+        if (entryIt != textureEntries_.end() &&
+            entryIt->second.metadata.loadState == AssetLoadState::Loaded) {
+            return Result<AssetId>::success(pathIt->second);
+        }
+    }
+
+    auto decodeRes = ImageDecoder::decodeFromFile(normPath, 4, srgb);
+    if (!decodeRes.hasValue()) {
+        ENG_LOG_WARN("AssetManager", "Failed to decode image from path");
+        return decodeRes.error();
+    }
+
+    const AssetId id = makeAssetIdFromPath(normPath);
+
+    TextureEntry entry{};
+    entry.metadata.id = id;
+    entry.metadata.path = normPath;
+    entry.metadata.type = AssetType::Texture;
+    entry.metadata.loadState = AssetLoadState::Loaded;
+    entry.metadata.fileSize = decodeRes.value().sizeInBytes();
+    entry.cpuImage = std::move(decodeRes.value());
+    entry.gpuTexture = nullptr;
+
+    pathToId_[normPath] = id;
+    textureEntries_[id] = std::move(entry);
+
+    ENG_LOG_INFO("AssetManager", "Loaded texture asset successfully");
+    return Result<AssetId>::success(id);
+}
+
+Result<AssetId> AssetManager::registerTexture(std::string_view path, ImageData image) {
+    if (!image.isValid()) {
+        return Error{.code = ErrorCode::InvalidArgument,
+                     .message = "Cannot register invalid ImageData"};
+    }
+
+    const std::string normPath = normalizePath(path);
+    const AssetId id = makeAssetIdFromPath(normPath);
+
+    TextureEntry entry{};
+    entry.metadata.id = id;
+    entry.metadata.path = normPath;
+    entry.metadata.type = AssetType::Texture;
+    entry.metadata.loadState = AssetLoadState::Loaded;
+    entry.metadata.fileSize = image.sizeInBytes();
+    entry.cpuImage = std::move(image);
+    entry.gpuTexture = nullptr;
+
+    pathToId_[normPath] = id;
+    textureEntries_[id] = std::move(entry);
+
+    return Result<AssetId>::success(id);
+}
+
+Result<GpuTexture*> AssetManager::uploadTexture(AssetId id, rhi::RhiDevice& device,
+                                                bool generateMips,
+                                                const rhi::SamplerDesc* samplerDesc) {
+    auto it = textureEntries_.find(id);
+    if (it == textureEntries_.end()) {
+        return Error{.code = ErrorCode::InvalidArgument,
+                     .message = "Texture asset not found in AssetManager"};
+    }
+
+    if (it->second.gpuTexture != nullptr) {
+        return Result<GpuTexture*>::success(it->second.gpuTexture.get());
+    }
+
+    auto gpuRes = GpuTexture::create(device, it->second.cpuImage, generateMips, samplerDesc);
+    if (!gpuRes.hasValue()) {
+        ENG_LOG_ERROR("AssetManager", "Failed to create GPU texture for asset");
+        return gpuRes.error();
+    }
+
+    it->second.gpuTexture = std::move(gpuRes.value());
+    return Result<GpuTexture*>::success(it->second.gpuTexture.get());
+}
+
+GpuTexture* AssetManager::getGpuTexture(AssetId id) noexcept {
+    auto it = textureEntries_.find(id);
+    if (it != textureEntries_.end()) {
+        return it->second.gpuTexture.get();
+    }
+    return nullptr;
+}
+
+const GpuTexture* AssetManager::getGpuTexture(AssetId id) const noexcept {
+    auto it = textureEntries_.find(id);
+    if (it != textureEntries_.end()) {
+        return it->second.gpuTexture.get();
+    }
+    return nullptr;
+}
+
+const ImageData* AssetManager::getImageData(AssetId id) const noexcept {
+    auto it = textureEntries_.find(id);
+    if (it != textureEntries_.end() && it->second.metadata.loadState == AssetLoadState::Loaded) {
+        return &it->second.cpuImage;
+    }
+    return nullptr;
+}
+
+const ImageData* AssetManager::getImageData(std::string_view path) const noexcept {
+    const std::string normPath = normalizePath(path);
+    auto it = pathToId_.find(normPath);
+    if (it != pathToId_.end()) {
+        return getImageData(it->second);
+    }
+    return nullptr;
+}
+
 const std::vector<Material>* AssetManager::getMaterials(AssetId id) const noexcept {
     auto it = meshEntries_.find(id);
     if (it != meshEntries_.end() && it->second.metadata.loadState == AssetLoadState::Loaded) {
@@ -193,6 +310,10 @@ const AssetMetadata* AssetManager::getMetadata(AssetId id) const noexcept {
     auto it = meshEntries_.find(id);
     if (it != meshEntries_.end()) {
         return &it->second.metadata;
+    }
+    auto itTex = textureEntries_.find(id);
+    if (itTex != textureEntries_.end()) {
+        return &itTex->second.metadata;
     }
     return nullptr;
 }
@@ -208,7 +329,12 @@ AssetId AssetManager::findAssetByPath(std::string_view path) const noexcept {
 
 bool AssetManager::isLoaded(AssetId id) const noexcept {
     auto it = meshEntries_.find(id);
-    return it != meshEntries_.end() && it->second.metadata.loadState == AssetLoadState::Loaded;
+    if (it != meshEntries_.end() && it->second.metadata.loadState == AssetLoadState::Loaded) {
+        return true;
+    }
+    auto itTex = textureEntries_.find(id);
+    return itTex != textureEntries_.end() &&
+           itTex->second.metadata.loadState == AssetLoadState::Loaded;
 }
 
 void AssetManager::unload(AssetId id) noexcept {
@@ -216,18 +342,28 @@ void AssetManager::unload(AssetId id) noexcept {
     if (it != meshEntries_.end()) {
         pathToId_.erase(it->second.metadata.path);
         meshEntries_.erase(it);
+        return;
+    }
+    auto itTex = textureEntries_.find(id);
+    if (itTex != textureEntries_.end()) {
+        pathToId_.erase(itTex->second.metadata.path);
+        textureEntries_.erase(itTex);
     }
 }
 
 void AssetManager::unloadAll() noexcept {
     pathToId_.clear();
     meshEntries_.clear();
+    textureEntries_.clear();
 }
 
 std::vector<AssetMetadata> AssetManager::getAllMetadata() const {
     std::vector<AssetMetadata> result;
-    result.reserve(meshEntries_.size());
+    result.reserve(meshEntries_.size() + textureEntries_.size());
     for (const auto& [id, entry] : meshEntries_) {
+        result.push_back(entry.metadata);
+    }
+    for (const auto& [id, entry] : textureEntries_) {
         result.push_back(entry.metadata);
     }
     return result;
