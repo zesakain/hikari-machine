@@ -27,10 +27,13 @@
 #include "core/math.h"
 #include "core/result.h"
 #include "render/asset_manager.h"
+#include "render/light_components.h"
+#include "render/lighting_data.h"
 #include "render/mesh_component.h"
 #include "rhi/command_list.h"
 #include "rhi/pipeline.h"
 #include "rhi/rhi_device.h"
+#include "rhi/sampler.h"
 #include "rhi/texture.h"
 #include "world/world.h"
 
@@ -115,6 +118,19 @@ public:
     [[nodiscard]] rhi::DescriptorSetLayoutHandle getMaterialDescriptorSetLayout() const noexcept {
         return materialDescriptorSetLayout_;
     }
+    [[nodiscard]] rhi::DescriptorSetLayoutHandle getSceneDescriptorSetLayout() const noexcept {
+        return sceneDescriptorSetLayout_;
+    }
+    [[nodiscard]] rhi::TextureHandle getShadowDepthTarget() const noexcept {
+        return shadowDepthTarget_;
+    }
+    [[nodiscard]] rhi::SamplerHandle getShadowSampler() const noexcept { return shadowSampler_; }
+    [[nodiscard]] rhi::PipelineHandle getShadowPipeline() const noexcept { return shadowPipeline_; }
+    [[nodiscard]] rhi::BufferHandle getLightingUniformBuffer() const noexcept {
+        return lightingUniformBuffer_;
+    }
+    [[nodiscard]] uint32_t getShadowResolution() const noexcept { return shadowResolution_; }
+    void setShadowResolution(uint32_t resolution) noexcept { shadowResolution_ = resolution; }
     [[nodiscard]] uint32_t getWidth() const noexcept { return width_; }
     [[nodiscard]] uint32_t getHeight() const noexcept { return height_; }
     [[nodiscard]] bool isInitialized() const noexcept {
@@ -128,10 +144,20 @@ private:
     rhi::ShaderHandle vertexShader_{};
     rhi::ShaderHandle fragmentShader_{};
     rhi::DescriptorSetLayoutHandle materialDescriptorSetLayout_{};
+    rhi::DescriptorSetLayoutHandle sceneDescriptorSetLayout_{};
+    rhi::DescriptorPoolHandle sceneDescriptorPool_{};
+    rhi::DescriptorSetHandle sceneDescriptorSet_{};
+    rhi::BufferHandle lightingUniformBuffer_{};
+    rhi::TextureHandle shadowDepthTarget_{};
+    rhi::SamplerHandle shadowSampler_{};
+    rhi::ShaderHandle shadowVertexShader_{};
+    rhi::PipelineLayoutHandle shadowPipelineLayout_{};
+    rhi::PipelineHandle shadowPipeline_{};
     rhi::PipelineLayoutHandle pipelineLayout_{};
     rhi::PipelineHandle pipeline_{};
     uint32_t width_{0};
     uint32_t height_{0};
+    uint32_t shadowResolution_{2048};
     rhi::TextureFormat colorFormat_{rhi::TextureFormat::RGBA8_UNORM};
     rhi::TextureFormat depthFormat_{rhi::TextureFormat::D32_FLOAT};
 };
