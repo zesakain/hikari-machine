@@ -926,6 +926,230 @@ static int testBufferReadAndTextureCopy() {
     return 0;
 }
 
+static int testDescriptorLifecycleAndBinding() {
+    auto devRes = createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto device = std::move(devRes.value());
+
+    // 1. Descriptor Layout Creation and Validation
+    DescriptorSetLayoutDesc invalidDescDuplicate{
+        .bindings =
+            {
+                DescriptorBindingDesc{.binding = 0,
+                                      .descriptorType = DescriptorType::UniformBuffer,
+                                      .descriptorCount = 1,
+                                      .stageFlags = ShaderStageFlags::Vertex},
+                DescriptorBindingDesc{.binding = 0,
+                                      .descriptorType = DescriptorType::UniformBuffer,
+                                      .descriptorCount = 1,
+                                      .stageFlags = ShaderStageFlags::Fragment},
+            },
+    };
+    TEST_CHECK(!device->createDescriptorSetLayout(invalidDescDuplicate).hasValue());
+
+    DescriptorSetLayoutDesc invalidDescZeroCount{
+        .bindings =
+            {
+                DescriptorBindingDesc{.binding = 0,
+                                      .descriptorType = DescriptorType::UniformBuffer,
+                                      .descriptorCount = 0,
+                                      .stageFlags = ShaderStageFlags::Vertex},
+            },
+    };
+    TEST_CHECK(!device->createDescriptorSetLayout(invalidDescZeroCount).hasValue());
+
+    DescriptorSetLayoutDesc invalidDescNoStage{
+        .bindings =
+            {
+                DescriptorBindingDesc{.binding = 0,
+                                      .descriptorType = DescriptorType::UniformBuffer,
+                                      .descriptorCount = 1,
+                                      .stageFlags = ShaderStageFlags::None},
+            },
+    };
+    TEST_CHECK(!device->createDescriptorSetLayout(invalidDescNoStage).hasValue());
+
+    DescriptorSetLayoutDesc validLayoutDesc{
+        .bindings =
+            {
+                DescriptorBindingDesc{.binding = 0,
+                                      .descriptorType = DescriptorType::UniformBuffer,
+                                      .descriptorCount = 1,
+                                      .stageFlags = ShaderStageFlags::Vertex},
+                DescriptorBindingDesc{.binding = 1,
+                                      .descriptorType = DescriptorType::CombinedImageSampler,
+                                      .descriptorCount = 1,
+                                      .stageFlags = ShaderStageFlags::Fragment},
+            },
+        .debugName = "TestDescriptorLayout",
+    };
+    auto layoutRes = device->createDescriptorSetLayout(validLayoutDesc);
+    TEST_CHECK(layoutRes.hasValue());
+    DescriptorSetLayoutHandle layoutHandle = layoutRes.value();
+    TEST_CHECK(layoutHandle.isValid());
+
+    // 2. Descriptor Pool Lifecycle and Capacity
+    DescriptorPoolDesc invalidPoolZeroSets{
+        .maxSets = 0,
+        .poolSizes = {{.type = DescriptorType::UniformBuffer, .count = 2}},
+    };
+    TEST_CHECK(!device->createDescriptorPool(invalidPoolZeroSets).hasValue());
+
+    DescriptorPoolDesc invalidPoolEmptySizes{
+        .maxSets = 2,
+        .poolSizes = {},
+    };
+    TEST_CHECK(!device->createDescriptorPool(invalidPoolEmptySizes).hasValue());
+
+    DescriptorPoolDesc poolDesc{
+        .maxSets = 2,
+        .poolSizes =
+            {
+                {.type = DescriptorType::UniformBuffer, .count = 2},
+                {.type = DescriptorType::CombinedImageSampler, .count = 2},
+            },
+        .debugName = "TestDescriptorPool",
+    };
+    auto poolRes = device->createDescriptorPool(poolDesc);
+    TEST_CHECK(poolRes.hasValue());
+    DescriptorPoolHandle poolHandle = poolRes.value();
+    TEST_CHECK(poolHandle.isValid());
+
+    // Allocate up to maxSets
+    auto setRes1 = device->allocateDescriptorSet(poolHandle, layoutHandle);
+    TEST_CHECK(setRes1.hasValue());
+    DescriptorSetHandle set1 = setRes1.value();
+    TEST_CHECK(set1.isValid());
+
+    auto setRes2 = device->allocateDescriptorSet(poolHandle, layoutHandle);
+    TEST_CHECK(setRes2.hasValue());
+    DescriptorSetHandle set2 = setRes2.value();
+    TEST_CHECK(set2.isValid());
+
+    // Exceed capacity
+    auto setRes3 = device->allocateDescriptorSet(poolHandle, layoutHandle);
+    TEST_CHECK(!setRes3.hasValue());
+    TEST_CHECK(setRes3.error().code == eng::ErrorCode::OutOfMemory);
+
+    // 3. Resource Creation and Descriptor Updates
+    BufferDesc uboDesc{
+        .sizeInBytes = 256,
+        .usage = BufferUsageFlags::Uniform | BufferUsageFlags::TransferDst,
+        .memoryUsage = MemoryUsage::CpuToGpu,
+    };
+    auto uboRes = device->createBuffer(uboDesc);
+    TEST_CHECK(uboRes.hasValue());
+    BufferHandle ubo = uboRes.value();
+
+    TextureDesc texDesc{
+        .type = TextureType::Texture2D,
+        .format = TextureFormat::RGBA8_UNORM,
+        .width = 64,
+        .height = 64,
+        .depth = 1,
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .usage = TextureUsageFlags::Sampled | TextureUsageFlags::TransferDst,
+    };
+    auto texRes = device->createTexture(texDesc);
+    TEST_CHECK(texRes.hasValue());
+    TextureHandle tex = texRes.value();
+
+    SamplerDesc smpDesc{
+        .minFilter = Filter::Linear,
+        .magFilter = Filter::Linear,
+    };
+    auto smpRes = device->createSampler(smpDesc);
+    TEST_CHECK(smpRes.hasValue());
+    SamplerHandle smp = smpRes.value();
+
+    // Reject updates with invalid buffer handle or out-of-bounds offset/range
+    DescriptorWrite badBufferWrite =
+        DescriptorWrite::makeBuffer(0, DescriptorType::UniformBuffer, BufferHandle{}, 0, 128);
+    TEST_CHECK(!device->updateDescriptorSet(set1, std::span{&badBufferWrite, 1}).hasValue());
+
+    DescriptorWrite oobOffsetWrite =
+        DescriptorWrite::makeBuffer(0, DescriptorType::UniformBuffer, ubo, 300, 64);
+    TEST_CHECK(!device->updateDescriptorSet(set1, std::span{&oobOffsetWrite, 1}).hasValue());
+
+    DescriptorWrite oobRangeWrite =
+        DescriptorWrite::makeBuffer(0, DescriptorType::UniformBuffer, ubo, 200, 100);
+    TEST_CHECK(!device->updateDescriptorSet(set1, std::span{&oobRangeWrite, 1}).hasValue());
+
+    // Reject update on undeclared binding or mismatched descriptor type
+    DescriptorWrite undeclaredWrite =
+        DescriptorWrite::makeBuffer(7, DescriptorType::UniformBuffer, ubo, 0, 64);
+    TEST_CHECK(!device->updateDescriptorSet(set1, std::span{&undeclaredWrite, 1}).hasValue());
+
+    DescriptorWrite typeMismatchWrite = DescriptorWrite::makeCombinedImageSampler(0, tex, smp);
+    TEST_CHECK(!device->updateDescriptorSet(set1, std::span{&typeMismatchWrite, 1}).hasValue());
+
+    // Valid descriptor writes
+    DescriptorWrite validWrites[] = {
+        DescriptorWrite::makeBuffer(0, DescriptorType::UniformBuffer, ubo, 0, 256),
+        DescriptorWrite::makeCombinedImageSampler(1, tex, smp),
+    };
+    TEST_CHECK(device->updateDescriptorSet(set1, validWrites).hasValue());
+
+    // 4. Pipeline Layout Integration and Command List Binding
+    PipelineLayoutDesc pipeLayoutDesc{
+        .pushConstants =
+            {
+                PushConstantRange{.stageFlags = ShaderStageFlags::Vertex, .offset = 0, .size = 64},
+            },
+        .descriptorSetLayoutHandles = {layoutHandle},
+        .debugName = "TestPipelineLayoutWithDescriptors",
+    };
+    auto pipeLayoutRes = device->createPipelineLayout(pipeLayoutDesc);
+    TEST_CHECK(pipeLayoutRes.hasValue());
+    PipelineLayoutHandle pipeLayout = pipeLayoutRes.value();
+
+    auto cmdRes = device->createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto cmd = std::move(cmdRes.value());
+    cmd->begin();
+
+    DescriptorSetHandle setsToBind[] = {set1};
+    cmd->bindDescriptorSets(pipeLayout, 0, setsToBind);
+    uint32_t pcData[16] = {1, 2, 3, 4};
+    cmd->pushConstants(pipeLayout, ShaderStageFlags::Vertex, 0, 64, pcData);
+    cmd->end();
+
+    auto* nullCmd = static_cast<NullCommandList*>(cmd.get());
+    if (nullCmd != nullptr) {
+        TEST_CHECK(nullCmd->getBindDescriptorSetsCount() == 1);
+        TEST_CHECK(nullCmd->getPushConstantCount() == 1);
+        TEST_CHECK(nullCmd->getDescriptorSetBindings().size() == 1);
+        TEST_CHECK(nullCmd->getDescriptorSetBindings()[0].sets.size() == 1);
+        TEST_CHECK(nullCmd->getDescriptorSetBindings()[0].sets[0] == set1);
+    }
+
+    // 5. Pool Reset and Invalidation
+    TEST_CHECK(device->resetDescriptorPool(poolHandle).hasValue());
+    // set1 should now be invalidated
+    DescriptorWrite afterResetWrite =
+        DescriptorWrite::makeBuffer(0, DescriptorType::UniformBuffer, ubo, 0, 256);
+    TEST_CHECK(!device->updateDescriptorSet(set1, std::span{&afterResetWrite, 1}).hasValue());
+
+    // Allocation should succeed again after reset
+    auto setAfterReset = device->allocateDescriptorSet(poolHandle, layoutHandle);
+    TEST_CHECK(setAfterReset.hasValue());
+
+    // 6. Destruction Cleanup
+    device->destroyDescriptorPool(poolHandle);
+    // Allocated sets from destroyed pool are now invalid
+    TEST_CHECK(!device->updateDescriptorSet(setAfterReset.value(), std::span{&afterResetWrite, 1})
+                    .hasValue());
+
+    device->destroyPipelineLayout(pipeLayout);
+    device->destroyDescriptorSetLayout(layoutHandle);
+    device->destroySampler(smp);
+    device->destroyTexture(tex);
+    device->destroyBuffer(ubo);
+
+    return 0;
+}
+
 int main() {
     if (testGpuCapsQuery() != 0) {
         return 1;
@@ -961,6 +1185,9 @@ int main() {
         return 1;
     }
     if (testBufferReadAndTextureCopy() != 0) {
+        return 1;
+    }
+    if (testDescriptorLifecycleAndBinding() != 0) {
         return 1;
     }
     std::cout << "All Null RHI unit tests passed!\n";
