@@ -44,6 +44,7 @@ struct TextureSamplerDesc {
 
     Filter minFilter{Filter::Linear};
     Filter magFilter{Filter::Linear};
+    Filter mipmapMode{Filter::Linear};
     WrapMode wrapS{WrapMode::Repeat};
     WrapMode wrapT{WrapMode::Repeat};
 };
@@ -56,6 +57,8 @@ struct TextureInfo {
     TextureColorSpace colorSpace{TextureColorSpace::Linear};
     TextureSamplerDesc sampler{};
     int texCoordIndex{0};
+    float scale{1.0F};    ///< Scale factor for normal texture
+    float strength{1.0F}; ///< Strength factor for occlusion texture
     bool isPresent{false};
 };
 
@@ -63,22 +66,23 @@ struct TextureInfo {
 /// @brief Surface shading properties supporting standard glTF 2.0 PBR metallic-roughness workflow.
 struct Material {
     std::string name{"DefaultMaterial"};
-    Vec4 baseColor{1.0F, 1.0F, 1.0F, 1.0F};       // baseColorFactor
-    float roughness{0.5F};                         // roughnessFactor
-    float metallic{0.0F};                          // metallicFactor
+    Vec4 baseColor{1.0F, 1.0F, 1.0F, 1.0F}; // baseColorFactor
+    float roughness{0.5F};                  // roughnessFactor
+    float metallic{0.0F};                   // metallicFactor
     Vec3 emissiveFactor{0.0F, 0.0F, 0.0F};
     float alphaCutoff{0.5F};
     AlphaMode alphaMode{AlphaMode::Opaque};
+    bool doubleSided{false};
 
     // Textures with color space metadata
-    TextureInfo baseColorTexture{};                // sRGB
-    TextureInfo metallicRoughnessTexture{};        // Linear
-    TextureInfo normalTexture{};                   // Linear
-    TextureInfo occlusionTexture{};                // Linear
-    TextureInfo emissiveTexture{};                 // sRGB
+    TextureInfo baseColorTexture{};         // sRGB
+    TextureInfo metallicRoughnessTexture{}; // Linear
+    TextureInfo normalTexture{};            // Linear
+    TextureInfo occlusionTexture{};         // Linear
+    TextureInfo emissiveTexture{};          // sRGB
 
     // Backward-compatibility alias
-    AssetId textureAsset{};                        // references primary baseColorTexture
+    AssetId textureAsset{}; // references primary baseColorTexture
 
     [[nodiscard]] static Material createDefault() noexcept {
         return Material{
@@ -89,6 +93,7 @@ struct Material {
             .emissiveFactor = {0.0F, 0.0F, 0.0F},
             .alphaCutoff = 0.5F,
             .alphaMode = AlphaMode::Opaque,
+            .doubleSided = false,
             .baseColorTexture = {},
             .metallicRoughnessTexture = {},
             .normalTexture = {},

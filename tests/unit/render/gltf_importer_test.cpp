@@ -1,5 +1,6 @@
 /// @file gltf_importer_test.cpp
-/// @brief Comprehensive regression test suite for Milestone 8B.5 glTF 2.0 and GLB 3D asset import pipeline.
+/// @brief Comprehensive regression test suite for Milestone 8B.5 glTF 2.0 and GLB 3D asset import
+/// pipeline.
 
 #include "core/assert.h"
 #include "framework/scene_serializer.h"
@@ -23,7 +24,7 @@
 #define TEST_CHECK(cond)                                                                           \
     do {                                                                                           \
         if (!(cond)) {                                                                             \
-            std::cerr << "Assertion failed: " #cond " at " << __FILE__ << ":" << __LINE__         \
+            std::cerr << "Assertion failed: " #cond " at " << __FILE__ << ":" << __LINE__          \
                       << std::endl;                                                                \
             std::abort();                                                                          \
         }                                                                                          \
@@ -100,7 +101,8 @@ void testMissingExternalBuffer() {
 
 void testMissingTextureSafety() {
     // cube.glb references "textures/albedo_grid.png" which might not exist on disk in the test dir.
-    // The importer must safely import material metadata and texture URI without failing the mesh import.
+    // The importer must safely import material metadata and texture URI without failing the mesh
+    // import.
     auto res = eng::render::GltfImporter::importFromFile(kFixturesDir + "cube.glb");
     TEST_CHECK(res.hasValue());
     const auto& mesh = res.value();
@@ -312,6 +314,116 @@ void testNestedNodeTransformComposition() {
     std::cout << "[PASS] testNestedNodeTransformComposition\n";
 }
 
+void testMaterialFactorAndPropertyParsing() {
+    const std::string jsonGltf = R"({
+  "asset": {"version": "2.0"},
+  "materials": [
+    {
+      "name": "CustomPBR",
+      "pbrMetallicRoughness": {
+        "baseColorFactor": [0.5, 0.6, 0.7, 0.8],
+        "metallicFactor": 0.3,
+        "roughnessFactor": 0.4,
+        "baseColorTexture": {"index": 0, "texCoord": 1}
+      },
+      "normalTexture": {"index": 0, "scale": 1.5, "texCoord": 0},
+      "occlusionTexture": {"index": 0, "strength": 0.7, "texCoord": 1},
+      "emissiveFactor": [0.1, 0.2, 0.3],
+      "alphaMode": "MASK",
+      "alphaCutoff": 0.65,
+      "doubleSided": true
+    }
+  ],
+  "textures": [{"sampler": 0, "source": 0}],
+  "images": [{"uri": "test_texture.png"}],
+  "samplers": [{
+    "magFilter": 9728,
+    "minFilter": 9986,
+    "wrapS": 33071,
+    "wrapT": 33648
+  }],
+  "meshes": [
+    {
+      "primitives": [
+        {
+          "attributes": {"POSITION": 0},
+          "indices": 1,
+          "material": 0,
+          "mode": 4
+        }
+      ]
+    }
+  ],
+  "nodes": [{"mesh": 0}],
+  "scenes": [{"nodes": [0]}],
+  "accessors": [
+    {
+      "bufferView": 0,
+      "componentType": 5126,
+      "count": 3,
+      "type": "VEC3",
+      "max": [1.0, 1.0, 0.0],
+      "min": [0.0, 0.0, 0.0]
+    },
+    {
+      "bufferView": 1,
+      "componentType": 5123,
+      "count": 3,
+      "type": "SCALAR"
+    }
+  ],
+  "bufferViews": [
+    {"buffer": 0, "byteOffset": 0, "byteLength": 36},
+    {"buffer": 0, "byteOffset": 36, "byteLength": 6}
+  ],
+  "buffers": [
+    {
+      "byteLength": 42,
+      "uri": "data:application/octet-stream;base64,AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAABAAIA"
+    }
+  ]
+})";
+
+    auto res = eng::render::GltfImporter::importFromMemory(
+        jsonGltf.data(), jsonGltf.size(), "/assets/textures", "CustomMaterialMesh");
+    TEST_CHECK(res.hasValue());
+    const auto& mesh = res.value();
+    TEST_CHECK(!mesh.materials.empty());
+
+    const auto& mat = mesh.materials[0];
+    TEST_CHECK(mat.name == "CustomPBR");
+    TEST_CHECK(std::abs(mat.baseColor.x - 0.5F) < 1e-4F);
+    TEST_CHECK(std::abs(mat.baseColor.y - 0.6F) < 1e-4F);
+    TEST_CHECK(std::abs(mat.baseColor.z - 0.7F) < 1e-4F);
+    TEST_CHECK(std::abs(mat.baseColor.w - 0.8F) < 1e-4F);
+    TEST_CHECK(std::abs(mat.metallic - 0.3F) < 1e-4F);
+    TEST_CHECK(std::abs(mat.roughness - 0.4F) < 1e-4F);
+    TEST_CHECK(std::abs(mat.emissiveFactor.x - 0.1F) < 1e-4F);
+    TEST_CHECK(std::abs(mat.emissiveFactor.y - 0.2F) < 1e-4F);
+    TEST_CHECK(std::abs(mat.emissiveFactor.z - 0.3F) < 1e-4F);
+
+    TEST_CHECK(mat.alphaMode == eng::render::AlphaMode::Mask);
+    TEST_CHECK(std::abs(mat.alphaCutoff - 0.65F) < 1e-4F);
+    TEST_CHECK(mat.doubleSided == true);
+
+    TEST_CHECK(mat.baseColorTexture.isPresent);
+    TEST_CHECK(mat.baseColorTexture.texCoordIndex == 1);
+    TEST_CHECK(mat.normalTexture.isPresent);
+    TEST_CHECK(std::abs(mat.normalTexture.scale - 1.5F) < 1e-4F);
+    TEST_CHECK(mat.occlusionTexture.isPresent);
+    TEST_CHECK(std::abs(mat.occlusionTexture.strength - 0.7F) < 1e-4F);
+
+    // Sampler verification
+    const auto& smp = mat.baseColorTexture.sampler;
+    TEST_CHECK(smp.magFilter == eng::render::TextureSamplerDesc::Filter::Nearest);
+    TEST_CHECK(smp.minFilter == eng::render::TextureSamplerDesc::Filter::Nearest);
+    TEST_CHECK(smp.mipmapMode == eng::render::TextureSamplerDesc::Filter::Linear);
+    TEST_CHECK(smp.wrapS == eng::render::TextureSamplerDesc::WrapMode::ClampToEdge);
+    TEST_CHECK(smp.wrapT == eng::render::TextureSamplerDesc::WrapMode::MirroredRepeat);
+
+    std::cout << "[PASS] testMaterialFactorAndPropertyParsing\n";
+}
+
 // -----------------------------------------------------------------------------
 // Integration Tests (26 - 31)
 // -----------------------------------------------------------------------------
@@ -441,7 +553,8 @@ void testImportFailureLeavesAssetManagerUnchanged() {
 
     // Asset manager state must be 100% untouched
     TEST_CHECK(assetMgr.getAllMetadata().size() == initialCount);
-    TEST_CHECK(!assetMgr.isLoaded(eng::render::makeAssetIdFromPath(kFixturesDir + "invalid_json.gltf")));
+    TEST_CHECK(
+        !assetMgr.isLoaded(eng::render::makeAssetIdFromPath(kFixturesDir + "invalid_json.gltf")));
     std::cout << "[PASS] testImportFailureLeavesAssetManagerUnchanged\n";
 }
 
@@ -474,6 +587,7 @@ int main() {
 
     // Materials and transforms (19-25)
     testPbrMaterialProperties();
+    testMaterialFactorAndPropertyParsing();
     testTextureReferences();
     testTextureColorSpaceMetadata();
     testTranslationAndRotation();

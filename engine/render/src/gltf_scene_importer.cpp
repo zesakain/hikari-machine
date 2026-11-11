@@ -27,6 +27,8 @@
 #pragma GCC diagnostic pop
 #endif
 
+#include "gltf_internal.h"
+
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -100,10 +102,12 @@ struct CgltfGuard {
     return t;
 }
 
-[[nodiscard]] MeshData extractMeshGeometry(const cgltf_data* /*data*/, const cgltf_mesh* mesh,
-                                           const std::string& meshName) {
+[[nodiscard]] MeshData extractMeshGeometry(const cgltf_data* data, const cgltf_mesh* mesh,
+                                           const std::string& meshName,
+                                           std::string_view baseDir = "") {
     MeshData meshData{};
     meshData.name = meshName;
+    meshData.materials = detail::extractAllMaterials(data, baseDir);
 
     bool anyMissingNormals = false;
 
@@ -197,7 +201,12 @@ struct CgltfGuard {
         submesh.firstIndex = firstIndex;
         submesh.indexCount = static_cast<uint32_t>(meshData.indices.size() - firstIndex);
         submesh.vertexOffset = 0;
-        submesh.materialIndex = static_cast<uint32_t>(pIdx);
+        if (prim.material != nullptr) {
+            submesh.materialIndex =
+                static_cast<uint32_t>(cgltf_material_index(data, prim.material));
+        } else {
+            submesh.materialIndex = 0;
+        }
         meshData.submeshes.push_back(std::move(submesh));
     }
 
@@ -205,10 +214,6 @@ struct CgltfGuard {
         meshData.generateNormals();
     }
     meshData.recalculateBounds();
-
-    if (meshData.materials.empty()) {
-        meshData.materials.push_back(Material::createDefault());
-    }
 
     return meshData;
 }
@@ -313,6 +318,8 @@ GltfSceneImportResult GltfSceneImporter::importScene(const std::string& filePath
             .errorMessage = "glTF validation failed: invalid accessor ranges or corrupt mesh data"};
     }
 
+    const std::string baseDir = std::filesystem::path(filePath).parent_path().string();
+
     // Extract and register all meshes if an AssetManager was supplied
     for (cgltf_size m = 0; m < parsedData->meshes_count; ++m) {
         const auto* mesh = &parsedData->meshes[m];
@@ -320,7 +327,7 @@ GltfSceneImportResult GltfSceneImporter::importScene(const std::string& filePath
                                          ? std::string(mesh->name)
                                          : ("Mesh_" + std::to_string(m));
         const std::string meshUri = filePath + "#mesh_" + std::to_string(m);
-        MeshData meshData = extractMeshGeometry(parsedData, mesh, meshName);
+        MeshData meshData = extractMeshGeometry(parsedData, mesh, meshName, baseDir);
 
         if (assetManager != nullptr) {
             (void)assetManager->registerMesh(meshUri, std::move(meshData));
