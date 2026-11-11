@@ -122,8 +122,8 @@ Error mapCgltfResult(cgltf_result res) {
     }
 }
 
-Result<MeshData> processGltfData(cgltf_data* data, std::string_view baseDir,
-                                 std::string_view name) {
+Result<MeshData> processGltfData(cgltf_data* data, std::string_view baseDir, std::string_view name,
+                                 std::string_view sourcePath = "") {
     if (data == nullptr) {
         return Error(ErrorCode::InvalidArgument, "Null glTF data pointer");
     }
@@ -131,7 +131,7 @@ Result<MeshData> processGltfData(cgltf_data* data, std::string_view baseDir,
     MeshData meshData{std::string(name)};
 
     // 1. Extract Materials
-    meshData.materials = detail::extractAllMaterials(data, baseDir);
+    meshData.materials = detail::extractAllMaterials(data, baseDir, sourcePath);
 
     // 2. Discover Mesh Nodes and Transforms
     struct NodeMeshPair {
@@ -383,7 +383,7 @@ Result<MeshData> GltfImporter::importFromFile(std::string_view filePath) {
     const std::string baseDir = p.parent_path().string();
     const std::string stem = p.stem().string();
 
-    return processGltfData(parsedData, baseDir, stem);
+    return processGltfData(parsedData, baseDir, stem, filePath);
 }
 
 Result<MeshData> GltfImporter::importFromMemory(const void* data, size_t size,

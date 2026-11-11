@@ -424,6 +424,90 @@ void testMaterialFactorAndPropertyParsing() {
     std::cout << "[PASS] testMaterialFactorAndPropertyParsing\n";
 }
 
+void testEmbeddedImageDecodingAndResolution() {
+    const std::string jsonGltf = R"({
+  "asset": {"version": "2.0"},
+  "materials": [
+    {
+      "name": "EmbeddedMat",
+      "pbrMetallicRoughness": {
+        "baseColorTexture": {"index": 0}
+      }
+    }
+  ],
+  "textures": [{"source": 0}],
+  "images": [
+    {
+      "bufferView": 2,
+      "mimeType": "image/png"
+    }
+  ],
+  "meshes": [
+    {
+      "primitives": [
+        {
+          "attributes": {"POSITION": 0},
+          "indices": 1,
+          "material": 0,
+          "mode": 4
+        }
+      ]
+    }
+  ],
+  "nodes": [{"mesh": 0}],
+  "scenes": [{"nodes": [0]}],
+  "accessors": [
+    {
+      "bufferView": 0,
+      "componentType": 5126,
+      "count": 3,
+      "type": "VEC3",
+      "max": [1.0, 1.0, 0.0],
+      "min": [0.0, 0.0, 0.0]
+    },
+    {
+      "bufferView": 1,
+      "componentType": 5123,
+      "count": 3,
+      "type": "SCALAR"
+    }
+  ],
+  "bufferViews": [
+    {"buffer": 0, "byteOffset": 0, "byteLength": 36},
+    {"buffer": 0, "byteOffset": 36, "byteLength": 6},
+    {"buffer": 1, "byteOffset": 0, "byteLength": 67}
+  ],
+  "buffers": [
+    {
+      "byteLength": 42,
+      "uri": "data:application/octet-stream;base64,AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAABAAIA"
+    },
+    {
+      "byteLength": 67,
+      "uri": "data:application/octet-stream;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=="
+    }
+  ]
+})";
+
+    auto res = eng::render::GltfImporter::importFromMemory(jsonGltf.data(), jsonGltf.size(), "",
+                                                           "EmbeddedMesh");
+    if (!res.hasValue()) {
+        std::cerr << "importFromMemory failed: " << res.error().message << std::endl;
+    }
+    TEST_CHECK(res.hasValue());
+    const auto& mesh = res.value();
+    TEST_CHECK(!mesh.materials.empty());
+
+    const auto& mat = mesh.materials[0];
+    TEST_CHECK(mat.name == "EmbeddedMat");
+    TEST_CHECK(mat.baseColorTexture.isPresent);
+    TEST_CHECK(mat.baseColorTexture.uri == "embedded://image_0");
+    TEST_CHECK(mat.baseColorTexture.textureAsset ==
+               eng::render::makeAssetIdFromPath("embedded://image_0#srgb"));
+
+    std::cout << "[PASS] testEmbeddedImageDecodingAndResolution\n";
+}
+
 // -----------------------------------------------------------------------------
 // Integration Tests (26 - 31)
 // -----------------------------------------------------------------------------
@@ -588,6 +672,7 @@ int main() {
     // Materials and transforms (19-25)
     testPbrMaterialProperties();
     testMaterialFactorAndPropertyParsing();
+    testEmbeddedImageDecodingAndResolution();
     testTextureReferences();
     testTextureColorSpaceMetadata();
     testTranslationAndRotation();

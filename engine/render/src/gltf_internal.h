@@ -6,6 +6,8 @@
 #pragma once
 
 #include "core/error.h"
+#include "core/result.h"
+#include "render/image.h"
 #include "render/material.h"
 
 #ifndef CGLTF_H_INCLUDED__
@@ -85,9 +87,9 @@ namespace eng::render::detail {
     return desc;
 }
 
-[[nodiscard]] inline TextureInfo parseTextureInfo(const cgltf_texture_view& view,
-                                                  std::string_view baseDir,
-                                                  TextureColorSpace colorSpace) noexcept {
+[[nodiscard]] inline TextureInfo
+parseTextureInfo(const cgltf_data* data, const cgltf_texture_view& view, std::string_view baseDir,
+                 TextureColorSpace colorSpace, std::string_view sourcePath = "") noexcept {
     TextureInfo info{};
     if (view.texture == nullptr || view.texture->image == nullptr) {
         return info;
@@ -100,6 +102,8 @@ namespace eng::render::detail {
     info.strength = (view.scale != 0.0F) ? view.scale : 1.0F;
     info.sampler = parseSampler(view);
 
+    const std::string colorSuffix = (colorSpace == TextureColorSpace::sRGB) ? "#srgb" : "#linear";
+
     if (view.texture->image->uri != nullptr) {
         std::string rawUri = view.texture->image->uri;
         if (!baseDir.empty() && rawUri.rfind("data:", 0) != 0) {
@@ -109,17 +113,26 @@ namespace eng::render::detail {
             info.uri = std::move(rawUri);
         }
         std::replace(info.uri.begin(), info.uri.end(), '\\', '/');
-        info.textureAsset = makeAssetIdFromPath(info.uri);
+        info.textureAsset = makeAssetIdFromPath(info.uri + colorSuffix);
     } else if (view.texture->image->buffer_view != nullptr) {
-        info.uri = "embedded://image";
-        info.textureAsset = AssetId{1};
+        size_t imgIdx = 0;
+        if (data != nullptr && data->images != nullptr) {
+            imgIdx = cgltf_image_index(data, view.texture->image);
+        }
+        if (!sourcePath.empty()) {
+            info.uri = std::string(sourcePath) + "#image_" + std::to_string(imgIdx);
+        } else {
+            info.uri = "embedded://image_" + std::to_string(imgIdx);
+        }
+        info.textureAsset = makeAssetIdFromPath(info.uri + colorSuffix);
     }
 
     return info;
 }
 
-[[nodiscard]] inline Material parseMaterial(const cgltf_material& cgMat, std::string_view baseDir,
-                                            size_t index) noexcept {
+[[nodiscard]] inline Material parseMaterial(const cgltf_data* data, const cgltf_material& cgMat,
+                                            std::string_view baseDir, size_t index,
+                                            std::string_view sourcePath = "") noexcept {
     Material mat{};
     mat.name = (cgMat.name != nullptr && cgMat.name[0] != '\0')
                    ? std::string(cgMat.name)
@@ -133,30 +146,31 @@ namespace eng::render::detail {
         mat.roughness = pbr.roughness_factor;
         mat.metallic = pbr.metallic_factor;
 
-        mat.baseColorTexture =
-            parseTextureInfo(pbr.base_color_texture, baseDir, TextureColorSpace::sRGB);
+        mat.baseColorTexture = parseTextureInfo(data, pbr.base_color_texture, baseDir,
+                                                TextureColorSpace::sRGB, sourcePath);
         mat.textureAsset = mat.baseColorTexture.textureAsset;
-        mat.metallicRoughnessTexture =
-            parseTextureInfo(pbr.metallic_roughness_texture, baseDir, TextureColorSpace::Linear);
+        mat.metallicRoughnessTexture = parseTextureInfo(
+            data, pbr.metallic_roughness_texture, baseDir, TextureColorSpace::Linear, sourcePath);
     } else {
         mat.baseColor = Vec4{1.0F, 1.0F, 1.0F, 1.0F};
         mat.roughness = 1.0F;
         mat.metallic = 1.0F;
     }
 
-    mat.normalTexture = parseTextureInfo(cgMat.normal_texture, baseDir, TextureColorSpace::Linear);
+    mat.normalTexture = parseTextureInfo(data, cgMat.normal_texture, baseDir,
+                                         TextureColorSpace::Linear, sourcePath);
     if (mat.normalTexture.isPresent && cgMat.normal_texture.scale != 0.0F) {
         mat.normalTexture.scale = cgMat.normal_texture.scale;
     }
 
-    mat.occlusionTexture =
-        parseTextureInfo(cgMat.occlusion_texture, baseDir, TextureColorSpace::Linear);
+    mat.occlusionTexture = parseTextureInfo(data, cgMat.occlusion_texture, baseDir,
+                                            TextureColorSpace::Linear, sourcePath);
     if (mat.occlusionTexture.isPresent && cgMat.occlusion_texture.scale != 0.0F) {
         mat.occlusionTexture.strength = cgMat.occlusion_texture.scale;
     }
 
-    mat.emissiveTexture =
-        parseTextureInfo(cgMat.emissive_texture, baseDir, TextureColorSpace::sRGB);
+    mat.emissiveTexture = parseTextureInfo(data, cgMat.emissive_texture, baseDir,
+                                           TextureColorSpace::sRGB, sourcePath);
     mat.emissiveFactor =
         Vec3{cgMat.emissive_factor[0], cgMat.emissive_factor[1], cgMat.emissive_factor[2]};
 
@@ -172,8 +186,9 @@ namespace eng::render::detail {
     return mat;
 }
 
-[[nodiscard]] inline std::vector<Material> extractAllMaterials(const cgltf_data* data,
-                                                               std::string_view baseDir) noexcept {
+[[nodiscard]] inline std::vector<Material>
+extractAllMaterials(const cgltf_data* data, std::string_view baseDir,
+                    std::string_view sourcePath = "") noexcept {
     std::vector<Material> materials;
     if (data == nullptr || data->materials_count == 0) {
         materials.push_back(Material::createDefault());
@@ -182,9 +197,57 @@ namespace eng::render::detail {
 
     materials.reserve(data->materials_count);
     for (size_t i = 0; i < data->materials_count; ++i) {
-        materials.push_back(parseMaterial(data->materials[i], baseDir, i));
+        materials.push_back(parseMaterial(data, data->materials[i], baseDir, i, sourcePath));
     }
     return materials;
+}
+
+[[nodiscard]] inline Result<ImageData>
+extractEmbeddedImage(const cgltf_data* data, size_t imageIndex, bool srgb = true) noexcept {
+    if (data == nullptr) {
+        return Error(ErrorCode::InvalidArgument, "Null glTF data pointer");
+    }
+    if (imageIndex >= data->images_count) {
+        return Error(ErrorCode::InvalidArgument,
+                     "Image index out of bounds: " + std::to_string(imageIndex));
+    }
+    const auto& image = data->images[imageIndex];
+    if (image.buffer_view == nullptr) {
+        return Error(ErrorCode::InvalidArgument, "Image is not backed by a buffer_view");
+    }
+
+    const auto* bv = image.buffer_view;
+    const uint8_t* basePtr = static_cast<const uint8_t*>(
+        bv->data != nullptr ? bv->data : (bv->buffer != nullptr ? bv->buffer->data : nullptr));
+    if (basePtr == nullptr) {
+        return Error(ErrorCode::InvalidArgument, "glTF buffer_view has no loaded memory");
+    }
+
+    std::span<const uint8_t> bufferBytes(basePtr + bv->offset, bv->size);
+    return ImageDecoder::decodeFromMemory(bufferBytes, 4, srgb);
+}
+
+[[nodiscard]] inline Result<ImageData> extractEmbeddedImageFromFile(std::string_view filePath,
+                                                                    size_t imageIndex,
+                                                                    bool srgb = true) noexcept {
+    cgltf_options options{};
+    cgltf_data* parsedData = nullptr;
+    const std::string pathStr(filePath);
+
+    const cgltf_result parseRes = cgltf_parse_file(&options, pathStr.c_str(), &parsedData);
+    if (parseRes != cgltf_result_success) {
+        return Error(ErrorCode::InvalidArgument, "Failed to parse glTF for embedded image");
+    }
+
+    const cgltf_result loadRes = cgltf_load_buffers(&options, parsedData, pathStr.c_str());
+    if (loadRes != cgltf_result_success) {
+        cgltf_free(parsedData);
+        return Error(ErrorCode::InvalidArgument, "Failed to load glTF buffers for embedded image");
+    }
+
+    auto result = extractEmbeddedImage(parsedData, imageIndex, srgb);
+    cgltf_free(parsedData);
+    return result;
 }
 
 } // namespace eng::render::detail

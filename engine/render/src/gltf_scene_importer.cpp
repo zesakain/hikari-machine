@@ -104,10 +104,11 @@ struct CgltfGuard {
 
 [[nodiscard]] MeshData extractMeshGeometry(const cgltf_data* data, const cgltf_mesh* mesh,
                                            const std::string& meshName,
-                                           std::string_view baseDir = "") {
+                                           std::string_view baseDir = "",
+                                           std::string_view sourcePath = "") {
     MeshData meshData{};
     meshData.name = meshName;
-    meshData.materials = detail::extractAllMaterials(data, baseDir);
+    meshData.materials = detail::extractAllMaterials(data, baseDir, sourcePath);
 
     bool anyMissingNormals = false;
 
@@ -327,10 +328,28 @@ GltfSceneImportResult GltfSceneImporter::importScene(const std::string& filePath
                                          ? std::string(mesh->name)
                                          : ("Mesh_" + std::to_string(m));
         const std::string meshUri = filePath + "#mesh_" + std::to_string(m);
-        MeshData meshData = extractMeshGeometry(parsedData, mesh, meshName, baseDir);
+        MeshData meshData = extractMeshGeometry(parsedData, mesh, meshName, baseDir, filePath);
 
         if (assetManager != nullptr) {
             (void)assetManager->registerMesh(meshUri, std::move(meshData));
+        }
+    }
+
+    if (assetManager != nullptr && parsedData->images_count > 0) {
+        for (cgltf_size i = 0; i < parsedData->images_count; ++i) {
+            if (parsedData->images[i].buffer_view != nullptr) {
+                auto srgbRes = detail::extractEmbeddedImage(parsedData, i, true);
+                if (srgbRes.hasValue()) {
+                    const std::string srgbUri = filePath + "#image_" + std::to_string(i) + "#srgb";
+                    (void)assetManager->registerTexture(srgbUri, std::move(srgbRes.value()));
+                }
+                auto linearRes = detail::extractEmbeddedImage(parsedData, i, false);
+                if (linearRes.hasValue()) {
+                    const std::string linearUri =
+                        filePath + "#image_" + std::to_string(i) + "#linear";
+                    (void)assetManager->registerTexture(linearUri, std::move(linearRes.value()));
+                }
+            }
         }
     }
 
