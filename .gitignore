@@ -30,6 +30,9 @@ Testing/
 *.dll
 *.exe
 
+# External test assets
+test-assets/
+
 # Except 3D models in assets/
 !assets/**/*.obj
 
