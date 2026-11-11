@@ -118,6 +118,10 @@ add_executable(render_graph_test unit/render/render_graph_test.cpp)
 target_link_libraries(render_graph_test PRIVATE hikari::engine_render)
 add_test(NAME render_graph_test COMMAND render_graph_test)
 
+add_executable(image_decoder_test unit/render/image_decoder_test.cpp)
+target_link_libraries(image_decoder_test PRIVATE hikari::engine_render)
+add_test(NAME image_decoder_test COMMAND image_decoder_test)
+
 # Mesh Unit Tests
 add_executable(mesh_test unit/render/mesh_test.cpp)
 target_link_libraries(mesh_test PRIVATE hikari::engine_render hikari::engine_rhi)

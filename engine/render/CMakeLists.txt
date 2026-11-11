@@ -7,6 +7,7 @@ add_library(engine_render STATIC
     src/gltf_importer.cpp
     src/gltf_scene_importer.cpp
     src/gpu_mesh.cpp
+    src/image_decoder.cpp
     src/mesh.cpp
     src/mesh_component.cpp
     src/obj_importer.cpp
@@ -23,6 +24,7 @@ target_include_directories(engine_render
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
     SYSTEM PRIVATE
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/cgltf>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/stb>
 )
 
 target_link_libraries(engine_render
