@@ -22,6 +22,7 @@
 #include "core/result.h"
 #include "rhi/buffer.h"
 #include "rhi/command_list.h"
+#include "rhi/descriptor.h"
 #include "rhi/gpu_caps.h"
 #include "rhi/pipeline.h"
 #include "rhi/sampler.h"
@@ -29,6 +30,7 @@
 #include "rhi/texture.h"
 
 #include <memory>
+#include <span>
 
 namespace eng::rhi {
 
@@ -146,6 +148,70 @@ public:
 
     /// Releases a graphics pipeline state object and invalidates its generational handle.
     virtual void destroyGraphicsPipeline(PipelineHandle handle) = 0;
+
+    /// Creates a new descriptor set layout.
+    ///
+    /// @param desc Specification of binding indices, types, and stage visibility.
+    /// @return Generational handle to new descriptor set layout or error.
+    [[nodiscard]] virtual Result<DescriptorSetLayoutHandle>
+    createDescriptorSetLayout(const DescriptorSetLayoutDesc& desc) {
+        (void)desc;
+        return Error{.code = ErrorCode::NotSupported,
+                     .message = "Descriptor set layouts not implemented on this backend"};
+    }
+
+    /// Destroys a descriptor set layout and invalidates its generational handle.
+    virtual void destroyDescriptorSetLayout(DescriptorSetLayoutHandle handle) { (void)handle; }
+
+    /// Creates a descriptor pool with configured capacity budgets.
+    ///
+    /// @param desc Maximum set count and per-type allocation limits.
+    /// @return Generational handle to new descriptor pool or error.
+    [[nodiscard]] virtual Result<DescriptorPoolHandle>
+    createDescriptorPool(const DescriptorPoolDesc& desc) {
+        (void)desc;
+        return Error{.code = ErrorCode::NotSupported,
+                     .message = "Descriptor pools not implemented on this backend"};
+    }
+
+    /// Destroys a descriptor pool and automatically invalidates all allocated descriptor sets.
+    virtual void destroyDescriptorPool(DescriptorPoolHandle handle) { (void)handle; }
+
+    /// Resets all descriptor sets allocated from the pool, invalidating existing set handles.
+    ///
+    /// @param handle Descriptor pool to reset.
+    /// @return Result indicating success or error.
+    virtual Result<void> resetDescriptorPool(DescriptorPoolHandle handle) {
+        (void)handle;
+        return Error{.code = ErrorCode::NotSupported,
+                     .message = "resetDescriptorPool not implemented on this backend"};
+    }
+
+    /// Allocates a single descriptor set from a pool using the specified layout.
+    ///
+    /// @param pool Pool with available budget for the layout's required descriptors.
+    /// @param layout Layout defining the set's binding interface.
+    /// @return Generational handle to the allocated descriptor set or error.
+    [[nodiscard]] virtual Result<DescriptorSetHandle>
+    allocateDescriptorSet(DescriptorPoolHandle pool, DescriptorSetLayoutHandle layout) {
+        (void)pool;
+        (void)layout;
+        return Error{.code = ErrorCode::NotSupported,
+                     .message = "allocateDescriptorSet not implemented on this backend"};
+    }
+
+    /// Updates one or more descriptor binding slots on an allocated descriptor set.
+    ///
+    /// @param set Destination descriptor set.
+    /// @param writes Batched descriptor resource write descriptors.
+    /// @return Result indicating success or validation error.
+    virtual Result<void> updateDescriptorSet(DescriptorSetHandle set,
+                                             std::span<const DescriptorWrite> writes) {
+        (void)set;
+        (void)writes;
+        return Error{.code = ErrorCode::NotSupported,
+                     .message = "updateDescriptorSet not implemented on this backend"};
+    }
 
     /// Creates an independent command recording list.
     ///
