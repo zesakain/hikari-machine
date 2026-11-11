@@ -263,6 +263,14 @@ Result<PipelineLayoutHandle> NullDevice::createPipelineLayout(const PipelineLayo
         return valRes.error();
     }
 
+    for (const auto& layoutHandle : desc.descriptorSetLayoutHandles) {
+        if (!isDescriptorSetLayoutValid(layoutHandle)) {
+            return Error{.code = ErrorCode::HandleResolutionFailed,
+                         .message =
+                             "Invalid descriptor set layout handle in pipeline layout creation"};
+        }
+    }
+
     // Validate descriptor set bindings
     for (const auto& setDesc : desc.descriptorSetLayouts) {
         for (size_t i = 0; i < setDesc.bindings.size(); ++i) {
@@ -519,6 +527,293 @@ const uint8_t* NullDevice::getBufferData(BufferHandle handle) const noexcept {
 size_t NullDevice::getBufferSize(BufferHandle handle) const noexcept {
     const auto* slot = resolveBuffer(handle);
     return slot != nullptr ? slot->desc.sizeInBytes : 0;
+}
+
+Result<DescriptorSetLayoutHandle>
+NullDevice::createDescriptorSetLayout(const DescriptorSetLayoutDesc& desc) {
+    auto valRes = validateDescriptorSetLayoutDesc(desc);
+    if (!valRes.hasValue()) {
+        return valRes.error();
+    }
+
+    auto slotIndex = static_cast<uint32_t>(descriptorSetLayouts_.size());
+    for (size_t i = 0; i < descriptorSetLayouts_.size(); ++i) {
+        if (!descriptorSetLayouts_[i].alive) {
+            slotIndex = static_cast<uint32_t>(i);
+            break;
+        }
+    }
+
+    if (slotIndex == descriptorSetLayouts_.size()) {
+        DescriptorSetLayoutSlot newSlot{};
+        newSlot.desc = desc;
+        newSlot.generation = 1;
+        newSlot.alive = true;
+        descriptorSetLayouts_.push_back(std::move(newSlot));
+    } else {
+        auto& slot = descriptorSetLayouts_[slotIndex];
+        slot.desc = desc;
+        slot.alive = true;
+    }
+
+    return DescriptorSetLayoutHandle(
+        GenerationalHandle{slotIndex, descriptorSetLayouts_[slotIndex].generation});
+}
+
+void NullDevice::destroyDescriptorSetLayout(DescriptorSetLayoutHandle handle) {
+    if (isDescriptorSetLayoutValid(handle)) {
+        auto& slot = descriptorSetLayouts_[handle.index()];
+        slot.alive = false;
+        ++slot.generation;
+    }
+}
+
+Result<DescriptorPoolHandle> NullDevice::createDescriptorPool(const DescriptorPoolDesc& desc) {
+    auto valRes = validateDescriptorPoolDesc(desc);
+    if (!valRes.hasValue()) {
+        return valRes.error();
+    }
+
+    auto slotIndex = static_cast<uint32_t>(descriptorPools_.size());
+    for (size_t i = 0; i < descriptorPools_.size(); ++i) {
+        if (!descriptorPools_[i].alive) {
+            slotIndex = static_cast<uint32_t>(i);
+            break;
+        }
+    }
+
+    if (slotIndex == descriptorPools_.size()) {
+        DescriptorPoolSlot newSlot{};
+        newSlot.desc = desc;
+        newSlot.allocatedCount = 0;
+        newSlot.generation = 1;
+        newSlot.alive = true;
+        descriptorPools_.push_back(std::move(newSlot));
+    } else {
+        auto& slot = descriptorPools_[slotIndex];
+        slot.desc = desc;
+        slot.allocatedCount = 0;
+        slot.alive = true;
+    }
+
+    return DescriptorPoolHandle(
+        GenerationalHandle{slotIndex, descriptorPools_[slotIndex].generation});
+}
+
+void NullDevice::destroyDescriptorPool(DescriptorPoolHandle handle) {
+    if (isDescriptorPoolValid(handle)) {
+        auto& poolSlot = descriptorPools_[handle.index()];
+        poolSlot.alive = false;
+        ++poolSlot.generation;
+
+        for (auto& setSlot : descriptorSets_) {
+            if (setSlot.alive && setSlot.pool == handle) {
+                setSlot.alive = false;
+                ++setSlot.generation;
+            }
+        }
+    }
+}
+
+Result<void> NullDevice::resetDescriptorPool(DescriptorPoolHandle handle) {
+    if (!isDescriptorPoolValid(handle)) {
+        return Error{.code = ErrorCode::HandleResolutionFailed,
+                     .message = "Invalid descriptor pool handle in resetDescriptorPool"};
+    }
+
+    auto& poolSlot = descriptorPools_[handle.index()];
+    poolSlot.allocatedCount = 0;
+
+    for (auto& setSlot : descriptorSets_) {
+        if (setSlot.alive && setSlot.pool == handle) {
+            setSlot.alive = false;
+            ++setSlot.generation;
+        }
+    }
+
+    return Result<void>::success();
+}
+
+Result<DescriptorSetHandle> NullDevice::allocateDescriptorSet(DescriptorPoolHandle pool,
+                                                              DescriptorSetLayoutHandle layout) {
+    if (!isDescriptorPoolValid(pool)) {
+        return Error{.code = ErrorCode::HandleResolutionFailed,
+                     .message = "Invalid descriptor pool handle in allocateDescriptorSet"};
+    }
+    if (!isDescriptorSetLayoutValid(layout)) {
+        return Error{.code = ErrorCode::HandleResolutionFailed,
+                     .message = "Invalid descriptor set layout handle in allocateDescriptorSet"};
+    }
+
+    auto& poolSlot = descriptorPools_[pool.index()];
+    if (poolSlot.allocatedCount >= poolSlot.desc.maxSets) {
+        return Error{.code = ErrorCode::OutOfMemory,
+                     .message = "Descriptor pool capacity exhausted"};
+    }
+
+    auto slotIndex = static_cast<uint32_t>(descriptorSets_.size());
+    for (size_t i = 0; i < descriptorSets_.size(); ++i) {
+        if (!descriptorSets_[i].alive) {
+            slotIndex = static_cast<uint32_t>(i);
+            break;
+        }
+    }
+
+    if (slotIndex == descriptorSets_.size()) {
+        DescriptorSetSlot newSlot{};
+        newSlot.pool = pool;
+        newSlot.layout = layout;
+        newSlot.generation = 1;
+        newSlot.alive = true;
+        descriptorSets_.push_back(std::move(newSlot));
+    } else {
+        auto& slot = descriptorSets_[slotIndex];
+        slot.pool = pool;
+        slot.layout = layout;
+        slot.writes.clear();
+        slot.alive = true;
+    }
+
+    ++poolSlot.allocatedCount;
+    return DescriptorSetHandle(
+        GenerationalHandle{slotIndex, descriptorSets_[slotIndex].generation});
+}
+
+Result<void> NullDevice::updateDescriptorSet(DescriptorSetHandle set,
+                                             std::span<const DescriptorWrite> writes) {
+    if (!isDescriptorSetValid(set)) {
+        return Error{.code = ErrorCode::HandleResolutionFailed,
+                     .message = "Invalid descriptor set handle in updateDescriptorSet"};
+    }
+
+    auto& setSlot = descriptorSets_[set.index()];
+    const auto* layoutDesc = getDescriptorSetLayoutDesc(setSlot.layout);
+    if (layoutDesc == nullptr) {
+        return Error{.code = ErrorCode::HandleResolutionFailed,
+                     .message = "Descriptor set has invalid layout reference"};
+    }
+
+    for (const auto& write : writes) {
+        const DescriptorBindingDesc* matchedBinding = nullptr;
+        for (const auto& b : layoutDesc->bindings) {
+            if (b.binding == write.dstBinding) {
+                matchedBinding = &b;
+                break;
+            }
+        }
+        if (matchedBinding == nullptr) {
+            return Error{.code = ErrorCode::InvalidArgument,
+                         .message = "Descriptor write binding index not declared in layout"};
+        }
+        if (matchedBinding->descriptorType != write.descriptorType) {
+            return Error{.code = ErrorCode::InvalidArgument,
+                         .message = "Descriptor write type does not match layout binding type"};
+        }
+
+        if (write.descriptorType == DescriptorType::UniformBuffer ||
+            write.descriptorType == DescriptorType::StorageBuffer) {
+            if (write.bufferInfos.empty()) {
+                return Error{.code = ErrorCode::InvalidArgument,
+                             .message = "Descriptor buffer write has no buffer infos"};
+            }
+            for (const auto& bufInfo : write.bufferInfos) {
+                if (!bufInfo.buffer.isValid() || !isBufferValid(bufInfo.buffer)) {
+                    return Error{.code = ErrorCode::HandleResolutionFailed,
+                                 .message = "Invalid buffer handle in descriptor buffer write"};
+                }
+                const size_t bufSize = getBufferSize(bufInfo.buffer);
+                if (bufInfo.offset > bufSize) {
+                    return Error{.code = ErrorCode::OutOfBounds,
+                                 .message = "Descriptor buffer offset exceeds buffer size"};
+                }
+                if (bufInfo.range > 0 && (bufInfo.offset + bufInfo.range > bufSize)) {
+                    return Error{.code = ErrorCode::OutOfBounds,
+                                 .message = "Descriptor buffer range exceeds buffer size"};
+                }
+            }
+        } else if (write.descriptorType == DescriptorType::CombinedImageSampler) {
+            if (write.imageInfos.empty()) {
+                return Error{.code = ErrorCode::InvalidArgument,
+                             .message = "Descriptor image write has no image infos"};
+            }
+            for (const auto& imgInfo : write.imageInfos) {
+                if (!imgInfo.texture.isValid() || !isTextureValid(imgInfo.texture)) {
+                    return Error{.code = ErrorCode::HandleResolutionFailed,
+                                 .message = "Invalid texture handle in CombinedImageSampler write"};
+                }
+                if (!imgInfo.sampler.isValid() || !isSamplerValid(imgInfo.sampler)) {
+                    return Error{.code = ErrorCode::HandleResolutionFailed,
+                                 .message = "Invalid sampler handle in CombinedImageSampler write"};
+                }
+            }
+        } else if (write.descriptorType == DescriptorType::SampledImage) {
+            if (write.imageInfos.empty()) {
+                return Error{.code = ErrorCode::InvalidArgument,
+                             .message = "Descriptor image write has no image infos"};
+            }
+            for (const auto& imgInfo : write.imageInfos) {
+                if (!imgInfo.texture.isValid() || !isTextureValid(imgInfo.texture)) {
+                    return Error{.code = ErrorCode::HandleResolutionFailed,
+                                 .message = "Invalid texture handle in SampledImage write"};
+                }
+            }
+        } else if (write.descriptorType == DescriptorType::Sampler) {
+            if (write.imageInfos.empty()) {
+                return Error{.code = ErrorCode::InvalidArgument,
+                             .message = "Descriptor image write has no image infos"};
+            }
+            for (const auto& imgInfo : write.imageInfos) {
+                if (!imgInfo.sampler.isValid() || !isSamplerValid(imgInfo.sampler)) {
+                    return Error{.code = ErrorCode::HandleResolutionFailed,
+                                 .message = "Invalid sampler handle in Sampler write"};
+                }
+            }
+        }
+
+        setSlot.writes.push_back(write);
+    }
+
+    return Result<void>::success();
+}
+
+bool NullDevice::isDescriptorSetLayoutValid(DescriptorSetLayoutHandle handle) const noexcept {
+    if (handle.index() < descriptorSetLayouts_.size()) {
+        const auto& slot = descriptorSetLayouts_[handle.index()];
+        return slot.alive && slot.generation == handle.generation();
+    }
+    return false;
+}
+
+bool NullDevice::isDescriptorPoolValid(DescriptorPoolHandle handle) const noexcept {
+    if (handle.index() < descriptorPools_.size()) {
+        const auto& slot = descriptorPools_[handle.index()];
+        return slot.alive && slot.generation == handle.generation();
+    }
+    return false;
+}
+
+bool NullDevice::isDescriptorSetValid(DescriptorSetHandle handle) const noexcept {
+    if (handle.index() < descriptorSets_.size()) {
+        const auto& slot = descriptorSets_[handle.index()];
+        return slot.alive && slot.generation == handle.generation();
+    }
+    return false;
+}
+
+const DescriptorSetLayoutDesc*
+NullDevice::getDescriptorSetLayoutDesc(DescriptorSetLayoutHandle handle) const noexcept {
+    if (isDescriptorSetLayoutValid(handle)) {
+        return &descriptorSetLayouts_[handle.index()].desc;
+    }
+    return nullptr;
+}
+
+const DescriptorPoolDesc*
+NullDevice::getDescriptorPoolDesc(DescriptorPoolHandle handle) const noexcept {
+    if (isDescriptorPoolValid(handle)) {
+        return &descriptorPools_[handle.index()].desc;
+    }
+    return nullptr;
 }
 
 NullDevice::BufferSlot* NullDevice::resolveBuffer(BufferHandle handle) noexcept {

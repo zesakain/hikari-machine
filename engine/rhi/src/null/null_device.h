@@ -66,6 +66,27 @@ public:
         bool alive{false};
     };
 
+    struct DescriptorSetLayoutSlot {
+        DescriptorSetLayoutDesc desc{};
+        uint32_t generation{1};
+        bool alive{false};
+    };
+
+    struct DescriptorPoolSlot {
+        DescriptorPoolDesc desc{};
+        uint32_t allocatedCount{0};
+        uint32_t generation{1};
+        bool alive{false};
+    };
+
+    struct DescriptorSetSlot {
+        DescriptorPoolHandle pool{};
+        DescriptorSetLayoutHandle layout{};
+        std::vector<DescriptorWrite> writes;
+        uint32_t generation{1};
+        bool alive{false};
+    };
+
     NullDevice() noexcept;
     ~NullDevice() noexcept override = default;
 
@@ -101,6 +122,20 @@ public:
     createGraphicsPipeline(const GraphicsPipelineDesc& desc) override;
     void destroyGraphicsPipeline(PipelineHandle handle) override;
 
+    [[nodiscard]] Result<DescriptorSetLayoutHandle>
+    createDescriptorSetLayout(const DescriptorSetLayoutDesc& desc) override;
+    void destroyDescriptorSetLayout(DescriptorSetLayoutHandle handle) override;
+
+    [[nodiscard]] Result<DescriptorPoolHandle>
+    createDescriptorPool(const DescriptorPoolDesc& desc) override;
+    void destroyDescriptorPool(DescriptorPoolHandle handle) override;
+    Result<void> resetDescriptorPool(DescriptorPoolHandle handle) override;
+
+    [[nodiscard]] Result<DescriptorSetHandle>
+    allocateDescriptorSet(DescriptorPoolHandle pool, DescriptorSetLayoutHandle layout) override;
+    Result<void> updateDescriptorSet(DescriptorSetHandle set,
+                                     std::span<const DescriptorWrite> writes) override;
+
     [[nodiscard]] Result<std::unique_ptr<RhiCommandList>> createCommandList() override;
     Result<void> submit(RhiCommandList* commandList) override;
     void waitIdle() override;
@@ -112,6 +147,13 @@ public:
     [[nodiscard]] bool isShaderValid(ShaderHandle handle) const noexcept;
     [[nodiscard]] bool isPipelineLayoutValid(PipelineLayoutHandle handle) const noexcept;
     [[nodiscard]] bool isPipelineValid(PipelineHandle handle) const noexcept;
+    [[nodiscard]] bool isDescriptorSetLayoutValid(DescriptorSetLayoutHandle handle) const noexcept;
+    [[nodiscard]] bool isDescriptorPoolValid(DescriptorPoolHandle handle) const noexcept;
+    [[nodiscard]] bool isDescriptorSetValid(DescriptorSetHandle handle) const noexcept;
+    [[nodiscard]] const DescriptorSetLayoutDesc*
+    getDescriptorSetLayoutDesc(DescriptorSetLayoutHandle handle) const noexcept;
+    [[nodiscard]] const DescriptorPoolDesc*
+    getDescriptorPoolDesc(DescriptorPoolHandle handle) const noexcept;
     [[nodiscard]] const uint8_t* getBufferData(BufferHandle handle) const noexcept;
     [[nodiscard]] size_t getBufferSize(BufferHandle handle) const noexcept;
     [[nodiscard]] const ShaderDesc* getShaderDesc(ShaderHandle handle) const noexcept;
@@ -131,6 +173,9 @@ private:
     std::vector<ShaderSlot> shaders_;
     std::vector<PipelineLayoutSlot> pipelineLayouts_;
     std::vector<PipelineSlot> pipelines_;
+    std::vector<DescriptorSetLayoutSlot> descriptorSetLayouts_;
+    std::vector<DescriptorPoolSlot> descriptorPools_;
+    std::vector<DescriptorSetSlot> descriptorSets_;
     uint32_t submittedCount_{0};
 };
 
