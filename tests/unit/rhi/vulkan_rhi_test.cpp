@@ -1349,6 +1349,74 @@ static int testVulkanDescriptorLifecycleAndBinding() {
     return 0;
 }
 
+static int testVulkanTextureTransfersAndLayoutTransitions() {
+    VulkanDeviceDesc devDesc{.windowHandle = nullptr, .enableValidation = true};
+    auto devRes = createVulkanDevice(devDesc);
+    if (!devRes.hasValue()) {
+        std::cout << "Vulkan device unavailable; skipping texture transfers test\n";
+        return 0;
+    }
+    auto device = std::move(devRes.value());
+
+    const uint32_t width = 16;
+    const uint32_t height = 16;
+    const size_t byteSize = width * height * 4;
+
+    TextureDesc texDesc{
+        .type = TextureType::Texture2D,
+        .format = TextureFormat::RGBA8_UNORM,
+        .width = width,
+        .height = height,
+        .depth = 1,
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .usage = TextureUsageFlags::Sampled | TextureUsageFlags::TransferDst,
+        .debugName = "VulkanTransferTestTexture",
+    };
+    auto texRes = device->createTexture(texDesc);
+    TEST_CHECK(texRes.hasValue());
+    TextureHandle tex = texRes.value();
+
+    BufferDesc bufDesc{
+        .sizeInBytes = byteSize,
+        .usage = BufferUsageFlags::TransferSrc,
+        .memoryUsage = MemoryUsage::CpuToGpu,
+        .debugName = "VulkanTransferStagingBuffer",
+    };
+    auto bufRes = device->createBuffer(bufDesc);
+    TEST_CHECK(bufRes.hasValue());
+    BufferHandle buf = bufRes.value();
+
+    std::vector<uint8_t> sampleData(byteSize, 0x55);
+    TEST_CHECK(device->writeBuffer(buf, 0, sampleData.data(), byteSize).hasValue());
+
+    auto cmdRes = device->createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto cmd = std::move(cmdRes.value());
+
+    cmd->begin();
+    cmd->transitionTextureLayout(tex, TextureLayout::Undefined, TextureLayout::TransferDst, 0, 1, 0,
+                                 1);
+    cmd->copyBufferToTexture(buf, tex, 0, 0, 0);
+    cmd->transitionTextureLayout(tex, TextureLayout::TransferDst, TextureLayout::ShaderReadOnly, 0,
+                                 1, 0, 1);
+
+    // Also verify updateTexture works end-to-end
+    std::vector<uint8_t> updateData(byteSize, 0xAA);
+    cmd->updateTexture(tex, updateData.data(), updateData.size(), 0, 0);
+    cmd->end();
+
+    auto submitRes = device->submit(cmd.get());
+    TEST_CHECK(submitRes.hasValue());
+    device->waitIdle();
+
+    device->destroyBuffer(buf);
+    device->destroyTexture(tex);
+
+    std::cout << "Vulkan texture transfers and layout transitions verified!\n";
+    return 0;
+}
+
 int main() {
     std::cout << "Running Vulkan RHI Tests...\n";
 
@@ -1417,6 +1485,9 @@ int main() {
         return 1;
     }
     if (testVulkanDescriptorLifecycleAndBinding() != 0) {
+        return 1;
+    }
+    if (testVulkanTextureTransfersAndLayoutTransitions() != 0) {
         return 1;
     }
 

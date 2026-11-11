@@ -6,6 +6,8 @@
 #include "core/assert.h"
 #include "null_device.h"
 
+#include <cstring>
+
 namespace eng::rhi {
 
 NullCommandList::NullCommandList(NullDevice& device) noexcept : device_(device) {}
@@ -270,6 +272,57 @@ void NullCommandList::copyTextureToBuffer(TextureHandle srcTexture, BufferHandle
     ENG_ASSERT(state_ == State::Recording, "copyTextureToBuffer called outside begin()/end()");
     if (device_.isTextureValid(srcTexture) && device_.isBufferValid(dstBuffer)) {
         ++copyCount_;
+    }
+}
+
+void NullCommandList::copyBufferToTexture(BufferHandle srcBuffer, TextureHandle dstTexture,
+                                          size_t bufferOffset, uint32_t mipLevel,
+                                          uint32_t arrayLayer) {
+    ENG_ASSERT(state_ == State::Recording, "copyBufferToTexture called outside begin()/end()");
+    if (device_.isBufferValid(srcBuffer) && device_.isTextureValid(dstTexture)) {
+        copyBufferToTextureCommands_.push_back(CopyBufferToTextureCmd{
+            .srcBuffer = srcBuffer,
+            .dstTexture = dstTexture,
+            .bufferOffset = bufferOffset,
+            .mipLevel = mipLevel,
+            .arrayLayer = arrayLayer,
+        });
+        ++copyCount_;
+    }
+}
+
+void NullCommandList::transitionTextureLayout(TextureHandle texture, TextureLayout oldLayout,
+                                              TextureLayout newLayout, uint32_t baseMipLevel,
+                                              uint32_t mipLevelCount, uint32_t baseArrayLayer,
+                                              uint32_t arrayLayerCount) {
+    ENG_ASSERT(state_ == State::Recording, "transitionTextureLayout called outside begin()/end()");
+    if (device_.isTextureValid(texture)) {
+        transitionTextureLayoutCommands_.push_back(TransitionTextureLayoutCmd{
+            .texture = texture,
+            .oldLayout = oldLayout,
+            .newLayout = newLayout,
+            .baseMipLevel = baseMipLevel,
+            .mipLevelCount = mipLevelCount,
+            .baseArrayLayer = baseArrayLayer,
+            .arrayLayerCount = arrayLayerCount,
+        });
+    }
+}
+
+void NullCommandList::updateTexture(TextureHandle dst, const void* data, size_t size,
+                                    uint32_t mipLevel, uint32_t arrayLayer) {
+    ENG_ASSERT(state_ == State::Recording, "updateTexture called outside begin()/end()");
+    if (device_.isTextureValid(dst)) {
+        UpdateTextureCmd cmd{};
+        cmd.dst = dst;
+        cmd.mipLevel = mipLevel;
+        cmd.arrayLayer = arrayLayer;
+        if (data != nullptr && size > 0) {
+            cmd.data.resize(size);
+            std::memcpy(cmd.data.data(), data, size);
+        }
+        updateTextureCommands_.push_back(std::move(cmd));
+        ++updateCount_;
     }
 }
 

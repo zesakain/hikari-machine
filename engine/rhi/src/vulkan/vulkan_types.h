@@ -115,6 +115,31 @@ namespace eng::rhi::vk {
     return vkFlags;
 }
 
+/// Converts TextureLayout to VkImageLayout.
+[[nodiscard]] constexpr VkImageLayout toVkImageLayout(TextureLayout layout) noexcept {
+    switch (layout) {
+    case TextureLayout::Undefined:
+        return VK_IMAGE_LAYOUT_UNDEFINED;
+    case TextureLayout::General:
+        return VK_IMAGE_LAYOUT_GENERAL;
+    case TextureLayout::ColorAttachment:
+        return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    case TextureLayout::DepthStencilAttachment:
+        return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    case TextureLayout::DepthStencilReadOnly:
+        return VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+    case TextureLayout::ShaderReadOnly:
+        return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    case TextureLayout::TransferSrc:
+        return VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    case TextureLayout::TransferDst:
+        return VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    case TextureLayout::Present:
+        return VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    }
+    return VK_IMAGE_LAYOUT_UNDEFINED;
+}
+
 /// Converts Filter to VkFilter.
 [[nodiscard]] constexpr VkFilter toVkFilter(Filter filter) noexcept {
     return (filter == Filter::Nearest) ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;

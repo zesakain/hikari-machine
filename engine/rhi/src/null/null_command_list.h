@@ -97,6 +97,31 @@ public:
         std::vector<uint32_t> dynamicOffsets;
     };
 
+    struct TransitionTextureLayoutCmd {
+        TextureHandle texture{};
+        TextureLayout oldLayout{TextureLayout::Undefined};
+        TextureLayout newLayout{TextureLayout::Undefined};
+        uint32_t baseMipLevel{0};
+        uint32_t mipLevelCount{1};
+        uint32_t baseArrayLayer{0};
+        uint32_t arrayLayerCount{1};
+    };
+
+    struct CopyBufferToTextureCmd {
+        BufferHandle srcBuffer{};
+        TextureHandle dstTexture{};
+        size_t bufferOffset{0};
+        uint32_t mipLevel{0};
+        uint32_t arrayLayer{0};
+    };
+
+    struct UpdateTextureCmd {
+        TextureHandle dst{};
+        std::vector<uint8_t> data{};
+        uint32_t mipLevel{0};
+        uint32_t arrayLayer{0};
+    };
+
     explicit NullCommandList(NullDevice& device) noexcept;
     ~NullCommandList() noexcept override = default;
 
@@ -135,6 +160,15 @@ public:
     void copyBuffer(BufferHandle src, BufferHandle dst, size_t srcOffset, size_t dstOffset,
                     size_t size) override;
     void copyTextureToBuffer(TextureHandle srcTexture, BufferHandle dstBuffer) override;
+    void copyBufferToTexture(BufferHandle srcBuffer, TextureHandle dstTexture,
+                             size_t bufferOffset = 0, uint32_t mipLevel = 0,
+                             uint32_t arrayLayer = 0) override;
+    void transitionTextureLayout(TextureHandle texture, TextureLayout oldLayout,
+                                 TextureLayout newLayout, uint32_t baseMipLevel = 0,
+                                 uint32_t mipLevelCount = 1, uint32_t baseArrayLayer = 0,
+                                 uint32_t arrayLayerCount = 1) override;
+    void updateTexture(TextureHandle dst, const void* data, size_t size, uint32_t mipLevel = 0,
+                       uint32_t arrayLayer = 0) override;
     void updateBuffer(BufferHandle dst, size_t dstOffset, const void* data, size_t size) override;
 
     [[nodiscard]] State getState() const noexcept { return state_; }
@@ -175,6 +209,17 @@ public:
     [[nodiscard]] const std::vector<UpdateBufferCmd>& getUpdateCommands() const noexcept {
         return updateCommands_;
     }
+    [[nodiscard]] const std::vector<TransitionTextureLayoutCmd>&
+    getTransitionTextureLayoutCommands() const noexcept {
+        return transitionTextureLayoutCommands_;
+    }
+    [[nodiscard]] const std::vector<CopyBufferToTextureCmd>&
+    getCopyBufferToTextureCommands() const noexcept {
+        return copyBufferToTextureCommands_;
+    }
+    [[nodiscard]] const std::vector<UpdateTextureCmd>& getUpdateTextureCommands() const noexcept {
+        return updateTextureCommands_;
+    }
 
 private:
     NullDevice& device_;
@@ -207,6 +252,9 @@ private:
     std::vector<CopyBufferCmd> copyCommands_;
     std::vector<UpdateBufferCmd> updateCommands_;
     std::vector<DescriptorSetBinding> descriptorSetBindings_;
+    std::vector<TransitionTextureLayoutCmd> transitionTextureLayoutCommands_;
+    std::vector<CopyBufferToTextureCmd> copyBufferToTextureCommands_;
+    std::vector<UpdateTextureCmd> updateTextureCommands_;
 
     uint32_t pipelineBindCount_{0};
     uint32_t bindDescriptorSetsCount_{0};

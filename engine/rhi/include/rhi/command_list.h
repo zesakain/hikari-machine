@@ -141,6 +141,61 @@ public:
         (void)dstBuffer;
     }
 
+    /// Records a transfer from a buffer to a texture subresource level.
+    ///
+    /// @param srcBuffer Valid handle of the source buffer.
+    /// @param dstTexture Valid handle of the destination texture.
+    /// @param bufferOffset Byte offset within the source buffer.
+    /// @param mipLevel Target mip level (0-based).
+    /// @param arrayLayer Target array layer (0-based).
+    virtual void copyBufferToTexture(BufferHandle srcBuffer, TextureHandle dstTexture,
+                                     size_t bufferOffset = 0, uint32_t mipLevel = 0,
+                                     uint32_t arrayLayer = 0) {
+        (void)srcBuffer;
+        (void)dstTexture;
+        (void)bufferOffset;
+        (void)mipLevel;
+        (void)arrayLayer;
+    }
+
+    /// Records an image memory barrier transitioning a texture subresource range between layouts.
+    ///
+    /// @param texture Valid handle of the target texture.
+    /// @param oldLayout Previous texture layout state.
+    /// @param newLayout Target texture layout state.
+    /// @param baseMipLevel Starting mip level for the transition.
+    /// @param mipLevelCount Number of mip levels to transition.
+    /// @param baseArrayLayer Starting array layer for the transition.
+    /// @param arrayLayerCount Number of array layers to transition.
+    virtual void transitionTextureLayout(TextureHandle texture, TextureLayout oldLayout,
+                                         TextureLayout newLayout, uint32_t baseMipLevel = 0,
+                                         uint32_t mipLevelCount = 1, uint32_t baseArrayLayer = 0,
+                                         uint32_t arrayLayerCount = 1) {
+        (void)texture;
+        (void)oldLayout;
+        (void)newLayout;
+        (void)baseMipLevel;
+        (void)mipLevelCount;
+        (void)baseArrayLayer;
+        (void)arrayLayerCount;
+    }
+
+    /// Updates a destination texture level directly with host CPU memory inline.
+    ///
+    /// @param dst Valid handle of the destination texture.
+    /// @param data Pointer to host CPU pixel data.
+    /// @param size Total byte size of the pixel data to upload.
+    /// @param mipLevel Destination mip level (0-based).
+    /// @param arrayLayer Destination array layer (0-based).
+    virtual void updateTexture(TextureHandle dst, const void* data, size_t size,
+                               uint32_t mipLevel = 0, uint32_t arrayLayer = 0) {
+        (void)dst;
+        (void)data;
+        (void)size;
+        (void)mipLevel;
+        (void)arrayLayer;
+    }
+
     /// Updates a destination buffer with host CPU data inline.
     virtual void updateBuffer(BufferHandle dst, size_t dstOffset, const void* data,
                               size_t size) = 0;

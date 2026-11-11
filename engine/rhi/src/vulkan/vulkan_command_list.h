@@ -65,6 +65,15 @@ public:
     void copyBuffer(BufferHandle src, BufferHandle dst, size_t srcOffset, size_t dstOffset,
                     size_t size) override;
     void copyTextureToBuffer(TextureHandle srcTexture, BufferHandle dstBuffer) override;
+    void copyBufferToTexture(BufferHandle srcBuffer, TextureHandle dstTexture,
+                             size_t bufferOffset = 0, uint32_t mipLevel = 0,
+                             uint32_t arrayLayer = 0) override;
+    void transitionTextureLayout(TextureHandle texture, TextureLayout oldLayout,
+                                 TextureLayout newLayout, uint32_t baseMipLevel = 0,
+                                 uint32_t mipLevelCount = 1, uint32_t baseArrayLayer = 0,
+                                 uint32_t arrayLayerCount = 1) override;
+    void updateTexture(TextureHandle dst, const void* data, size_t size, uint32_t mipLevel = 0,
+                       uint32_t arrayLayer = 0) override;
     void updateBuffer(BufferHandle dst, size_t dstOffset, const void* data, size_t size) override;
 
     [[nodiscard]] NativeCommandListHandles getNativeCommandListHandles() const noexcept override;

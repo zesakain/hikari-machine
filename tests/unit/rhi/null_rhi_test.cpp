@@ -1150,6 +1150,67 @@ static int testDescriptorLifecycleAndBinding() {
     return 0;
 }
 
+static int testTextureTransfersAndLayoutTransitions() {
+    auto devRes = createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto device = std::move(devRes.value());
+
+    const uint32_t width = 16;
+    const uint32_t height = 16;
+    const size_t byteSize = width * height * 4;
+
+    TextureDesc texDesc{
+        .type = TextureType::Texture2D,
+        .format = TextureFormat::RGBA8_UNORM,
+        .width = width,
+        .height = height,
+        .depth = 1,
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .usage = TextureUsageFlags::Sampled | TextureUsageFlags::TransferDst,
+        .debugName = "TestTexture",
+    };
+    auto texRes = device->createTexture(texDesc);
+    TEST_CHECK(texRes.hasValue());
+    TextureHandle tex = texRes.value();
+
+    BufferDesc bufDesc{
+        .sizeInBytes = byteSize,
+        .usage = BufferUsageFlags::TransferSrc,
+        .memoryUsage = MemoryUsage::CpuToGpu,
+        .debugName = "TestStagingBuffer",
+    };
+    auto bufRes = device->createBuffer(bufDesc);
+    TEST_CHECK(bufRes.hasValue());
+    BufferHandle buf = bufRes.value();
+
+    auto cmdRes = device->createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto cmd = std::move(cmdRes.value());
+
+    cmd->begin();
+    cmd->transitionTextureLayout(tex, TextureLayout::Undefined, TextureLayout::TransferDst, 0, 1, 0,
+                                 1);
+    cmd->copyBufferToTexture(buf, tex, 0, 0, 0);
+    cmd->transitionTextureLayout(tex, TextureLayout::TransferDst, TextureLayout::ShaderReadOnly, 0,
+                                 1, 0, 1);
+
+    std::vector<uint8_t> pixelData(byteSize, 0x7F);
+    cmd->updateTexture(tex, pixelData.data(), pixelData.size(), 0, 0);
+    cmd->end();
+
+    auto* nullCmd = static_cast<NullCommandList*>(cmd.get());
+    TEST_CHECK(nullCmd->getTransitionTextureLayoutCommands().size() == 2);
+    TEST_CHECK(nullCmd->getCopyBufferToTextureCommands().size() == 1);
+    TEST_CHECK(nullCmd->getUpdateTextureCommands().size() == 1);
+
+    TEST_CHECK(device->submit(cmd.get()).hasValue());
+
+    device->destroyBuffer(buf);
+    device->destroyTexture(tex);
+    return 0;
+}
+
 int main() {
     if (testGpuCapsQuery() != 0) {
         return 1;
@@ -1188,6 +1249,9 @@ int main() {
         return 1;
     }
     if (testDescriptorLifecycleAndBinding() != 0) {
+        return 1;
+    }
+    if (testTextureTransfersAndLayoutTransitions() != 0) {
         return 1;
     }
     std::cout << "All Null RHI unit tests passed!\n";

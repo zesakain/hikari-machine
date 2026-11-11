@@ -334,6 +334,20 @@ constexpr bool hasFlag(TextureUsageFlags flags, TextureUsageFlags test) noexcept
     return (flags & test) == test;
 }
 
+/// @enum TextureLayout
+/// @brief Abstract GPU texture layout state for synchronization and pipeline barriers.
+enum class TextureLayout : uint8_t {
+    Undefined = 0,
+    General = 1,
+    ColorAttachment = 2,
+    DepthStencilAttachment = 3,
+    DepthStencilReadOnly = 4,
+    ShaderReadOnly = 5,
+    TransferSrc = 6,
+    TransferDst = 7,
+    Present = 8
+};
+
 /// @enum Filter
 /// @brief Filtering modes for texture minification, magnification, and mipmapping.
 enum class Filter : uint8_t { Nearest = 0, Linear = 1 };

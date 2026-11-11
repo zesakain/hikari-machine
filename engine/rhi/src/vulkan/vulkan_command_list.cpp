@@ -5,9 +5,59 @@
 
 #include "vulkan_device.h"
 
+#include <algorithm>
 #include <cstring>
 
 namespace eng::rhi::vk {
+
+namespace {
+
+struct LayoutAccessInfo {
+    VkPipelineStageFlags2 stageMask{VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT};
+    VkAccessFlags2 accessMask{0};
+};
+
+[[nodiscard]] LayoutAccessInfo getLayoutAccessInfo(VkImageLayout layout,
+                                                   bool isDestination) noexcept {
+    switch (layout) {
+    case VK_IMAGE_LAYOUT_UNDEFINED:
+        return {.stageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, .accessMask = 0};
+    case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+        return {.stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                .accessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT};
+    case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
+        return {.stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                .accessMask = VK_ACCESS_2_TRANSFER_READ_BIT};
+    case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+        return {.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                .accessMask = isDestination ? (VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
+                                               VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT)
+                                            : VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT};
+    case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+        return {.stageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+                             VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+                .accessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+                              VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT};
+    case VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL:
+        return {.stageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+                             VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+                .accessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT};
+    case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+        return {.stageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
+                             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                .accessMask = VK_ACCESS_2_SHADER_READ_BIT};
+    case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:
+        return {.stageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, .accessMask = 0};
+    case VK_IMAGE_LAYOUT_GENERAL:
+    default:
+        return {.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                .accessMask = isDestination
+                                  ? (VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT)
+                                  : (VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT)};
+    }
+}
+
+} // namespace
 
 VulkanCommandList::VulkanCommandList(VulkanDevice& device, VkCommandPool pool,
                                      VkCommandBuffer cmdBuffer) noexcept
@@ -920,6 +970,231 @@ void VulkanCommandList::copyTextureToBuffer(TextureHandle srcTexture, BufferHand
     };
     vkCmdPipelineBarrier2(cmdBuffer_, &depInfoBack);
     device_->setTextureLayout(srcTexture, returnLayout);
+}
+
+void VulkanCommandList::copyBufferToTexture(BufferHandle srcBuffer, TextureHandle dstTexture,
+                                            size_t bufferOffset, uint32_t mipLevel,
+                                            uint32_t arrayLayer) {
+    if (!isRecording_ || device_ == nullptr || cmdBuffer_ == VK_NULL_HANDLE) {
+        return;
+    }
+    if (!device_->isBufferValid(srcBuffer) || !device_->isTextureValid(dstTexture)) {
+        ENG_LOG_ERROR("Vulkan", "copyBufferToTexture failed: invalid buffer or texture handle");
+        return;
+    }
+
+    const auto* texDesc = device_->getTextureDesc(dstTexture);
+    if (texDesc == nullptr) {
+        return;
+    }
+
+    VkBuffer srcBuf = device_->resolveBuffer(srcBuffer);
+    VkImage dstImg = device_->resolveTextureImage(dstTexture);
+    if (srcBuf == VK_NULL_HANDLE || dstImg == VK_NULL_HANDLE) {
+        return;
+    }
+
+    uint32_t mipWidth = std::max(1U, texDesc->width >> mipLevel);
+    uint32_t mipHeight = std::max(1U, texDesc->height >> mipLevel);
+    uint32_t mipDepth =
+        (texDesc->type == TextureType::Texture3D) ? std::max(1U, texDesc->depth >> mipLevel) : 1U;
+
+    VkImageAspectFlags aspectMask =
+        isDepthFormat(texDesc->format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+
+    VkBufferImageCopy region{
+        .bufferOffset = static_cast<VkDeviceSize>(bufferOffset),
+        .bufferRowLength = 0,
+        .bufferImageHeight = 0,
+        .imageSubresource =
+            {
+                .aspectMask = aspectMask,
+                .mipLevel = mipLevel,
+                .baseArrayLayer = arrayLayer,
+                .layerCount = 1,
+            },
+        .imageOffset = {0, 0, 0},
+        .imageExtent = {mipWidth, mipHeight, mipDepth},
+    };
+
+    vkCmdCopyBufferToImage(cmdBuffer_, srcBuf, dstImg, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                           &region);
+}
+
+void VulkanCommandList::transitionTextureLayout(TextureHandle texture, TextureLayout oldLayout,
+                                                TextureLayout newLayout, uint32_t baseMipLevel,
+                                                uint32_t mipLevelCount, uint32_t baseArrayLayer,
+                                                uint32_t arrayLayerCount) {
+    if (!isRecording_ || device_ == nullptr || cmdBuffer_ == VK_NULL_HANDLE) {
+        return;
+    }
+    if (!device_->isTextureValid(texture)) {
+        ENG_LOG_ERROR("Vulkan", "transitionTextureLayout failed: invalid texture handle");
+        return;
+    }
+
+    const auto* texDesc = device_->getTextureDesc(texture);
+    if (texDesc == nullptr) {
+        return;
+    }
+
+    VkImage image = device_->resolveTextureImage(texture);
+    if (image == VK_NULL_HANDLE) {
+        return;
+    }
+
+    VkImageLayout vkOldLayout = toVkImageLayout(oldLayout);
+    VkImageLayout vkNewLayout = toVkImageLayout(newLayout);
+
+    if (vkOldLayout == VK_IMAGE_LAYOUT_UNDEFINED && oldLayout != TextureLayout::Undefined) {
+        VkImageLayout tracked = device_->getTextureLayout(texture);
+        if (tracked != VK_IMAGE_LAYOUT_UNDEFINED) {
+            vkOldLayout = tracked;
+        }
+    }
+
+    auto srcInfo = getLayoutAccessInfo(vkOldLayout, false);
+    auto dstInfo = getLayoutAccessInfo(vkNewLayout, true);
+
+    VkImageAspectFlags aspectMask =
+        isDepthFormat(texDesc->format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+
+    uint32_t actualMipCount =
+        (mipLevelCount == 0)
+            ? (texDesc->mipLevels > baseMipLevel ? texDesc->mipLevels - baseMipLevel : 1U)
+            : mipLevelCount;
+    uint32_t actualLayerCount =
+        (arrayLayerCount == 0)
+            ? (texDesc->arrayLayers > baseArrayLayer ? texDesc->arrayLayers - baseArrayLayer : 1U)
+            : arrayLayerCount;
+
+    VkImageMemoryBarrier2 barrier{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+        .pNext = nullptr,
+        .srcStageMask = srcInfo.stageMask,
+        .srcAccessMask = srcInfo.accessMask,
+        .dstStageMask = dstInfo.stageMask,
+        .dstAccessMask = dstInfo.accessMask,
+        .oldLayout = vkOldLayout,
+        .newLayout = vkNewLayout,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image = image,
+        .subresourceRange =
+            {
+                .aspectMask = aspectMask,
+                .baseMipLevel = baseMipLevel,
+                .levelCount = actualMipCount,
+                .baseArrayLayer = baseArrayLayer,
+                .layerCount = actualLayerCount,
+            },
+    };
+
+    VkDependencyInfo depInfo{
+        .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+        .pNext = nullptr,
+        .dependencyFlags = 0,
+        .memoryBarrierCount = 0,
+        .pMemoryBarriers = nullptr,
+        .bufferMemoryBarrierCount = 0,
+        .pBufferMemoryBarriers = nullptr,
+        .imageMemoryBarrierCount = 1,
+        .pImageMemoryBarriers = &barrier,
+    };
+
+    vkCmdPipelineBarrier2(cmdBuffer_, &depInfo);
+    device_->setTextureLayout(texture, vkNewLayout);
+}
+
+void VulkanCommandList::updateTexture(TextureHandle dst, const void* data, size_t size,
+                                      uint32_t mipLevel, uint32_t arrayLayer) {
+    if (!isRecording_ || device_ == nullptr || cmdBuffer_ == VK_NULL_HANDLE || data == nullptr ||
+        size == 0) {
+        return;
+    }
+    if (!device_->isTextureValid(dst)) {
+        ENG_LOG_ERROR("Vulkan", "updateTexture failed: invalid texture handle");
+        return;
+    }
+
+    const auto* texDesc = device_->getTextureDesc(dst);
+    if (texDesc == nullptr) {
+        return;
+    }
+
+    VkBufferCreateInfo bufferInfo{
+        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+        .size = static_cast<VkDeviceSize>(size),
+        .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        .queueFamilyIndexCount = 0,
+        .pQueueFamilyIndices = nullptr,
+    };
+
+    VkBuffer stagingBuffer = VK_NULL_HANDLE;
+    VkResult res =
+        vkCreateBuffer(device_->getLogicalDevice(), &bufferInfo, nullptr, &stagingBuffer);
+    if (res != VK_SUCCESS) {
+        ENG_LOG_ERROR("Vulkan", "updateTexture failed: vkCreateBuffer staging failed");
+        return;
+    }
+
+    auto memRes = device_->getMemoryManager().allocateBufferMemory(
+        device_->getLogicalDevice(), stagingBuffer, MemoryUsage::CpuToGpu);
+    if (!memRes.hasValue()) {
+        vkDestroyBuffer(device_->getLogicalDevice(), stagingBuffer, nullptr);
+        ENG_LOG_ERROR("Vulkan", "updateTexture failed: staging memory allocation failed");
+        return;
+    }
+
+    void* mappedData = nullptr;
+    res = vkMapMemory(device_->getLogicalDevice(), memRes.value(), 0, size, 0, &mappedData);
+    if (res == VK_SUCCESS && mappedData != nullptr) {
+        std::memcpy(mappedData, data, size);
+        vkUnmapMemory(device_->getLogicalDevice(), memRes.value());
+    }
+
+    // 1. Transition destination to TRANSFER_DST_OPTIMAL
+    transitionTextureLayout(dst, TextureLayout::Undefined, TextureLayout::TransferDst, mipLevel, 1,
+                            arrayLayer, 1);
+
+    // 2. Copy staging buffer to texture
+    copyBufferToTexture(BufferHandle{}, dst, 0, mipLevel, arrayLayer);
+    // Note: copyBufferToTexture expects a valid BufferHandle, but stagingBuffer is raw VkBuffer.
+    // So record vkCmdCopyBufferToImage directly using stagingBuffer:
+    uint32_t mipWidth = std::max(1U, texDesc->width >> mipLevel);
+    uint32_t mipHeight = std::max(1U, texDesc->height >> mipLevel);
+    uint32_t mipDepth =
+        (texDesc->type == TextureType::Texture3D) ? std::max(1U, texDesc->depth >> mipLevel) : 1U;
+    VkImage dstImg = device_->resolveTextureImage(dst);
+    VkImageAspectFlags aspectMask =
+        isDepthFormat(texDesc->format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+
+    VkBufferImageCopy region{
+        .bufferOffset = 0,
+        .bufferRowLength = 0,
+        .bufferImageHeight = 0,
+        .imageSubresource =
+            {
+                .aspectMask = aspectMask,
+                .mipLevel = mipLevel,
+                .baseArrayLayer = arrayLayer,
+                .layerCount = 1,
+            },
+        .imageOffset = {0, 0, 0},
+        .imageExtent = {mipWidth, mipHeight, mipDepth},
+    };
+
+    vkCmdCopyBufferToImage(cmdBuffer_, stagingBuffer, dstImg, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                           1, &region);
+
+    // 3. Transition to SHADER_READ_ONLY_OPTIMAL
+    transitionTextureLayout(dst, TextureLayout::TransferDst, TextureLayout::ShaderReadOnly,
+                            mipLevel, 1, arrayLayer, 1);
+
+    stagingBuffers_.push_back(StagingBuffer{.buffer = stagingBuffer, .memory = memRes.value()});
 }
 
 void VulkanCommandList::updateBuffer(BufferHandle dst, size_t dstOffset, const void* data,
