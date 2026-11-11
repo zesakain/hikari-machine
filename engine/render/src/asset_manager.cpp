@@ -166,6 +166,79 @@ const GpuMesh* AssetManager::getGpuMesh(AssetId id) const noexcept {
     return nullptr;
 }
 
+Result<GpuMaterial*> AssetManager::uploadMaterial(AssetId meshId, size_t materialIndex,
+                                                  rhi::RhiDevice& device,
+                                                  rhi::DescriptorSetLayoutHandle materialLayout) {
+    auto it = meshEntries_.find(meshId);
+    if (it == meshEntries_.end() || it->second.metadata.loadState != AssetLoadState::Loaded) {
+        return Error{.code = ErrorCode::InvalidArgument,
+                     .message = "Mesh asset not loaded in AssetManager"};
+    }
+
+    auto& entry = it->second;
+    if (entry.gpuMaterials.empty()) {
+        entry.gpuMaterials.resize(entry.cpuMesh.materials.size());
+    }
+
+    if (materialIndex >= entry.cpuMesh.materials.size()) {
+        return getOrCreateDefaultMaterial(device, materialLayout);
+    }
+
+    if (entry.gpuMaterials[materialIndex] != nullptr &&
+        entry.gpuMaterials[materialIndex]->isValid()) {
+        return Result<GpuMaterial*>::success(entry.gpuMaterials[materialIndex].get());
+    }
+
+    auto createRes =
+        GpuMaterial::create(device, materialLayout, entry.cpuMesh.materials[materialIndex], *this);
+    if (!createRes.hasValue()) {
+        return createRes.error();
+    }
+
+    entry.gpuMaterials[materialIndex] = std::move(createRes.value());
+    return Result<GpuMaterial*>::success(entry.gpuMaterials[materialIndex].get());
+}
+
+GpuMaterial* AssetManager::getGpuMaterial(AssetId meshId, size_t materialIndex) noexcept {
+    auto it = meshEntries_.find(meshId);
+    if (it != meshEntries_.end()) {
+        if (materialIndex < it->second.gpuMaterials.size() &&
+            it->second.gpuMaterials[materialIndex] != nullptr) {
+            return it->second.gpuMaterials[materialIndex].get();
+        }
+    }
+    return defaultMaterial_.get();
+}
+
+const GpuMaterial* AssetManager::getGpuMaterial(AssetId meshId,
+                                                size_t materialIndex) const noexcept {
+    auto it = meshEntries_.find(meshId);
+    if (it != meshEntries_.end()) {
+        if (materialIndex < it->second.gpuMaterials.size() &&
+            it->second.gpuMaterials[materialIndex] != nullptr) {
+            return it->second.gpuMaterials[materialIndex].get();
+        }
+    }
+    return defaultMaterial_.get();
+}
+
+Result<GpuMaterial*>
+AssetManager::getOrCreateDefaultMaterial(rhi::RhiDevice& device,
+                                         rhi::DescriptorSetLayoutHandle materialLayout) {
+    if (defaultMaterial_ != nullptr && defaultMaterial_->isValid()) {
+        return Result<GpuMaterial*>::success(defaultMaterial_.get());
+    }
+
+    Material defaultMat = Material::createDefault();
+    auto createRes = GpuMaterial::create(device, materialLayout, defaultMat, *this);
+    if (!createRes.hasValue()) {
+        return createRes.error();
+    }
+
+    defaultMaterial_ = std::move(createRes.value());
+    return Result<GpuMaterial*>::success(defaultMaterial_.get());
+}
+
 const MeshData* AssetManager::getMeshData(AssetId id) const noexcept {
     auto it = meshEntries_.find(id);
     if (it != meshEntries_.end() && it->second.metadata.loadState == AssetLoadState::Loaded) {
@@ -456,6 +529,7 @@ void AssetManager::unload(AssetId id) noexcept {
 }
 
 void AssetManager::unloadAll() noexcept {
+    defaultMaterial_.reset();
     defaultTextures_.clear();
     pathToId_.clear();
     meshEntries_.clear();

@@ -19,6 +19,7 @@
 #include "core/error.h"
 #include "core/result.h"
 #include "render/asset_types.h"
+#include "render/gpu_material.h"
 #include "render/gpu_mesh.h"
 #include "render/gpu_texture.h"
 #include "render/image.h"
@@ -123,6 +124,20 @@ public:
     /// @return Pointer to valid GpuTexture or error.
     Result<GpuTexture*> getOrCreateDefaultTexture(rhi::RhiDevice& device, DefaultTextureType type);
 
+    /// @brief Uploads or retrieves the GpuMaterial for a specific submesh/material index.
+    Result<GpuMaterial*> uploadMaterial(AssetId meshId, size_t materialIndex,
+                                        rhi::RhiDevice& device,
+                                        rhi::DescriptorSetLayoutHandle materialLayout);
+
+    /// @brief Retrieves the GpuMaterial for a mesh material index, or nullptr if not uploaded.
+    [[nodiscard]] GpuMaterial* getGpuMaterial(AssetId meshId, size_t materialIndex) noexcept;
+    [[nodiscard]] const GpuMaterial* getGpuMaterial(AssetId meshId,
+                                                    size_t materialIndex) const noexcept;
+
+    /// @brief Retrieves or creates a default fallback GpuMaterial.
+    Result<GpuMaterial*> getOrCreateDefaultMaterial(rhi::RhiDevice& device,
+                                                    rhi::DescriptorSetLayoutHandle materialLayout);
+
     /// @brief Retrieves CPU image data for an asset, or nullptr if not loaded.
     [[nodiscard]] const ImageData* getImageData(AssetId id) const noexcept;
     [[nodiscard]] const ImageData* getImageData(std::string_view path) const noexcept;
@@ -157,6 +172,7 @@ private:
         AssetMetadata metadata{};
         MeshData cpuMesh{};
         std::unique_ptr<GpuMesh> gpuMesh{nullptr};
+        std::vector<std::unique_ptr<GpuMaterial>> gpuMaterials{};
     };
 
     struct TextureEntry {
@@ -169,6 +185,7 @@ private:
     std::unordered_map<AssetId, TextureEntry> textureEntries_{};
     std::unordered_map<std::string, AssetId> pathToId_{};
     std::unordered_map<DefaultTextureType, std::unique_ptr<GpuTexture>> defaultTextures_{};
+    std::unique_ptr<GpuMaterial> defaultMaterial_{nullptr};
 };
 
 } // namespace eng::render
