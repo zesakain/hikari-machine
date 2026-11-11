@@ -18,11 +18,13 @@
 
 #pragma once
 
+#include "rhi/descriptor.h"
 #include "rhi/rhi_types.h"
 #include "rhi/texture.h"
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
 
 namespace eng::rhi {
 
@@ -95,6 +97,21 @@ public:
     /// Updates push constant block data for the active pipeline.
     virtual void pushConstants(PipelineLayoutHandle layout, ShaderStageFlags stages,
                                uint32_t offset, uint32_t size, const void* data) = 0;
+
+    /// Binds descriptor sets to the active graphics pipeline.
+    ///
+    /// @param layout Pipeline layout defining descriptor set interface.
+    /// @param firstSet Index of the first descriptor set to bind (0-based).
+    /// @param descriptorSets Span of valid descriptor set handles to bind sequentially.
+    /// @param dynamicOffsets Optional array of dynamic buffer offsets.
+    virtual void bindDescriptorSets(PipelineLayoutHandle layout, uint32_t firstSet,
+                                    std::span<const DescriptorSetHandle> descriptorSets,
+                                    std::span<const uint32_t> dynamicOffsets = {}) {
+        (void)layout;
+        (void)firstSet;
+        (void)descriptorSets;
+        (void)dynamicOffsets;
+    }
 
     /// Binds a vertex buffer to a specific binding slot.
     virtual void bindVertexBuffer(uint32_t binding, BufferHandle buffer, size_t offset = 0) = 0;
