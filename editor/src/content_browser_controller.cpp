@@ -731,6 +731,18 @@ Result<void> ContentBrowserController::deleteItem(const std::filesystem::path& t
             Error(ErrorCode::InvalidArgument, "Filesystem delete operation failed"));
     }
 
+    // If currentDirectory_ was the deleted directory or located within it, retreat to parent or
+    // root
+    std::filesystem::path normCur = std::filesystem::weakly_canonical(currentDirectory_, ec);
+    std::string curStr = normalizeSeparators(normCur.string());
+    std::string targetStr = normalizeSeparators(canonTarget.string());
+    if (curStr == targetStr || curStr.rfind(targetStr + "/", 0) == 0) {
+        currentDirectory_ = targetPath.parent_path();
+        if (!isPathWithinRoot(currentDirectory_)) {
+            currentDirectory_ = rootDirectory_;
+        }
+    }
+
     refresh();
     return Result<void>::success();
 }

@@ -356,6 +356,22 @@ void ContentBrowserPanel::drawDirectoryTree() {
             controller_.navigateTo(dirPath);
         }
 
+        if (dirPath != controller_.getRootDirectory()) {
+            char treeCtxId[64];
+            std::snprintf(treeCtxId, sizeof(treeCtxId), "TreeDirCtx_%zu",
+                          std::hash<std::string>{}(dirPath.string()));
+            if (ImGui::BeginPopupContextItem(treeCtxId)) {
+                if (ImGui::MenuItem("Delete Folder...")) {
+                    targetDeletePath_ = dirPath;
+                    targetDeleteItemName_ = dirName;
+                    targetDeleteItemType_ = "Folder";
+                    isDeleteNonEmptyDir_ = !controller_.isDirectoryEmpty(dirPath);
+                    showDeleteModal_ = true;
+                }
+                ImGui::EndPopup();
+            }
+        }
+
         if (hasSubdirs && nodeOpen) {
             for (const auto& entry : std::filesystem::directory_iterator(
                      dirPath, std::filesystem::directory_options::skip_permission_denied, ec)) {

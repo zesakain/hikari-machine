@@ -432,6 +432,82 @@ static void testAssetImportPipeline() {
     std::cout << "[PASS] testAssetImportPipeline\n";
 }
 
+static void testFolderDeletionSecurity() {
+    SandboxRAII sandbox;
+    std::filesystem::path root = sandbox.dir / "assets";
+    std::filesystem::path external = sandbox.dir / "outside_project";
+    std::filesystem::create_directories(root);
+    std::filesystem::create_directories(external);
+
+    ContentBrowserController controller(root);
+
+    // 1. Deleting empty folder succeeds
+    auto emptyFolderRes = controller.createFolder("EmptyFolder");
+    TEST_CHECK(emptyFolderRes.hasValue());
+    TEST_CHECK(std::filesystem::exists(emptyFolderRes.value()));
+    auto delEmptyRes = controller.deleteItem(emptyFolderRes.value(), false);
+    TEST_CHECK(delEmptyRes.hasValue());
+    TEST_CHECK(!std::filesystem::exists(emptyFolderRes.value()));
+
+    // 2. Deleting non-empty folder without recursive flag fails
+    auto parentFolderRes = controller.createFolder("ParentFolder");
+    TEST_CHECK(parentFolderRes.hasValue());
+    controller.navigateTo(parentFolderRes.value());
+    controller.createFolder("NestedChild");
+    controller.createFile("data.txt", ContentFileTemplate::TextFile);
+    controller.navigateUp();
+
+    auto delNonEmptyNoRec = controller.deleteItem(parentFolderRes.value(), false);
+    TEST_CHECK(!delNonEmptyNoRec.hasValue());
+    TEST_CHECK(std::filesystem::exists(parentFolderRes.value()));
+    TEST_CHECK(std::filesystem::exists(parentFolderRes.value() / "NestedChild"));
+    TEST_CHECK(std::filesystem::exists(parentFolderRes.value() / "data.txt"));
+
+    // 3. Deleting non-empty folder with recursive flag succeeds
+    auto delNonEmptyRec = controller.deleteItem(parentFolderRes.value(), true);
+    TEST_CHECK(delNonEmptyRec.hasValue());
+    TEST_CHECK(!std::filesystem::exists(parentFolderRes.value()));
+
+    // 4. Root deletion prevention
+    auto delRootRes = controller.deleteItem(root, true);
+    TEST_CHECK(!delRootRes.hasValue());
+    TEST_CHECK(std::filesystem::exists(root));
+
+    // 5. Path traversal / escape prevention
+    auto traversalPath = root / ".." / "outside_project";
+    auto delTraversalRes = controller.deleteItem(traversalPath, true);
+    TEST_CHECK(!delTraversalRes.hasValue());
+    TEST_CHECK(std::filesystem::exists(external));
+
+    // 6. Absolute path outside root
+    auto delOutsideRes = controller.deleteItem(external, true);
+    TEST_CHECK(!delOutsideRes.hasValue());
+    TEST_CHECK(std::filesystem::exists(external));
+
+    // 7. Symlink escape protection (if symlinks supported on platform)
+    std::error_code symEc;
+    std::filesystem::path symlinkPath = root / "external_symlink";
+    std::filesystem::create_directory_symlink(external, symlinkPath, symEc);
+    if (!symEc && std::filesystem::exists(symlinkPath)) {
+        // Attempting to delete symlink pointing outside root
+        auto delSymRes = controller.deleteItem(symlinkPath, true);
+        TEST_CHECK(!delSymRes.hasValue());
+        TEST_CHECK(std::filesystem::exists(external));
+        std::filesystem::remove(symlinkPath, symEc);
+    }
+
+    // 8. Navigating inside folder, deleting it, retreats current directory to parent
+    auto workFolderRes = controller.createFolder("WorkFolder");
+    TEST_CHECK(workFolderRes.hasValue());
+    controller.navigateTo(workFolderRes.value());
+    TEST_CHECK(controller.getCurrentDirectory() == workFolderRes.value());
+    auto delCurDirRes = controller.deleteItem(workFolderRes.value(), false);
+    TEST_CHECK(delCurDirRes.hasValue());
+    TEST_CHECK(controller.getCurrentDirectory() == root);
+
+    std::cout << "[PASS] testFolderDeletionSecurity\n";
+}
+
 int main() {
     std::cout << "Running Content Browser unit tests...\n";
     testNavigationAndHistory();
@@ -439,6 +515,7 @@ int main() {
     testSortingAndFiltering();
     testAssetFormatBadgesAndMetadata();
     testAssetImportPipeline();
+    testFolderDeletionSecurity();
     std::cout << "All Content Browser tests passed successfully!\n";
     return 0;
 }
