@@ -30,15 +30,18 @@ struct Vertex {
     Vec3 normal{Vec3::unitY()};
     Vec2 uv{Vec2::zero()};
     Vec4 color{1.0F, 1.0F, 1.0F, 1.0F};
+    Vec4 tangent{1.0F, 0.0F, 0.0F, 1.0F};
 
     constexpr Vertex() noexcept = default;
     constexpr Vertex(const Vec3& pos, const Vec3& norm, const Vec2& texCoord,
-                     const Vec4& col = Vec4{1.0F, 1.0F, 1.0F, 1.0F}) noexcept
-        : position(pos), normal(norm), uv(texCoord), color(col) {}
+                     const Vec4& col = Vec4{1.0F, 1.0F, 1.0F, 1.0F},
+                     const Vec4& tan = Vec4{1.0F, 0.0F, 0.0F, 1.0F}) noexcept
+        : position(pos), normal(norm), uv(texCoord), color(col), tangent(tan) {}
 
     [[nodiscard]] bool operator==(const Vertex& rhs) const noexcept {
         return position.isNearlyEqual(rhs.position) && normal.isNearlyEqual(rhs.normal) &&
-               uv.isNearlyEqual(rhs.uv) && color.isNearlyEqual(rhs.color);
+               uv.isNearlyEqual(rhs.uv) && color.isNearlyEqual(rhs.color) &&
+               tangent.isNearlyEqual(rhs.tangent);
     }
 };
 
@@ -109,6 +112,9 @@ struct MeshData {
 
     /// Computes smooth area-weighted vertex normals from polygon faces if missing or zero.
     void generateNormals() noexcept;
+
+    /// Computes tangent vectors and handedness (+1/-1) from vertex positions, normals, and UVs.
+    void generateTangents() noexcept;
 
     /// Clears all vertices, indices, submeshes, and materials.
     void clear() noexcept {

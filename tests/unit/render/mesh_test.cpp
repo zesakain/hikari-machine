@@ -100,6 +100,34 @@ static int testMeshDataBoundsAndNormals() {
     return 0;
 }
 
+static int testMeshDataTangents() {
+    MeshData mesh;
+    // Standard quad in XY plane facing +Z
+    mesh.vertices = {
+        Vertex(Vec3(-1.0F, -1.0F, 0.0F), Vec3(0.0F, 0.0F, 1.0F), Vec2(0.0F, 1.0F)),
+        Vertex(Vec3(1.0F, -1.0F, 0.0F), Vec3(0.0F, 0.0F, 1.0F), Vec2(1.0F, 1.0F)),
+        Vertex(Vec3(1.0F, 1.0F, 0.0F), Vec3(0.0F, 0.0F, 1.0F), Vec2(1.0F, 0.0F)),
+        Vertex(Vec3(-1.0F, 1.0F, 0.0F), Vec3(0.0F, 0.0F, 1.0F), Vec2(0.0F, 0.0F)),
+    };
+    mesh.indices = {0, 1, 2, 2, 3, 0};
+
+    mesh.generateTangents();
+
+    for (const auto& v : mesh.vertices) {
+        // Tangent should be aligned with +X
+        TEST_CHECK(std::abs(v.tangent.x - 1.0F) < 1e-4F);
+        TEST_CHECK(std::abs(v.tangent.y - 0.0F) < 1e-4F);
+        TEST_CHECK(std::abs(v.tangent.z - 0.0F) < 1e-4F);
+        // Handedness w should be +1 or -1
+        TEST_CHECK(std::abs(std::abs(v.tangent.w) - 1.0F) < 1e-4F);
+        // Orthogonal to normal
+        const Vec3 tanVec{v.tangent.x, v.tangent.y, v.tangent.z};
+        TEST_CHECK(std::abs(Vec3::dot(v.normal, tanVec)) < 1e-4F);
+    }
+
+    return 0;
+}
+
 static int testObjImporterFromString() {
     const std::string_view objQuad = R"(
 # Test Quad
@@ -195,12 +223,14 @@ int main() {
         return 2;
     if (testMeshDataBoundsAndNormals() != 0)
         return 3;
+    if (testMeshDataTangents() != 0)
+        return 7;
     if (testObjImporterFromString() != 0)
         return 4;
     if (testObjImporterFromFile() != 0)
         return 5;
     if (testGpuMeshCreationAndRAII() != 0)
         return 6;
-    std::cout << "[Mesh Tests Passed: 6/6]\n";
+    std::cout << "[Mesh Tests Passed: 7/7]\n";
     return 0;
 }
