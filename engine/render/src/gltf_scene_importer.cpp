@@ -111,6 +111,7 @@ struct CgltfGuard {
     meshData.materials = detail::extractAllMaterials(data, baseDir, sourcePath);
 
     bool anyMissingNormals = false;
+    bool anyMissingTangents = false;
 
     for (cgltf_size pIdx = 0; pIdx < mesh->primitives_count; ++pIdx) {
         const auto& prim = mesh->primitives[pIdx];
@@ -122,6 +123,7 @@ struct CgltfGuard {
         const cgltf_attribute* normAttr = nullptr;
         const cgltf_attribute* uvAttr = nullptr;
         const cgltf_attribute* colAttr = nullptr;
+        const cgltf_attribute* tanAttr = nullptr;
 
         for (cgltf_size a = 0; a < prim.attributes_count; ++a) {
             const auto& attr = prim.attributes[a];
@@ -133,6 +135,8 @@ struct CgltfGuard {
                 uvAttr = &attr;
             } else if (attr.type == cgltf_attribute_type_color && attr.index == 0) {
                 colAttr = &attr;
+            } else if (attr.type == cgltf_attribute_type_tangent && attr.index == 0) {
+                tanAttr = &attr;
             }
         }
 
@@ -150,6 +154,9 @@ struct CgltfGuard {
 
         if (normAttr == nullptr) {
             anyMissingNormals = true;
+        }
+        if (tanAttr == nullptr) {
+            anyMissingTangents = true;
         }
 
         for (size_t v = 0; v < vertCount; ++v) {
@@ -181,7 +188,17 @@ struct CgltfGuard {
                     Vec4{c[0], c[1], c[2], (colAttr->data->type == cgltf_type_vec3 ? 1.0F : c[3])};
             }
 
-            meshData.vertices.emplace_back(localPos, localNorm, uv, col);
+            Vec4 tangent{1.0F, 0.0F, 0.0F, 1.0F};
+            if (tanAttr != nullptr && tanAttr->data != nullptr) {
+                float t[4] = {1.0F, 0.0F, 0.0F, 1.0F};
+                cgltf_accessor_read_float(tanAttr->data, v, t, 4);
+                const float len = std::sqrt((t[0] * t[0]) + (t[1] * t[1]) + (t[2] * t[2]));
+                const Vec3 localTan =
+                    (len > 1e-6F) ? Vec3{t[0] / len, t[1] / len, t[2] / len} : Vec3::unitX();
+                tangent = Vec4{localTan.x, localTan.y, localTan.z, t[3]};
+            }
+
+            meshData.vertices.emplace_back(localPos, localNorm, uv, col, tangent);
         }
 
         if (prim.indices != nullptr) {
@@ -213,6 +230,9 @@ struct CgltfGuard {
 
     if (anyMissingNormals && !meshData.indices.empty()) {
         meshData.generateNormals();
+    }
+    if (anyMissingTangents && !meshData.indices.empty()) {
+        meshData.generateTangents();
     }
     meshData.recalculateBounds();
 

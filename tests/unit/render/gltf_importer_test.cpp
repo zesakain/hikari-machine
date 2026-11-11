@@ -46,6 +46,11 @@ void testValidGlbImport() {
     TEST_CHECK(mesh.getIndexCount() == 36);
     TEST_CHECK(mesh.getTriangleCount() == 12);
     TEST_CHECK(!mesh.submeshes.empty());
+    for (const auto& v : mesh.vertices) {
+        const eng::Vec3 t{v.tangent.x, v.tangent.y, v.tangent.z};
+        TEST_CHECK(std::abs(t.length() - 1.0F) < 1e-3F);
+        TEST_CHECK(std::abs(std::abs(v.tangent.w) - 1.0F) < 1e-3F);
+    }
     std::cout << "[PASS] testValidGlbImport\n";
 }
 

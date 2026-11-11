@@ -168,6 +168,7 @@ Result<MeshData> processGltfData(cgltf_data* data, std::string_view baseDir, std
 
     // 3. Process Primitives and Geometry
     bool anyMissingNormals = false;
+    bool anyMissingTangents = false;
 
     for (const auto& inst : meshInstances) {
         const auto* mesh = inst.mesh;
@@ -189,6 +190,7 @@ Result<MeshData> processGltfData(cgltf_data* data, std::string_view baseDir, std
             const cgltf_attribute* normAttr = nullptr;
             const cgltf_attribute* uvAttr = nullptr;
             const cgltf_attribute* colAttr = nullptr;
+            const cgltf_attribute* tanAttr = nullptr;
 
             for (size_t a = 0; a < prim.attributes_count; ++a) {
                 const auto& attr = prim.attributes[a];
@@ -200,6 +202,8 @@ Result<MeshData> processGltfData(cgltf_data* data, std::string_view baseDir, std
                     uvAttr = &attr;
                 } else if (attr.type == cgltf_attribute_type_color && attr.index == 0) {
                     colAttr = &attr;
+                } else if (attr.type == cgltf_attribute_type_tangent && attr.index == 0) {
+                    tanAttr = &attr;
                 }
             }
 
@@ -218,6 +222,9 @@ Result<MeshData> processGltfData(cgltf_data* data, std::string_view baseDir, std
 
             if (normAttr == nullptr) {
                 anyMissingNormals = true;
+            }
+            if (tanAttr == nullptr) {
+                anyMissingTangents = true;
             }
 
             for (size_t v = 0; v < vertCount; ++v) {
@@ -251,7 +258,18 @@ Result<MeshData> processGltfData(cgltf_data* data, std::string_view baseDir, std
                                (colAttr->data->type == cgltf_type_vec3 ? 1.0F : c[3])};
                 }
 
-                meshData.vertices.emplace_back(worldPos, worldNorm, uv, col);
+                Vec4 tangent{1.0F, 0.0F, 0.0F, 1.0F};
+                if (tanAttr != nullptr && tanAttr->data != nullptr) {
+                    float t[4] = {1.0F, 0.0F, 0.0F, 1.0F};
+                    cgltf_accessor_read_float(tanAttr->data, v, t, 4);
+                    const Vec3 localTan{t[0], t[1], t[2]};
+                    const Vec3 transformedTan = normMat.transformVector(localTan);
+                    const float len = transformedTan.length();
+                    const Vec3 worldTan = (len > 1e-6F) ? (transformedTan / len) : Vec3::unitX();
+                    tangent = Vec4{worldTan.x, worldTan.y, worldTan.z, t[3]};
+                }
+
+                meshData.vertices.emplace_back(worldPos, worldNorm, uv, col, tangent);
             }
 
             Submesh submesh{};
@@ -338,6 +356,9 @@ Result<MeshData> processGltfData(cgltf_data* data, std::string_view baseDir, std
 
     if (anyMissingNormals) {
         meshData.generateNormals();
+    }
+    if (anyMissingTangents) {
+        meshData.generateTangents();
     }
 
     meshData.recalculateBounds();
