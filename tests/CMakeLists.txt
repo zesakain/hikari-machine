@@ -164,6 +164,12 @@ target_link_libraries(material_descriptor_test PRIVATE hikari::engine_render hik
 add_test(NAME material_descriptor_test COMMAND material_descriptor_test)
 set_tests_properties(material_descriptor_test PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
+# Full glTF Metallic-Roughness PBR Verification Tests (Milestone 10D)
+add_executable(pbr_render_test unit/render/pbr_render_test.cpp)
+target_link_libraries(pbr_render_test PRIVATE hikari::engine_render hikari::engine_rhi hikari::engine_framework hikari::engine_physics hikari::engine_world)
+add_test(NAME pbr_render_test COMMAND pbr_render_test)
+set_tests_properties(pbr_render_test PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
 # Physics Unit Tests
 add_executable(physics_test unit/physics/physics_test.cpp)
 target_link_libraries(physics_test PRIVATE hikari::engine_physics)
