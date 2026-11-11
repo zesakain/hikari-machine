@@ -5,6 +5,7 @@
 
 #include "core/assert.h"
 #include "physics/physics_components.h"
+#include "render/gpu_material.h"
 #include "render/mesh_shader_spirv.h"
 #include "world/components.h"
 
@@ -19,6 +20,7 @@ SceneRenderer::~SceneRenderer() {
 SceneRenderer::SceneRenderer(SceneRenderer&& other) noexcept
     : device_(other.device_), colorTarget_(other.colorTarget_), depthTarget_(other.depthTarget_),
       vertexShader_(other.vertexShader_), fragmentShader_(other.fragmentShader_),
+      materialDescriptorSetLayout_(other.materialDescriptorSetLayout_),
       pipelineLayout_(other.pipelineLayout_), pipeline_(other.pipeline_), width_(other.width_),
       height_(other.height_), colorFormat_(other.colorFormat_), depthFormat_(other.depthFormat_) {
     other.device_ = nullptr;
@@ -26,6 +28,7 @@ SceneRenderer::SceneRenderer(SceneRenderer&& other) noexcept
     other.depthTarget_ = {};
     other.vertexShader_ = {};
     other.fragmentShader_ = {};
+    other.materialDescriptorSetLayout_ = {};
     other.pipelineLayout_ = {};
     other.pipeline_ = {};
     other.width_ = 0;
@@ -40,6 +43,7 @@ SceneRenderer& SceneRenderer::operator=(SceneRenderer&& other) noexcept {
         depthTarget_ = other.depthTarget_;
         vertexShader_ = other.vertexShader_;
         fragmentShader_ = other.fragmentShader_;
+        materialDescriptorSetLayout_ = other.materialDescriptorSetLayout_;
         pipelineLayout_ = other.pipelineLayout_;
         pipeline_ = other.pipeline_;
         width_ = other.width_;
@@ -52,6 +56,7 @@ SceneRenderer& SceneRenderer::operator=(SceneRenderer&& other) noexcept {
         other.depthTarget_ = {};
         other.vertexShader_ = {};
         other.fragmentShader_ = {};
+        other.materialDescriptorSetLayout_ = {};
         other.pipelineLayout_ = {};
         other.pipeline_ = {};
         other.width_ = 0;
@@ -114,7 +119,16 @@ Result<void> SceneRenderer::init(rhi::RhiDevice& device, uint32_t width, uint32_
     }
     depthTarget_ = depthRes.value();
 
-    // 3. Compile vertex and fragment shaders from precompiled SPIR-V bytecodes
+    // 3. Create material descriptor set layout (Set 0)
+    auto matLayoutDesc = createMaterialDescriptorSetLayoutDesc();
+    auto matLayoutRes = device_->createDescriptorSetLayout(matLayoutDesc);
+    if (!matLayoutRes.hasValue()) {
+        shutdown();
+        return matLayoutRes.error();
+    }
+    materialDescriptorSetLayout_ = matLayoutRes.value();
+
+    // 4. Compile vertex and fragment shaders from precompiled SPIR-V bytecodes
     rhi::ShaderDesc vertDesc{
         .stage = rhi::ShaderStageFlags::Vertex,
         .spirvCode = kMeshVertexShaderSpirv,
@@ -130,9 +144,9 @@ Result<void> SceneRenderer::init(rhi::RhiDevice& device, uint32_t width, uint32_
 
     rhi::ShaderDesc fragDesc{
         .stage = rhi::ShaderStageFlags::Fragment,
-        .spirvCode = kMeshFragmentShaderSpirv,
+        .spirvCode = kGltfMaterialFragmentShaderSpirv,
         .entryPoint = "main",
-        .debugName = "MeshFragmentShader",
+        .debugName = "GltfMaterialFragmentShader",
     };
     auto fragRes = device_->createShader(fragDesc);
     if (!fragRes.hasValue()) {
@@ -141,13 +155,14 @@ Result<void> SceneRenderer::init(rhi::RhiDevice& device, uint32_t width, uint32_
     }
     fragmentShader_ = fragRes.value();
 
-    // 4. Create pipeline layout specifying 128 bytes of push constants for vertex stage
+    // 5. Create pipeline layout specifying 128 bytes of push constants for vertex stage
     rhi::PipelineLayoutDesc layoutDesc{
         .pushConstants = {{
             .stageFlags = rhi::ShaderStageFlags::Vertex,
             .offset = 0,
             .size = 128,
         }},
+        .descriptorSetLayoutHandles = {materialDescriptorSetLayout_},
         .descriptorSetLayouts = {},
         .debugName = "MeshPipelineLayout",
     };
@@ -238,6 +253,10 @@ void SceneRenderer::shutdown() {
         if (pipelineLayout_.isValid()) {
             device_->destroyPipelineLayout(pipelineLayout_);
             pipelineLayout_ = {};
+        }
+        if (materialDescriptorSetLayout_.isValid()) {
+            device_->destroyDescriptorSetLayout(materialDescriptorSetLayout_);
+            materialDescriptorSetLayout_ = {};
         }
         if (fragmentShader_.isValid()) {
             device_->destroyShader(fragmentShader_);
@@ -425,6 +444,29 @@ RenderStats SceneRenderer::renderScene(world::World& world, AssetManager& assetM
         // Bind vertex buffer
         cmdList.bindVertexBuffer(0, gpuMesh->getVertexBuffer(), 0);
 
+        auto bindMaterial = [&](uint32_t matIndex) {
+            if (pipelineLayout_.isValid() && materialDescriptorSetLayout_.isValid()) {
+                GpuMaterial* mat = assetManager.getGpuMaterial(meshId, matIndex);
+                if (mat == nullptr) {
+                    auto upMat = assetManager.uploadMaterial(meshId, matIndex, device,
+                                                             materialDescriptorSetLayout_);
+                    if (upMat.hasValue()) {
+                        mat = upMat.value();
+                    } else {
+                        auto defMat = assetManager.getOrCreateDefaultMaterial(
+                            device, materialDescriptorSetLayout_);
+                        if (defMat.hasValue()) {
+                            mat = defMat.value();
+                        }
+                    }
+                }
+                if (mat != nullptr && mat->isValid()) {
+                    const std::array<rhi::DescriptorSetHandle, 1> sets = {mat->getDescriptorSet()};
+                    cmdList.bindDescriptorSets(pipelineLayout_, 0, sets);
+                }
+            }
+        };
+
         // Bind index buffer if present
         if (gpuMesh->getIndexBuffer().isValid() && gpuMesh->getIndexCount() > 0) {
             cmdList.bindIndexBuffer(gpuMesh->getIndexBuffer(), 0, true);
@@ -432,15 +474,25 @@ RenderStats SceneRenderer::renderScene(world::World& world, AssetManager& assetM
             const auto& submeshes = gpuMesh->getSubmeshes();
             if (meshComp.submeshIndex < submeshes.size()) {
                 const auto& sub = submeshes[meshComp.submeshIndex];
+                bindMaterial(sub.materialIndex);
                 cmdList.drawIndexed(sub.indexCount, 1, sub.firstIndex, sub.vertexOffset, 0);
                 stats.drawCalls++;
                 stats.triangles += sub.indexCount / 3;
-            } else {
+            } else if (submeshes.empty()) {
+                bindMaterial(0);
                 cmdList.drawIndexed(gpuMesh->getIndexCount(), 1, 0, 0, 0);
                 stats.drawCalls++;
                 stats.triangles += gpuMesh->getIndexCount() / 3;
+            } else {
+                for (const auto& sub : submeshes) {
+                    bindMaterial(sub.materialIndex);
+                    cmdList.drawIndexed(sub.indexCount, 1, sub.firstIndex, sub.vertexOffset, 0);
+                    stats.drawCalls++;
+                    stats.triangles += sub.indexCount / 3;
+                }
             }
         } else if (gpuMesh->getVertexCount() > 0) {
+            bindMaterial(0);
             cmdList.draw(gpuMesh->getVertexCount(), 1, 0, 0);
             stats.drawCalls++;
             stats.triangles += gpuMesh->getVertexCount() / 3;

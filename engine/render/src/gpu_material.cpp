@@ -154,6 +154,7 @@ Result<std::unique_ptr<GpuMaterial>> GpuMaterial::create(rhi::RhiDevice& device,
     rhi::BufferDesc uboDesc{};
     uboDesc.sizeInBytes = sizeof(MaterialUniformBufferData);
     uboDesc.usage = rhi::BufferUsageFlags::Uniform | rhi::BufferUsageFlags::TransferDst;
+    uboDesc.memoryUsage = rhi::MemoryUsage::CpuToGpu;
     uboDesc.debugName = "MaterialUniformBuffer";
 
     auto uboRes = device.createBuffer(uboDesc);

@@ -458,6 +458,164 @@ static int testVulkanSceneRendererHardwareRenderingAndPixelReadback() {
     return 0;
 }
 
+static int testSceneRendererMultiMaterialSubmeshes() {
+#if defined(HIKARI_HAS_TSAN)
+    std::cout << "ThreadSanitizer active: skipping live GPU driver initialization\n";
+    return 0;
+#endif
+
+    VulkanDeviceDesc devDesc{.windowHandle = nullptr, .enableValidation = true};
+    auto devRes = createVulkanDevice(devDesc);
+    if (!devRes.hasValue()) {
+        std::cout << "Vulkan device unavailable; skipping multi-material rendering test\n";
+        return 0;
+    }
+    auto device = std::move(devRes.value());
+
+    const uint32_t vpWidth = 64;
+    const uint32_t vpHeight = 64;
+    const size_t byteSize = vpWidth * vpHeight * 4;
+
+    SceneRenderer renderer{};
+    auto initRes = renderer.init(*device, vpWidth, vpHeight);
+    TEST_CHECK(initRes.hasValue());
+
+    world::World world{};
+    physics::registerPhysicsComponents(world);
+    AssetManager assetManager{};
+
+    // Construct a mesh with 2 submeshes:
+    // Left Quad: [-1, 0] x [-1, 1] with Material 0 (Red)
+    // Right Quad: [0, 1] x [-1, 1] with Material 1 (Blue)
+    MeshData mesh{};
+    mesh.vertices = {
+        // Left Quad (0..3)
+        Vertex(Vec3(-1.0F, -1.0F, 0.0F), Vec3(0.0F, 0.0F, 1.0F), Vec2(0.0F, 1.0F),
+               Vec4(1.0F, 1.0F, 1.0F, 1.0F)),
+        Vertex(Vec3(0.0F, -1.0F, 0.0F), Vec3(0.0F, 0.0F, 1.0F), Vec2(1.0F, 1.0F),
+               Vec4(1.0F, 1.0F, 1.0F, 1.0F)),
+        Vertex(Vec3(0.0F, 1.0F, 0.0F), Vec3(0.0F, 0.0F, 1.0F), Vec2(1.0F, 0.0F),
+               Vec4(1.0F, 1.0F, 1.0F, 1.0F)),
+        Vertex(Vec3(-1.0F, 1.0F, 0.0F), Vec3(0.0F, 0.0F, 1.0F), Vec2(0.0F, 0.0F),
+               Vec4(1.0F, 1.0F, 1.0F, 1.0F)),
+
+        // Right Quad (4..7)
+        Vertex(Vec3(0.0F, -1.0F, 0.0F), Vec3(0.0F, 0.0F, 1.0F), Vec2(0.0F, 1.0F),
+               Vec4(1.0F, 1.0F, 1.0F, 1.0F)),
+        Vertex(Vec3(1.0F, -1.0F, 0.0F), Vec3(0.0F, 0.0F, 1.0F), Vec2(1.0F, 1.0F),
+               Vec4(1.0F, 1.0F, 1.0F, 1.0F)),
+        Vertex(Vec3(1.0F, 1.0F, 0.0F), Vec3(0.0F, 0.0F, 1.0F), Vec2(1.0F, 0.0F),
+               Vec4(1.0F, 1.0F, 1.0F, 1.0F)),
+        Vertex(Vec3(0.0F, 1.0F, 0.0F), Vec3(0.0F, 0.0F, 1.0F), Vec2(0.0F, 0.0F),
+               Vec4(1.0F, 1.0F, 1.0F, 1.0F)),
+    };
+    mesh.indices = {
+        0, 1, 2, 2, 3, 0, // Left submesh
+        4, 5, 6, 6, 7, 4  // Right submesh
+    };
+    mesh.submeshes.push_back(Submesh{
+        .name = "LeftSubmesh",
+        .firstIndex = 0,
+        .indexCount = 6,
+        .vertexOffset = 0,
+        .materialIndex = 0,
+    });
+    mesh.submeshes.push_back(Submesh{
+        .name = "RightSubmesh",
+        .firstIndex = 6,
+        .indexCount = 6,
+        .vertexOffset = 0,
+        .materialIndex = 1,
+    });
+
+    Material mat0{};
+    mat0.name = "RedMat";
+    mat0.baseColor = Vec4(1.0F, 0.0F, 0.0F, 1.0F);
+
+    Material mat1{};
+    mat1.name = "BlueMat";
+    mat1.baseColor = Vec4(0.0F, 0.0F, 1.0F, 1.0F);
+
+    mesh.materials.push_back(mat0);
+    mesh.materials.push_back(mat1);
+
+    auto regRes = assetManager.registerMesh("procedural/multi_submesh", mesh);
+    TEST_CHECK(regRes.hasValue());
+    AssetId meshId = regRes.value();
+
+    auto& ecs = world.getRawWorld();
+    auto entity = ecs.entity("MultiMatMesh");
+    entity.set<MeshComponent>(MeshComponent{
+        .meshAsset = meshId,
+        .submeshIndex = kAllSubmeshes,
+        .visible = true,
+    });
+    entity.set<physics::PhysicsTransformComponent>(physics::PhysicsTransformComponent{
+        .transform = Transform(Vec3(0.0F, 0.0F, 0.0F)),
+    });
+
+    BufferDesc readbackDesc{
+        .sizeInBytes = byteSize,
+        .usage = BufferUsageFlags::TransferDst,
+        .memoryUsage = MemoryUsage::CpuToGpu,
+    };
+    auto readbackBufRes = device->createBuffer(readbackDesc);
+    TEST_CHECK(readbackBufRes.hasValue());
+    BufferHandle readbackBuf = readbackBufRes.value();
+
+    Mat4 view =
+        Mat4::lookAt(Vec3(0.0F, 0.0F, 2.0F), Vec3(0.0F, 0.0F, 0.0F), Vec3(0.0F, 1.0F, 0.0F));
+    Mat4 proj = Mat4::perspective(toRadians(60.0F), 1.0F, 0.1F, 100.0F);
+    Mat4 viewProj = proj * view;
+
+    auto cmdRes = device->createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto cmd = std::move(cmdRes.value());
+
+    cmd->begin();
+    RenderStats stats = renderer.renderScene(world, assetManager, *device, *cmd, viewProj);
+    cmd->copyTextureToBuffer(renderer.getColorTarget(), readbackBuf);
+    cmd->end();
+
+    TEST_CHECK(stats.drawCalls == 2);
+    TEST_CHECK(stats.meshesRendered == 1);
+    TEST_CHECK(stats.triangles == 4);
+
+    TEST_CHECK(device->submit(cmd.get()).hasValue());
+    device->waitIdle();
+
+    // Verify materials were created and cached in AssetManager
+    TEST_CHECK(assetManager.getGpuMaterial(meshId, 0) != nullptr);
+    TEST_CHECK(assetManager.getGpuMaterial(meshId, 1) != nullptr);
+
+    // Read back rendered pixels
+    std::vector<uint8_t> pixels(byteSize, 0);
+    TEST_CHECK(device->readBuffer(readbackBuf, 0, pixels.data(), byteSize).hasValue());
+
+    // Left quad center: x = 20, y = 32 -> Red
+    const size_t leftIdx = (32 * vpWidth + 20) * 4;
+    uint8_t leftR = pixels[leftIdx + 0];
+    uint8_t leftG = pixels[leftIdx + 1];
+    uint8_t leftB = pixels[leftIdx + 2];
+    TEST_CHECK(leftR >= 80);
+    TEST_CHECK(leftG <= 40);
+    TEST_CHECK(leftB <= 40);
+
+    // Right quad center: x = 44, y = 32 -> Blue
+    const size_t rightIdx = (32 * vpWidth + 44) * 4;
+    uint8_t rightR = pixels[rightIdx + 0];
+    uint8_t rightG = pixels[rightIdx + 1];
+    uint8_t rightB = pixels[rightIdx + 2];
+    TEST_CHECK(rightB >= 80);
+    TEST_CHECK(rightG <= 40);
+    TEST_CHECK(rightR <= 40);
+
+    renderer.shutdown();
+    device->destroyBuffer(readbackBuf);
+    std::cout << "SceneRenderer multi-material submesh rendering verified!\n";
+    return 0;
+}
+
 int main() {
     std::cout << "Running SceneRenderer Tests...\n";
 
@@ -474,6 +632,9 @@ int main() {
         return 1;
     }
     if (testVulkanSceneRendererHardwareRenderingAndPixelReadback() != 0) {
+        return 1;
+    }
+    if (testSceneRendererMultiMaterialSubmeshes() != 0) {
         return 1;
     }
 

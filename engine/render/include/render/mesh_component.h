@@ -22,6 +22,10 @@
 
 namespace eng::render {
 
+/// Sentinel value for MeshComponent::submeshIndex indicating all submeshes in a multi-primitive
+/// mesh should be rendered rather than targeting an individual primitive.
+inline constexpr uint32_t kAllSubmeshes = ~0u;
+
 /// @struct MeshComponent
 /// @brief Flecs ECS component specifying mesh geometry and rendering parameters.
 struct MeshComponent {

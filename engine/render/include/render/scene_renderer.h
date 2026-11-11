@@ -107,6 +107,14 @@ public:
     [[nodiscard]] rhi::PipelineLayoutHandle getPipelineLayout() const noexcept {
         return pipelineLayout_;
     }
+    /// Returns the cached descriptor set layout for glTF materials (Set 0).
+    ///
+    /// Preconditions : SceneRenderer must be initialized.
+    /// Thread-safety : Safe to call concurrently from any thread after init().
+    /// Cost          : Free (no heap allocation, returns value handle).
+    [[nodiscard]] rhi::DescriptorSetLayoutHandle getMaterialDescriptorSetLayout() const noexcept {
+        return materialDescriptorSetLayout_;
+    }
     [[nodiscard]] uint32_t getWidth() const noexcept { return width_; }
     [[nodiscard]] uint32_t getHeight() const noexcept { return height_; }
     [[nodiscard]] bool isInitialized() const noexcept {
@@ -119,6 +127,7 @@ private:
     rhi::TextureHandle depthTarget_{};
     rhi::ShaderHandle vertexShader_{};
     rhi::ShaderHandle fragmentShader_{};
+    rhi::DescriptorSetLayoutHandle materialDescriptorSetLayout_{};
     rhi::PipelineLayoutHandle pipelineLayout_{};
     rhi::PipelineHandle pipeline_{};
     uint32_t width_{0};
