@@ -437,4 +437,33 @@ struct VulkanPipelineSlot {
     bool alive{false};
 };
 
+/// @struct VulkanDescriptorSetLayoutSlot
+/// @brief Internal tracking slot for a Vulkan descriptor set layout.
+struct VulkanDescriptorSetLayoutSlot {
+    VkDescriptorSetLayout layout{VK_NULL_HANDLE};
+    DescriptorSetLayoutDesc desc{};
+    uint32_t generation{1};
+    bool alive{false};
+};
+
+/// @struct VulkanDescriptorPoolSlot
+/// @brief Internal tracking slot for a Vulkan descriptor pool.
+struct VulkanDescriptorPoolSlot {
+    VkDescriptorPool pool{VK_NULL_HANDLE};
+    DescriptorPoolDesc desc{};
+    uint32_t allocatedCount{0};
+    uint32_t generation{1};
+    bool alive{false};
+};
+
+/// @struct VulkanDescriptorSetSlot
+/// @brief Internal tracking slot for an allocated Vulkan descriptor set.
+struct VulkanDescriptorSetSlot {
+    VkDescriptorSet set{VK_NULL_HANDLE};
+    DescriptorPoolHandle poolHandle{};
+    DescriptorSetLayoutHandle layoutHandle{};
+    uint32_t generation{1};
+    bool alive{false};
+};
+
 } // namespace eng::rhi::vk
