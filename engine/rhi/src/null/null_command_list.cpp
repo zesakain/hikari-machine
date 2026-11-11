@@ -326,6 +326,13 @@ void NullCommandList::updateTexture(TextureHandle dst, const void* data, size_t 
     }
 }
 
+void NullCommandList::generateMipmaps(TextureHandle texture) {
+    ENG_ASSERT(state_ == State::Recording, "generateMipmaps called outside begin()/end()");
+    if (device_.isTextureValid(texture)) {
+        generateMipmapsCommands_.push_back(texture);
+    }
+}
+
 void NullCommandList::updateBuffer(BufferHandle dst, size_t dstOffset, const void* data,
                                    size_t size) {
     ENG_ASSERT(state_ == State::Recording, "updateBuffer called outside begin()/end()");

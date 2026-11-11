@@ -180,6 +180,15 @@ void NullDevice::destroyTexture(TextureHandle handle) {
 }
 
 Result<SamplerHandle> NullDevice::createSampler(const SamplerDesc& desc) {
+    if (desc.minLod > desc.maxLod) {
+        return Error{.code = ErrorCode::InvalidArgument,
+                     .message = "Sampler minLod cannot be greater than maxLod"};
+    }
+    if (desc.anisotropyEnable && desc.maxAnisotropy < 1.0F) {
+        return Error{.code = ErrorCode::InvalidArgument,
+                     .message = "Sampler maxAnisotropy must be at least 1.0"};
+    }
+
     auto slotIndex = static_cast<uint32_t>(samplers_.size());
     for (size_t i = 0; i < samplers_.size(); ++i) {
         if (!samplers_[i].alive) {

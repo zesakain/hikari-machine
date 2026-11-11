@@ -94,6 +94,12 @@ public:
 
     // Internal backend helpers
     [[nodiscard]] VkDevice getLogicalDevice() const noexcept { return device_; }
+    [[nodiscard]] VulkanPhysicalDevice* getPhysicalDevice() noexcept {
+        return physicalDevice_.get();
+    }
+    [[nodiscard]] const VulkanPhysicalDevice* getPhysicalDevice() const noexcept {
+        return physicalDevice_.get();
+    }
     [[nodiscard]] VkBuffer resolveBuffer(BufferHandle handle) const noexcept;
     [[nodiscard]] VkImage resolveTextureImage(TextureHandle handle) const noexcept;
     [[nodiscard]] VkImageView resolveTextureView(TextureHandle handle) const noexcept;

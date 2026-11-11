@@ -119,11 +119,28 @@ static int testTextureAndSamplerLifecycle() {
                       .addressU = SamplerAddressMode::ClampToEdge,
                       .addressV = SamplerAddressMode::ClampToEdge,
                       .addressW = SamplerAddressMode::ClampToEdge,
+                      .anisotropyEnable = true,
+                      .maxAnisotropy = 8.0F,
+                      .minLod = 0.0F,
+                      .maxLod = 10.0F,
+                      .mipLodBias = 0.5F,
                       .compareEnable = false};
     auto sampRes = device->createSampler(sDesc);
     TEST_CHECK(sampRes.hasValue());
     SamplerHandle sh = sampRes.value();
     TEST_CHECK(sh.isValid());
+
+    // Invalid sampler with minLod > maxLod
+    SamplerDesc badLodDesc = sDesc;
+    badLodDesc.minLod = 5.0F;
+    badLodDesc.maxLod = 2.0F;
+    TEST_CHECK(!device->createSampler(badLodDesc).hasValue());
+
+    // Invalid sampler with maxAnisotropy < 1.0F
+    SamplerDesc badAnisoDesc = sDesc;
+    badAnisoDesc.anisotropyEnable = true;
+    badAnisoDesc.maxAnisotropy = 0.5F;
+    TEST_CHECK(!device->createSampler(badAnisoDesc).hasValue());
 
     device->destroySampler(sh);
 
@@ -1197,12 +1214,14 @@ static int testTextureTransfersAndLayoutTransitions() {
 
     std::vector<uint8_t> pixelData(byteSize, 0x7F);
     cmd->updateTexture(tex, pixelData.data(), pixelData.size(), 0, 0);
+    cmd->generateMipmaps(tex);
     cmd->end();
 
     auto* nullCmd = static_cast<NullCommandList*>(cmd.get());
     TEST_CHECK(nullCmd->getTransitionTextureLayoutCommands().size() == 2);
     TEST_CHECK(nullCmd->getCopyBufferToTextureCommands().size() == 1);
     TEST_CHECK(nullCmd->getUpdateTextureCommands().size() == 1);
+    TEST_CHECK(nullCmd->getGenerateMipmapsCommands().size() == 1);
 
     TEST_CHECK(device->submit(cmd.get()).hasValue());
 

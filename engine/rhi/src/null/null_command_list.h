@@ -169,6 +169,7 @@ public:
                                  uint32_t arrayLayerCount = 1) override;
     void updateTexture(TextureHandle dst, const void* data, size_t size, uint32_t mipLevel = 0,
                        uint32_t arrayLayer = 0) override;
+    void generateMipmaps(TextureHandle texture) override;
     void updateBuffer(BufferHandle dst, size_t dstOffset, const void* data, size_t size) override;
 
     [[nodiscard]] State getState() const noexcept { return state_; }
@@ -220,6 +221,9 @@ public:
     [[nodiscard]] const std::vector<UpdateTextureCmd>& getUpdateTextureCommands() const noexcept {
         return updateTextureCommands_;
     }
+    [[nodiscard]] const std::vector<TextureHandle>& getGenerateMipmapsCommands() const noexcept {
+        return generateMipmapsCommands_;
+    }
 
 private:
     NullDevice& device_;
@@ -255,6 +259,7 @@ private:
     std::vector<TransitionTextureLayoutCmd> transitionTextureLayoutCommands_;
     std::vector<CopyBufferToTextureCmd> copyBufferToTextureCommands_;
     std::vector<UpdateTextureCmd> updateTextureCommands_;
+    std::vector<TextureHandle> generateMipmapsCommands_;
 
     uint32_t pipelineBindCount_{0};
     uint32_t bindDescriptorSetsCount_{0};

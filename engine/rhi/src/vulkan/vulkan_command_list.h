@@ -74,6 +74,7 @@ public:
                                  uint32_t arrayLayerCount = 1) override;
     void updateTexture(TextureHandle dst, const void* data, size_t size, uint32_t mipLevel = 0,
                        uint32_t arrayLayer = 0) override;
+    void generateMipmaps(TextureHandle texture) override;
     void updateBuffer(BufferHandle dst, size_t dstOffset, const void* data, size_t size) override;
 
     [[nodiscard]] NativeCommandListHandles getNativeCommandListHandles() const noexcept override;

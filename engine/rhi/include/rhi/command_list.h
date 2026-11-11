@@ -196,6 +196,11 @@ public:
         (void)arrayLayer;
     }
 
+    /// Generates complete mipmap chain for a texture using GPU blit operations when supported.
+    ///
+    /// @param texture Valid handle of the target texture with mipLevels > 1.
+    virtual void generateMipmaps(TextureHandle texture) { (void)texture; }
+
     /// Updates a destination buffer with host CPU data inline.
     virtual void updateBuffer(BufferHandle dst, size_t dstOffset, const void* data,
                               size_t size) = 0;

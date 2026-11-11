@@ -191,6 +191,11 @@ static int testVulkanSamplerLifecycle() {
                      .addressU = SamplerAddressMode::Repeat,
                      .addressV = SamplerAddressMode::Repeat,
                      .addressW = SamplerAddressMode::ClampToEdge,
+                     .anisotropyEnable = true,
+                     .maxAnisotropy = 16.0F,
+                     .minLod = 0.0F,
+                     .maxLod = 12.0F,
+                     .mipLodBias = 0.25F,
                      .compareEnable = false};
 
     auto samplerRes = device->createSampler(desc);
@@ -1404,16 +1409,40 @@ static int testVulkanTextureTransfersAndLayoutTransitions() {
     // Also verify updateTexture works end-to-end
     std::vector<uint8_t> updateData(byteSize, 0xAA);
     cmd->updateTexture(tex, updateData.data(), updateData.size(), 0, 0);
+
+    // Test mipmap generation with blit operations on a 4-level texture
+    TextureDesc mipTexDesc{
+        .type = TextureType::Texture2D,
+        .format = TextureFormat::RGBA8_UNORM,
+        .width = width,
+        .height = height,
+        .depth = 1,
+        .mipLevels = 4,
+        .arrayLayers = 1,
+        .usage = TextureUsageFlags::Sampled | TextureUsageFlags::TransferDst |
+                 TextureUsageFlags::TransferSrc,
+        .debugName = "VulkanMipmapTestTexture",
+    };
+    auto mipTexRes = device->createTexture(mipTexDesc);
+    TEST_CHECK(mipTexRes.hasValue());
+    TextureHandle mipTex = mipTexRes.value();
+
+    cmd->transitionTextureLayout(mipTex, TextureLayout::Undefined, TextureLayout::TransferDst, 0, 1,
+                                 0, 1);
+    cmd->copyBufferToTexture(buf, mipTex, 0, 0, 0);
+    cmd->generateMipmaps(mipTex);
+
     cmd->end();
 
     auto submitRes = device->submit(cmd.get());
     TEST_CHECK(submitRes.hasValue());
     device->waitIdle();
 
+    device->destroyTexture(mipTex);
     device->destroyBuffer(buf);
     device->destroyTexture(tex);
 
-    std::cout << "Vulkan texture transfers and layout transitions verified!\n";
+    std::cout << "Vulkan texture transfers, layout transitions, and mipmaps verified!\n";
     return 0;
 }
 

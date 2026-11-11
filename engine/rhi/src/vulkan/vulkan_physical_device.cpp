@@ -136,10 +136,12 @@ Result<std::unique_ptr<VulkanPhysicalDevice>> VulkanPhysicalDevice::select(VkIns
         std::min<uint64_t>(selected.properties.limits.maxStorageBufferRange, UINT32_MAX));
     caps.limits.maxBoundDescriptorSets = selected.properties.limits.maxBoundDescriptorSets;
     caps.limits.maxColorAttachments = selected.properties.limits.maxColorAttachments;
+    caps.limits.maxSamplerAnisotropy = selected.properties.limits.maxSamplerAnisotropy;
 
     // Feature flags
     caps.features.dynamicRendering = true;
     caps.features.timelineSemaphores = true;
+    caps.features.samplerAnisotropy = (selected.features.samplerAnisotropy == VK_TRUE);
     caps.features.descriptorIndexing = false;
     caps.features.rayTracing = false;
     caps.features.meshShaders = false;

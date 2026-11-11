@@ -42,6 +42,21 @@ struct SamplerDesc {
     /// Wrap mode for W (depth) coordinate.
     SamplerAddressMode addressW{SamplerAddressMode::Repeat};
 
+    /// Enables anisotropic filtering if supported by hardware capabilities.
+    bool anisotropyEnable{false};
+
+    /// Maximum anisotropy clamping limit (typically 1.0 to 16.0).
+    float maxAnisotropy{1.0F};
+
+    /// Minimum level-of-detail clamp.
+    float minLod{0.0F};
+
+    /// Maximum level-of-detail clamp (e.g. 1000.0F for unconstrained LOD).
+    float maxLod{1000.0F};
+
+    /// Mipmap level-of-detail bias.
+    float mipLodBias{0.0F};
+
     /// Enables hardware depth comparison (for shadow map sampling).
     bool compareEnable{false};
 

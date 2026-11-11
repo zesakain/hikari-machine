@@ -264,6 +264,9 @@ Result<std::unique_ptr<VulkanDevice>> VulkanDevice::create(const VulkanDeviceDes
     };
 
     VkPhysicalDeviceFeatures deviceFeatures{};
+    if (physicalDevice->getCaps().features.samplerAnisotropy) {
+        deviceFeatures.samplerAnisotropy = VK_TRUE;
+    }
 
     VkDeviceCreateInfo deviceCreateInfo{
         .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
@@ -617,6 +620,13 @@ void VulkanDevice::destroyTexture(TextureHandle handle) {
 }
 
 Result<SamplerHandle> VulkanDevice::createSampler(const SamplerDesc& desc) {
+    const bool enableAniso =
+        desc.anisotropyEnable && physicalDevice_->getCaps().features.samplerAnisotropy;
+    const float maxAniso =
+        enableAniso
+            ? std::min(desc.maxAnisotropy, physicalDevice_->getCaps().limits.maxSamplerAnisotropy)
+            : 1.0F;
+
     VkSamplerCreateInfo samplerInfo{
         .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
         .pNext = nullptr,
@@ -627,13 +637,13 @@ Result<SamplerHandle> VulkanDevice::createSampler(const SamplerDesc& desc) {
         .addressModeU = toVkSamplerAddressMode(desc.addressU),
         .addressModeV = toVkSamplerAddressMode(desc.addressV),
         .addressModeW = toVkSamplerAddressMode(desc.addressW),
-        .mipLodBias = 0.0F,
-        .anisotropyEnable = VK_FALSE,
-        .maxAnisotropy = 1.0F,
+        .mipLodBias = desc.mipLodBias,
+        .anisotropyEnable = enableAniso ? VK_TRUE : VK_FALSE,
+        .maxAnisotropy = maxAniso,
         .compareEnable = desc.compareEnable ? VK_TRUE : VK_FALSE,
         .compareOp = toVkCompareOp(desc.compareOp),
-        .minLod = 0.0F,
-        .maxLod = VK_LOD_CLAMP_NONE,
+        .minLod = desc.minLod,
+        .maxLod = desc.maxLod,
         .borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK,
         .unnormalizedCoordinates = VK_FALSE,
     };

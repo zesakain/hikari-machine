@@ -46,6 +46,7 @@ struct GpuLimits {
     uint32_t maxStorageBufferBindingSize{128 * 1024 * 1024}; // 128 MB
     uint32_t maxBoundDescriptorSets{4};
     uint32_t maxColorAttachments{8};
+    float maxSamplerAnisotropy{16.0F};
 };
 
 /// @struct GpuFeatures
@@ -56,6 +57,9 @@ struct GpuFeatures {
 
     /// Timeline semaphores for unified CPU-GPU queue synchronization.
     bool timelineSemaphores{true};
+
+    /// Hardware-accelerated anisotropic texture filtering.
+    bool samplerAnisotropy{true};
 
     /// Bindless texture and buffer array indexing.
     bool descriptorIndexing{false};

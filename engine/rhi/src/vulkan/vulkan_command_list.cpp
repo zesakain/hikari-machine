@@ -1197,6 +1197,182 @@ void VulkanCommandList::updateTexture(TextureHandle dst, const void* data, size_
     stagingBuffers_.push_back(StagingBuffer{.buffer = stagingBuffer, .memory = memRes.value()});
 }
 
+void VulkanCommandList::generateMipmaps(TextureHandle texture) {
+    if (!isRecording_ || device_ == nullptr || cmdBuffer_ == VK_NULL_HANDLE) {
+        return;
+    }
+    if (!device_->isTextureValid(texture)) {
+        ENG_LOG_ERROR("Vulkan", "generateMipmaps failed: invalid texture handle");
+        return;
+    }
+
+    const auto* texDesc = device_->getTextureDesc(texture);
+    if (texDesc == nullptr || texDesc->mipLevels <= 1) {
+        return;
+    }
+
+    VkImage image = device_->resolveTextureImage(texture);
+    if (image == VK_NULL_HANDLE) {
+        return;
+    }
+
+    VkFormat vkFormat = toVkFormat(texDesc->format);
+    VkFormatProperties formatProps{};
+    vkGetPhysicalDeviceFormatProperties(device_->getPhysicalDevice()->handle(), vkFormat,
+                                        &formatProps);
+
+    const bool supportsBlitSrc =
+        (formatProps.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_SRC_BIT) != 0;
+    const bool supportsBlitDst =
+        (formatProps.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_DST_BIT) != 0;
+    const bool supportsLinearFilter = (formatProps.optimalTilingFeatures &
+                                       VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT) != 0;
+
+    if (!supportsBlitSrc || !supportsBlitDst || !supportsLinearFilter) {
+        ENG_LOG_WARN(
+            "Vulkan",
+            "Format does not support GPU linear blitting for mipmaps; transitioning safely");
+        transitionTextureLayout(texture, TextureLayout::Undefined, TextureLayout::ShaderReadOnly, 0,
+                                texDesc->mipLevels, 0, texDesc->arrayLayers);
+        return;
+    }
+
+    int32_t mipWidth = static_cast<int32_t>(texDesc->width);
+    int32_t mipHeight = static_cast<int32_t>(texDesc->height);
+
+    for (uint32_t i = 1; i < texDesc->mipLevels; ++i) {
+        // Transition mip level i - 1 to TRANSFER_SRC_OPTIMAL
+        VkImageMemoryBarrier2 barrierToSrc{
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+            .pNext = nullptr,
+            .srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+            .srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+            .dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT,
+            .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            .newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image = image,
+            .subresourceRange =
+                {
+                    .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                    .baseMipLevel = i - 1,
+                    .levelCount = 1,
+                    .baseArrayLayer = 0,
+                    .layerCount = texDesc->arrayLayers,
+                },
+        };
+        VkDependencyInfo depToSrc{
+            .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+            .pNext = nullptr,
+            .dependencyFlags = 0,
+            .memoryBarrierCount = 0,
+            .pMemoryBarriers = nullptr,
+            .bufferMemoryBarrierCount = 0,
+            .pBufferMemoryBarriers = nullptr,
+            .imageMemoryBarrierCount = 1,
+            .pImageMemoryBarriers = &barrierToSrc,
+        };
+        vkCmdPipelineBarrier2(cmdBuffer_, &depToSrc);
+
+        int32_t nextWidth = (mipWidth > 1) ? (mipWidth / 2) : 1;
+        int32_t nextHeight = (mipHeight > 1) ? (mipHeight / 2) : 1;
+
+        VkImageBlit blitRegion{
+            .srcSubresource =
+                {
+                    .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                    .mipLevel = i - 1,
+                    .baseArrayLayer = 0,
+                    .layerCount = texDesc->arrayLayers,
+                },
+            .srcOffsets = {{0, 0, 0}, {mipWidth, mipHeight, 1}},
+            .dstSubresource =
+                {
+                    .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                    .mipLevel = i,
+                    .baseArrayLayer = 0,
+                    .layerCount = texDesc->arrayLayers,
+                },
+            .dstOffsets = {{0, 0, 0}, {nextWidth, nextHeight, 1}},
+        };
+
+        vkCmdBlitImage(cmdBuffer_, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, image,
+                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blitRegion, VK_FILTER_LINEAR);
+
+        // Transition mip level i - 1 to SHADER_READ_ONLY_OPTIMAL
+        VkImageMemoryBarrier2 barrierToShader{
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+            .pNext = nullptr,
+            .srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+            .srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT,
+            .dstStageMask =
+                VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
+            .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image = image,
+            .subresourceRange = barrierToSrc.subresourceRange,
+        };
+        VkDependencyInfo depToShader{
+            .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+            .pNext = nullptr,
+            .dependencyFlags = 0,
+            .memoryBarrierCount = 0,
+            .pMemoryBarriers = nullptr,
+            .bufferMemoryBarrierCount = 0,
+            .pBufferMemoryBarriers = nullptr,
+            .imageMemoryBarrierCount = 1,
+            .pImageMemoryBarriers = &barrierToShader,
+        };
+        vkCmdPipelineBarrier2(cmdBuffer_, &depToShader);
+
+        mipWidth = nextWidth;
+        mipHeight = nextHeight;
+    }
+
+    // Transition the last mip level to SHADER_READ_ONLY_OPTIMAL
+    VkImageMemoryBarrier2 lastBarrier{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+        .pNext = nullptr,
+        .srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+        .srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+        .dstStageMask =
+            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+        .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
+        .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image = image,
+        .subresourceRange =
+            {
+                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel = texDesc->mipLevels - 1,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = texDesc->arrayLayers,
+            },
+    };
+    VkDependencyInfo lastDep{
+        .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+        .pNext = nullptr,
+        .dependencyFlags = 0,
+        .memoryBarrierCount = 0,
+        .pMemoryBarriers = nullptr,
+        .bufferMemoryBarrierCount = 0,
+        .pBufferMemoryBarriers = nullptr,
+        .imageMemoryBarrierCount = 1,
+        .pImageMemoryBarriers = &lastBarrier,
+    };
+    vkCmdPipelineBarrier2(cmdBuffer_, &lastDep);
+
+    device_->setTextureLayout(texture, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+}
+
 void VulkanCommandList::updateBuffer(BufferHandle dst, size_t dstOffset, const void* data,
                                      size_t size) {
     if (!isRecording_ || device_ == nullptr || cmdBuffer_ == VK_NULL_HANDLE || data == nullptr ||
