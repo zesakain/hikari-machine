@@ -141,25 +141,71 @@ void VulkanCommandList::beginRenderPass(const RenderPassBeginInfo& info) {
         return;
     }
 
-    if (info.colorTarget.isValid()) {
-        // Offscreen Render Target path
-        if (!device_->isTextureValid(info.colorTarget)) {
-            ENG_LOG_ERROR("Vulkan",
-                          "beginRenderPass failed: invalid offscreen color target handle");
-            return;
-        }
-        const auto* colorDesc = device_->getTextureDesc(info.colorTarget);
-        if (colorDesc == nullptr ||
-            !hasFlag(colorDesc->usage, TextureUsageFlags::ColorAttachment) ||
-            !isColorFormat(colorDesc->format)) {
-            ENG_LOG_ERROR("Vulkan",
-                          "beginRenderPass failed: colorTarget lacks ColorAttachment usage or "
-                          "is not a color format");
-            return;
+    if (info.colorTarget.isValid() || info.depthTarget.isValid()) {
+        // Offscreen Render Target path (Color + Depth, Color-only, or Depth-only)
+        bool hasColor = false;
+        const TextureDesc* colorDesc = nullptr;
+        VkImage colorImage = VK_NULL_HANDLE;
+        VkImageView colorView = VK_NULL_HANDLE;
+        VkImageMemoryBarrier2 colorBarrier{};
+
+        if (info.colorTarget.isValid()) {
+            if (!device_->isTextureValid(info.colorTarget)) {
+                ENG_LOG_ERROR("Vulkan",
+                              "beginRenderPass failed: invalid offscreen color target handle");
+                return;
+            }
+            colorDesc = device_->getTextureDesc(info.colorTarget);
+            if (colorDesc == nullptr ||
+                !hasFlag(colorDesc->usage, TextureUsageFlags::ColorAttachment) ||
+                !isColorFormat(colorDesc->format)) {
+                ENG_LOG_ERROR("Vulkan",
+                              "beginRenderPass failed: colorTarget lacks ColorAttachment usage or "
+                              "is not a color format");
+                return;
+            }
+            colorImage = device_->resolveTextureImage(info.colorTarget);
+            colorView = device_->resolveTextureView(info.colorTarget);
+            if (colorImage == VK_NULL_HANDLE || colorView == VK_NULL_HANDLE) {
+                ENG_LOG_ERROR("Vulkan",
+                              "beginRenderPass failed: resolved color image or view is null");
+                return;
+            }
+            hasColor = true;
+
+            VkImageLayout oldColorLayout = device_->getTextureLayout(info.colorTarget);
+            colorBarrier = VkImageMemoryBarrier2{
+                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                .pNext = nullptr,
+                .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                .srcAccessMask = (oldColorLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+                                     ? VK_ACCESS_2_SHADER_READ_BIT
+                                     : 0,
+                .dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                .dstAccessMask =
+                    VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
+                .oldLayout = oldColorLayout,
+                .newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .image = colorImage,
+                .subresourceRange =
+                    {
+                        .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                        .baseMipLevel = 0,
+                        .levelCount = 1,
+                        .baseArrayLayer = 0,
+                        .layerCount = 1,
+                    },
+            };
         }
 
         bool hasDepth = false;
         const TextureDesc* depthDesc = nullptr;
+        VkImage depthImage = VK_NULL_HANDLE;
+        VkImageView depthView = VK_NULL_HANDLE;
+        VkImageMemoryBarrier2 depthBarrier{};
+
         if (info.depthTarget.isValid()) {
             if (!device_->isTextureValid(info.depthTarget)) {
                 ENG_LOG_ERROR("Vulkan",
@@ -175,61 +221,22 @@ void VulkanCommandList::beginRenderPass(const RenderPassBeginInfo& info) {
                               "usage or is not a depth format");
                 return;
             }
-            if (depthDesc->width != colorDesc->width || depthDesc->height != colorDesc->height) {
+            if (hasColor &&
+                (depthDesc->width != colorDesc->width || depthDesc->height != colorDesc->height)) {
                 ENG_LOG_ERROR("Vulkan",
                               "beginRenderPass failed: color and depth attachment dimensions "
                               "mismatch");
                 return;
             }
-            hasDepth = true;
-        }
-
-        uint32_t width = (info.renderWidth > 0 && info.renderWidth <= colorDesc->width)
-                             ? info.renderWidth
-                             : colorDesc->width;
-        uint32_t height = (info.renderHeight > 0 && info.renderHeight <= colorDesc->height)
-                              ? info.renderHeight
-                              : colorDesc->height;
-
-        VkImage colorImage = device_->resolveTextureImage(info.colorTarget);
-        VkImageView colorView = device_->resolveTextureView(info.colorTarget);
-        if (colorImage == VK_NULL_HANDLE || colorView == VK_NULL_HANDLE) {
-            ENG_LOG_ERROR("Vulkan", "beginRenderPass failed: resolved color image or view is null");
-            return;
-        }
-
-        // Transition offscreen color image to COLOR_ATTACHMENT_OPTIMAL
-        VkImageLayout oldColorLayout = device_->getTextureLayout(info.colorTarget);
-        VkImageMemoryBarrier2 colorBarrier{
-            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-            .pNext = nullptr,
-            .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-            .srcAccessMask = (oldColorLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
-                                 ? VK_ACCESS_2_SHADER_READ_BIT
-                                 : 0,
-            .dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-            .dstAccessMask =
-                VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
-            .oldLayout = oldColorLayout,
-            .newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .image = colorImage,
-            .subresourceRange =
-                {
-                    .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                    .baseMipLevel = 0,
-                    .levelCount = 1,
-                    .baseArrayLayer = 0,
-                    .layerCount = 1,
-                },
-        };
-
-        VkImageMemoryBarrier2 depthBarrier{};
-        VkImageView depthView = VK_NULL_HANDLE;
-        if (hasDepth) {
-            VkImage depthImage = device_->resolveTextureImage(info.depthTarget);
+            depthImage = device_->resolveTextureImage(info.depthTarget);
             depthView = device_->resolveTextureView(info.depthTarget);
+            if (depthImage == VK_NULL_HANDLE || depthView == VK_NULL_HANDLE) {
+                ENG_LOG_ERROR("Vulkan",
+                              "beginRenderPass failed: resolved depth image or view is null");
+                return;
+            }
+            hasDepth = true;
+
             VkImageLayout oldDepthLayout = device_->getTextureLayout(info.depthTarget);
             depthBarrier = VkImageMemoryBarrier2{
                 .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
@@ -258,30 +265,44 @@ void VulkanCommandList::beginRenderPass(const RenderPassBeginInfo& info) {
             };
         }
 
+        uint32_t baseWidth = hasColor ? colorDesc->width : depthDesc->width;
+        uint32_t baseHeight = hasColor ? colorDesc->height : depthDesc->height;
+        uint32_t width =
+            (info.renderWidth > 0 && info.renderWidth <= baseWidth) ? info.renderWidth : baseWidth;
+        uint32_t height = (info.renderHeight > 0 && info.renderHeight <= baseHeight)
+                              ? info.renderHeight
+                              : baseHeight;
+
         VkImageMemoryBarrier2 barriers[2];
-        barriers[0] = colorBarrier;
-        uint32_t barrierCount = 1;
+        uint32_t barrierCount = 0;
+        if (hasColor) {
+            barriers[barrierCount++] = colorBarrier;
+        }
         if (hasDepth) {
-            barriers[1] = depthBarrier;
-            barrierCount = 2;
+            barriers[barrierCount++] = depthBarrier;
         }
 
-        VkDependencyInfo depInfo{
-            .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-            .pNext = nullptr,
-            .dependencyFlags = 0,
-            .memoryBarrierCount = 0,
-            .pMemoryBarriers = nullptr,
-            .bufferMemoryBarrierCount = 0,
-            .pBufferMemoryBarriers = nullptr,
-            .imageMemoryBarrierCount = barrierCount,
-            .pImageMemoryBarriers = barriers,
-        };
-        vkCmdPipelineBarrier2(cmdBuffer_, &depInfo);
-        device_->setTextureLayout(info.colorTarget, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-        if (hasDepth) {
-            device_->setTextureLayout(info.depthTarget,
-                                      VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+        if (barrierCount > 0) {
+            VkDependencyInfo depInfo{
+                .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+                .pNext = nullptr,
+                .dependencyFlags = 0,
+                .memoryBarrierCount = 0,
+                .pMemoryBarriers = nullptr,
+                .bufferMemoryBarrierCount = 0,
+                .pBufferMemoryBarriers = nullptr,
+                .imageMemoryBarrierCount = barrierCount,
+                .pImageMemoryBarriers = barriers,
+            };
+            vkCmdPipelineBarrier2(cmdBuffer_, &depInfo);
+            if (hasColor) {
+                device_->setTextureLayout(info.colorTarget,
+                                          VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            }
+            if (hasDepth) {
+                device_->setTextureLayout(info.depthTarget,
+                                          VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+            }
         }
 
         VkRenderingAttachmentInfo colorAttachment{
@@ -336,8 +357,8 @@ void VulkanCommandList::beginRenderPass(const RenderPassBeginInfo& info) {
                 },
             .layerCount = 1,
             .viewMask = 0,
-            .colorAttachmentCount = 1,
-            .pColorAttachments = &colorAttachment,
+            .colorAttachmentCount = hasColor ? 1u : 0u,
+            .pColorAttachments = hasColor ? &colorAttachment : nullptr,
             .pDepthAttachment = hasDepth ? &depthAttachment : nullptr,
             .pStencilAttachment = nullptr,
         };
@@ -347,7 +368,7 @@ void VulkanCommandList::beginRenderPass(const RenderPassBeginInfo& info) {
         currentRenderImage_ = VK_NULL_HANDLE; // Offscreen, not swapchain image
         activeColorTarget_ = info.colorTarget;
         activeDepthTarget_ = info.depthTarget;
-        activeColorFormat_ = colorDesc->format;
+        activeColorFormat_ = hasColor ? colorDesc->format : TextureFormat::Undefined;
         activeDepthFormat_ = hasDepth ? depthDesc->format : TextureFormat::Undefined;
 
         setViewport(0.0F, 0.0F, static_cast<float>(width), static_cast<float>(height), 0.0F, 1.0F);
@@ -467,70 +488,65 @@ void VulkanCommandList::endRenderPass() {
     vkCmdEndRendering(cmdBuffer_);
     isInsideRenderPass_ = false;
 
-    if (activeColorTarget_.isValid()) {
-        // Offscreen Color Target transition: COLOR_ATTACHMENT_OPTIMAL -> SHADER_READ_ONLY_OPTIMAL
-        VkImage colorImage = device_->resolveTextureImage(activeColorTarget_);
-        if (colorImage != VK_NULL_HANDLE) {
-            VkImageMemoryBarrier2 colorBarrier{
-                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-                .pNext = nullptr,
-                .srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-                .srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-                .dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-                .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
-                .oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                .image = colorImage,
-                .subresourceRange =
-                    {
-                        .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                        .baseMipLevel = 0,
-                        .levelCount = 1,
-                        .baseArrayLayer = 0,
-                        .layerCount = 1,
-                    },
-            };
+    if (activeColorTarget_.isValid() || activeDepthTarget_.isValid()) {
+        VkImageMemoryBarrier2 barriers[2];
+        uint32_t count = 0;
 
-            VkImageMemoryBarrier2 depthBarrier{};
-            bool hasDepth = false;
-            if (activeDepthTarget_.isValid()) {
-                VkImage depthImage = device_->resolveTextureImage(activeDepthTarget_);
-                if (depthImage != VK_NULL_HANDLE) {
-                    hasDepth = true;
-                    depthBarrier = VkImageMemoryBarrier2{
-                        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-                        .pNext = nullptr,
-                        .srcStageMask = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-                        .srcAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-                        .dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-                        .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
-                        .oldLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-                        .newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-                        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                        .image = depthImage,
-                        .subresourceRange =
-                            {
-                                .aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
-                                .baseMipLevel = 0,
-                                .levelCount = 1,
-                                .baseArrayLayer = 0,
-                                .layerCount = 1,
-                            },
-                    };
-                }
+        if (activeColorTarget_.isValid()) {
+            VkImage colorImage = device_->resolveTextureImage(activeColorTarget_);
+            if (colorImage != VK_NULL_HANDLE) {
+                barriers[count++] = VkImageMemoryBarrier2{
+                    .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                    .pNext = nullptr,
+                    .srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                    .srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+                    .dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+                    .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
+                    .oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                    .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                    .image = colorImage,
+                    .subresourceRange =
+                        {
+                            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                            .baseMipLevel = 0,
+                            .levelCount = 1,
+                            .baseArrayLayer = 0,
+                            .layerCount = 1,
+                        },
+                };
             }
+        }
 
-            VkImageMemoryBarrier2 barriers[2];
-            barriers[0] = colorBarrier;
-            uint32_t count = 1;
-            if (hasDepth) {
-                barriers[1] = depthBarrier;
-                count = 2;
+        if (activeDepthTarget_.isValid()) {
+            VkImage depthImage = device_->resolveTextureImage(activeDepthTarget_);
+            if (depthImage != VK_NULL_HANDLE) {
+                barriers[count++] = VkImageMemoryBarrier2{
+                    .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                    .pNext = nullptr,
+                    .srcStageMask = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+                    .srcAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                    .dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+                    .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
+                    .oldLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                    .newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+                    .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                    .image = depthImage,
+                    .subresourceRange =
+                        {
+                            .aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
+                            .baseMipLevel = 0,
+                            .levelCount = 1,
+                            .baseArrayLayer = 0,
+                            .layerCount = 1,
+                        },
+                };
             }
+        }
 
+        if (count > 0) {
             VkDependencyInfo depInfo{
                 .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
                 .pNext = nullptr,
@@ -543,8 +559,11 @@ void VulkanCommandList::endRenderPass() {
                 .pImageMemoryBarriers = barriers,
             };
             vkCmdPipelineBarrier2(cmdBuffer_, &depInfo);
-            device_->setTextureLayout(activeColorTarget_, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-            if (hasDepth) {
+            if (activeColorTarget_.isValid()) {
+                device_->setTextureLayout(activeColorTarget_,
+                                          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            }
+            if (activeDepthTarget_.isValid()) {
                 device_->setTextureLayout(activeDepthTarget_,
                                           VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
             }

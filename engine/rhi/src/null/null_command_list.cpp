@@ -62,37 +62,44 @@ void NullCommandList::beginRenderPass(const RenderPassBeginInfo& info) {
         return;
     }
 
-    if (info.colorTarget.isValid()) {
-        if (!device_.isTextureValid(info.colorTarget)) {
-            hasInvalidAttachment_ = true;
-            return;
-        }
-        const auto* colorDesc = device_.getTextureDesc(info.colorTarget);
-        if (colorDesc == nullptr ||
-            !hasFlag(colorDesc->usage, TextureUsageFlags::ColorAttachment) ||
-            !isColorFormat(colorDesc->format)) {
-            hasInvalidAttachment_ = true;
-            return;
+    if (info.colorTarget.isValid() || info.depthTarget.isValid()) {
+        bool hasColor = false;
+        const TextureDesc* colorDesc = nullptr;
+        if (info.colorTarget.isValid()) {
+            if (!device_.isTextureValid(info.colorTarget)) {
+                hasInvalidAttachment_ = true;
+                return;
+            }
+            colorDesc = device_.getTextureDesc(info.colorTarget);
+            if (colorDesc == nullptr ||
+                !hasFlag(colorDesc->usage, TextureUsageFlags::ColorAttachment) ||
+                !isColorFormat(colorDesc->format)) {
+                hasInvalidAttachment_ = true;
+                return;
+            }
+            hasColor = true;
+            activeColorTarget_ = info.colorTarget;
+            activeColorFormat_ = colorDesc->format;
+        } else {
+            activeColorTarget_ = {};
+            activeColorFormat_ = TextureFormat::Undefined;
         }
 
-        activeColorTarget_ = info.colorTarget;
-        activeColorFormat_ = colorDesc->format;
-        activeWidth_ = info.renderWidth > 0 ? info.renderWidth : colorDesc->width;
-        activeHeight_ = info.renderHeight > 0 ? info.renderHeight : colorDesc->height;
-
+        const TextureDesc* depthDesc = nullptr;
         if (info.depthTarget.isValid()) {
             if (!device_.isTextureValid(info.depthTarget)) {
                 hasInvalidAttachment_ = true;
                 return;
             }
-            const auto* depthDesc = device_.getTextureDesc(info.depthTarget);
+            depthDesc = device_.getTextureDesc(info.depthTarget);
             if (depthDesc == nullptr ||
                 !hasFlag(depthDesc->usage, TextureUsageFlags::DepthStencilAttachment) ||
                 !isDepthFormat(depthDesc->format)) {
                 hasInvalidAttachment_ = true;
                 return;
             }
-            if (depthDesc->width != colorDesc->width || depthDesc->height != colorDesc->height) {
+            if (hasColor &&
+                (depthDesc->width != colorDesc->width || depthDesc->height != colorDesc->height)) {
                 hasDimensionMismatch_ = true;
                 return;
             }
@@ -102,6 +109,11 @@ void NullCommandList::beginRenderPass(const RenderPassBeginInfo& info) {
             activeDepthTarget_ = {};
             activeDepthFormat_ = TextureFormat::Undefined;
         }
+
+        uint32_t baseW = hasColor ? colorDesc->width : depthDesc->width;
+        uint32_t baseH = hasColor ? colorDesc->height : depthDesc->height;
+        activeWidth_ = info.renderWidth > 0 ? info.renderWidth : baseW;
+        activeHeight_ = info.renderHeight > 0 ? info.renderHeight : baseH;
     } else {
         // Swapchain presentation target baseline
         activeColorTarget_ = {};
