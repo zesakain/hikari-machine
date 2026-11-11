@@ -131,9 +131,9 @@ Result<void> SceneRenderer::init(rhi::RhiDevice& device, uint32_t width, uint32_
     // 4. Compile vertex and fragment shaders from precompiled SPIR-V bytecodes
     rhi::ShaderDesc vertDesc{
         .stage = rhi::ShaderStageFlags::Vertex,
-        .spirvCode = kMeshVertexShaderSpirv,
+        .spirvCode = kPbrMeshVertexShaderSpirv,
         .entryPoint = "main",
-        .debugName = "MeshVertexShader",
+        .debugName = "PbrMeshVertexShader",
     };
     auto vertRes = device_->createShader(vertDesc);
     if (!vertRes.hasValue()) {
@@ -146,7 +146,7 @@ Result<void> SceneRenderer::init(rhi::RhiDevice& device, uint32_t width, uint32_
         .stage = rhi::ShaderStageFlags::Fragment,
         .spirvCode = kGltfMaterialFragmentShaderSpirv,
         .entryPoint = "main",
-        .debugName = "GltfMaterialFragmentShader",
+        .debugName = "PbrMaterialFragmentShader",
     };
     auto fragRes = device_->createShader(fragDesc);
     if (!fragRes.hasValue()) {
@@ -209,6 +209,12 @@ Result<void> SceneRenderer::init(rhi::RhiDevice& device, uint32_t width, uint32_
                             .binding = 0,
                             .format = rhi::VertexFormat::Float4,
                             .offset = static_cast<uint32_t>(offsetof(Vertex, color)),
+                        },
+                        {
+                            .location = 4,
+                            .binding = 0,
+                            .format = rhi::VertexFormat::Float4,
+                            .offset = static_cast<uint32_t>(offsetof(Vertex, tangent)),
                         },
                     },
             },
