@@ -24,9 +24,9 @@ namespace eng::render {
 /// @enum AlphaMode
 /// @brief Alpha rendering mode corresponding to glTF 2.0 specifications.
 enum class AlphaMode : uint8_t {
-    Opaque = 0,
-    Mask = 1,
-    Blend = 2,
+    Opaque = 0, ///< Fully opaque surface; alpha channel ignored during rasterization.
+    Mask = 1,   ///< Binary cut-out; fragments with alpha < alphaCutoff are discarded.
+    Blend = 2,  ///< Alpha blending. NOTE: Currently unsupported pending transparent mesh sorting.
 };
 
 /// @enum TextureColorSpace

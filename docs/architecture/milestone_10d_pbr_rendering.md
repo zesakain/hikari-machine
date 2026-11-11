@@ -72,13 +72,15 @@ All five material texture slots bound to Descriptor Set 0 are sampled and evalua
 | `set=0, binding=3` | Ambient Occlusion | Linear | `RGBA8_UNORM` | **R = Occlusion**, G/B/A unused |
 | `set=0, binding=4` | Emissive Map | sRGB | `RGBA8_SRGB` | RGB = Emissive radiance |
 
-### Numeric Clamping and Normalization
+### Numeric Clamping, Normalization & Occlusion
 - `metallic`: clamped to $[0.0, 1.0]$.
 - `roughness`: clamped to $[0.045, 1.0]$.
 - `normalScale`: scales the $X$ and $Y$ tangent components before renormalization:
   $$n_{\text{perturbed}} = \text{normalize}\left(\mathbf{TBN} \cdot \left[s_x \cdot \text{scale}, s_y \cdot \text{scale}, s_z\right]^T\right)$$
-- `occlusionStrength`: modulates ambient light attenuation:
+- `occlusionStrength`: modulates ambient/indirect lighting attenuation only. In accordance with the glTF 2.0 specification, ambient occlusion never attenuates direct illumination:
   $$\text{ao} = 1.0 + \text{occlusionStrength} \cdot (\text{sample.r} - 1.0)$$
+  $$\text{ambient} = (\text{ambientDiffuse} + \text{ambientSpecular}) \cdot \text{ao}$$
+- **Texture Coordinates:** Multiple UV coordinate sets (`texCoordIndex > 0`) are currently not supported; all texture lookups evaluate the primary `TEXCOORD_0` attribute stream. Unsupported glTF extensions (e.g. KHR_texture_transform) are parsed but ignored.
 
 ---
 
@@ -127,9 +129,12 @@ if (material.hasNormalTex != 0u) {
 
 ---
 
-## 5. Alpha Mask Cutoff & Emissive Radiance
+## 5. Alpha Behavior & Emissive Radiance
 
-- **Alpha Cutoff (`AlphaMode::Mask`):** Fragments with `baseColor.a < material.alphaCutoff` are discarded immediately in the fragment shader before lighting calculations (`discard`).
+- **Alpha Modes:**
+  - `AlphaMode::Opaque` (default): Surface is rendered completely opaque; alpha channel is ignored during depth writing and rasterization.
+  - `AlphaMode::Mask`: Fragments with `baseColor.a < material.alphaCutoff` are discarded immediately in the fragment shader before lighting calculations (`discard`).
+  - `AlphaMode::Blend`: **UNSUPPORTED** in Milestone 10D. Rasterization pipelines currently use opaque depth writing and blending is disabled (`blendEnable = false`). Transparent object sorting, depth buffer handling, and alpha blending are scheduled for future rendering milestones.
 - **Emissive Radiance:** Multiplied by `emissiveFactor` and added directly to the illuminated output without diffuse/specular attenuation:
   $$\text{Color}_{\text{final}} = \text{directLight} + \text{ambient} + \text{emissive}$$
 
