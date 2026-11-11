@@ -90,6 +90,13 @@ public:
         std::vector<uint8_t> data;
     };
 
+    struct DescriptorSetBinding {
+        PipelineLayoutHandle layout{};
+        uint32_t firstSet{0};
+        std::vector<DescriptorSetHandle> sets;
+        std::vector<uint32_t> dynamicOffsets;
+    };
+
     explicit NullCommandList(NullDevice& device) noexcept;
     ~NullCommandList() noexcept override = default;
 
@@ -111,6 +118,9 @@ public:
     void setScissor(int32_t x, int32_t y, uint32_t width, uint32_t height) override;
 
     void bindPipeline(PipelineHandle pipeline) override;
+    void bindDescriptorSets(PipelineLayoutHandle layout, uint32_t firstSet,
+                            std::span<const DescriptorSetHandle> sets,
+                            std::span<const uint32_t> dynamicOffsets = {}) override;
     void pushConstants(PipelineLayoutHandle layout, ShaderStageFlags stages, uint32_t offset,
                        uint32_t size, const void* data) override;
 
@@ -146,12 +156,19 @@ public:
     [[nodiscard]] bool hasNestedRenderPass() const noexcept { return hasNestedRenderPass_; }
     [[nodiscard]] bool hasOrphanEndPass() const noexcept { return hasOrphanEndPass_; }
     [[nodiscard]] uint32_t getPipelineBindCount() const noexcept { return pipelineBindCount_; }
+    [[nodiscard]] uint32_t getBindDescriptorSetsCount() const noexcept {
+        return bindDescriptorSetsCount_;
+    }
     [[nodiscard]] uint32_t getPushConstantCount() const noexcept { return pushConstantCount_; }
     [[nodiscard]] uint32_t getDrawCount() const noexcept { return drawCount_; }
     [[nodiscard]] uint32_t getDrawIndexedCount() const noexcept { return drawIndexedCount_; }
     [[nodiscard]] uint32_t getCopyCount() const noexcept { return copyCount_; }
     [[nodiscard]] uint32_t getUpdateCount() const noexcept { return updateCount_; }
 
+    [[nodiscard]] const std::vector<DescriptorSetBinding>&
+    getDescriptorSetBindings() const noexcept {
+        return descriptorSetBindings_;
+    }
     [[nodiscard]] const std::vector<CopyBufferCmd>& getCopyCommands() const noexcept {
         return copyCommands_;
     }
@@ -189,8 +206,10 @@ private:
     std::vector<DrawIndexedCmd> drawIndexedCommands_;
     std::vector<CopyBufferCmd> copyCommands_;
     std::vector<UpdateBufferCmd> updateCommands_;
+    std::vector<DescriptorSetBinding> descriptorSetBindings_;
 
     uint32_t pipelineBindCount_{0};
+    uint32_t bindDescriptorSetsCount_{0};
     uint32_t pushConstantCount_{0};
     uint32_t drawCount_{0};
     uint32_t drawIndexedCount_{0};

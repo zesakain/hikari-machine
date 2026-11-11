@@ -36,8 +36,10 @@ void NullCommandList::begin() {
     drawIndexedCommands_.clear();
     copyCommands_.clear();
     updateCommands_.clear();
+    descriptorSetBindings_.clear();
 
     pipelineBindCount_ = 0;
+    bindDescriptorSetsCount_ = 0;
     pushConstantCount_ = 0;
     drawCount_ = 0;
     drawIndexedCount_ = 0;
@@ -158,6 +160,21 @@ void NullCommandList::bindPipeline(PipelineHandle pipeline) {
     } else {
         boundPipeline_ = {};
         boundLayout_ = {};
+    }
+}
+
+void NullCommandList::bindDescriptorSets(PipelineLayoutHandle layout, uint32_t firstSet,
+                                         std::span<const DescriptorSetHandle> sets,
+                                         std::span<const uint32_t> dynamicOffsets) {
+    ENG_ASSERT(state_ == State::Recording, "bindDescriptorSets called outside begin()/end()");
+    if (device_.isPipelineLayoutValid(layout)) {
+        DescriptorSetBinding binding{};
+        binding.layout = layout;
+        binding.firstSet = firstSet;
+        binding.sets.assign(sets.begin(), sets.end());
+        binding.dynamicOffsets.assign(dynamicOffsets.begin(), dynamicOffsets.end());
+        descriptorSetBindings_.push_back(std::move(binding));
+        ++bindDescriptorSetsCount_;
     }
 }
 
