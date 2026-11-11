@@ -1171,6 +1171,184 @@ static int testVulkanBufferReadAndTextureCopy() {
     return 0;
 }
 
+static int testVulkanDescriptorLifecycleAndBinding() {
+    VulkanDeviceDesc devDesc{.windowHandle = nullptr, .enableValidation = true};
+    auto devRes = createVulkanDevice(devDesc);
+    if (!devRes.hasValue()) {
+        std::cout << "Vulkan device unavailable; skipping descriptor test\n";
+        return 0;
+    }
+    auto device = std::move(devRes.value());
+
+    // 1. Descriptor Set Layout Validation and Creation
+    DescriptorSetLayoutDesc invalidDuplicate{
+        .bindings =
+            {
+                DescriptorBindingDesc{.binding = 0,
+                                      .descriptorType = DescriptorType::UniformBuffer,
+                                      .descriptorCount = 1,
+                                      .stageFlags = ShaderStageFlags::Vertex},
+                DescriptorBindingDesc{.binding = 0,
+                                      .descriptorType = DescriptorType::StorageBuffer,
+                                      .descriptorCount = 1,
+                                      .stageFlags = ShaderStageFlags::Fragment},
+            },
+    };
+    TEST_CHECK(!device->createDescriptorSetLayout(invalidDuplicate).hasValue());
+
+    DescriptorSetLayoutDesc validLayoutDesc{
+        .bindings =
+            {
+                DescriptorBindingDesc{.binding = 0,
+                                      .descriptorType = DescriptorType::UniformBuffer,
+                                      .descriptorCount = 1,
+                                      .stageFlags = ShaderStageFlags::Vertex},
+                DescriptorBindingDesc{.binding = 1,
+                                      .descriptorType = DescriptorType::CombinedImageSampler,
+                                      .descriptorCount = 1,
+                                      .stageFlags = ShaderStageFlags::Fragment},
+            },
+        .debugName = "VulkanTestLayout",
+    };
+    auto layoutRes = device->createDescriptorSetLayout(validLayoutDesc);
+    TEST_CHECK(layoutRes.hasValue());
+    DescriptorSetLayoutHandle layout = layoutRes.value();
+    TEST_CHECK(layout.isValid());
+
+    // 2. Descriptor Pool Creation and Allocation Limits
+    DescriptorPoolDesc invalidPoolDesc{
+        .maxSets = 0,
+        .poolSizes = {{.type = DescriptorType::UniformBuffer, .count = 1}},
+    };
+    TEST_CHECK(!device->createDescriptorPool(invalidPoolDesc).hasValue());
+
+    DescriptorPoolDesc poolDesc{
+        .maxSets = 2,
+        .poolSizes =
+            {
+                {.type = DescriptorType::UniformBuffer, .count = 2},
+                {.type = DescriptorType::CombinedImageSampler, .count = 2},
+            },
+        .debugName = "VulkanTestPool",
+    };
+    auto poolRes = device->createDescriptorPool(poolDesc);
+    TEST_CHECK(poolRes.hasValue());
+    DescriptorPoolHandle pool = poolRes.value();
+    TEST_CHECK(pool.isValid());
+
+    auto setRes1 = device->allocateDescriptorSet(pool, layout);
+    TEST_CHECK(setRes1.hasValue());
+    DescriptorSetHandle set1 = setRes1.value();
+    TEST_CHECK(set1.isValid());
+
+    auto setRes2 = device->allocateDescriptorSet(pool, layout);
+    TEST_CHECK(setRes2.hasValue());
+    DescriptorSetHandle set2 = setRes2.value();
+    TEST_CHECK(set2.isValid());
+
+    // Exceed maxSets capacity
+    auto setRes3 = device->allocateDescriptorSet(pool, layout);
+    TEST_CHECK(!setRes3.hasValue());
+    TEST_CHECK(setRes3.error().code == eng::ErrorCode::OutOfMemory);
+
+    // 3. Resource Creation and Descriptor Updates
+    BufferDesc uboDesc{
+        .sizeInBytes = 256,
+        .usage = BufferUsageFlags::Uniform | BufferUsageFlags::TransferDst,
+        .memoryUsage = MemoryUsage::CpuToGpu,
+        .debugName = "VulkanTestUbo",
+    };
+    auto uboRes = device->createBuffer(uboDesc);
+    TEST_CHECK(uboRes.hasValue());
+    BufferHandle ubo = uboRes.value();
+
+    TextureDesc texDesc{
+        .type = TextureType::Texture2D,
+        .format = TextureFormat::RGBA8_UNORM,
+        .width = 64,
+        .height = 64,
+        .depth = 1,
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .usage = TextureUsageFlags::Sampled | TextureUsageFlags::TransferDst,
+        .debugName = "VulkanTestTex",
+    };
+    auto texRes = device->createTexture(texDesc);
+    TEST_CHECK(texRes.hasValue());
+    TextureHandle tex = texRes.value();
+
+    SamplerDesc smpDesc{
+        .minFilter = Filter::Linear,
+        .magFilter = Filter::Linear,
+        .debugName = "VulkanTestSampler",
+    };
+    auto smpRes = device->createSampler(smpDesc);
+    TEST_CHECK(smpRes.hasValue());
+    SamplerHandle smp = smpRes.value();
+
+    // Validation: Out of bounds buffer range
+    DescriptorWrite badBufferWrite =
+        DescriptorWrite::makeBuffer(0, DescriptorType::UniformBuffer, ubo, 300, 64);
+    TEST_CHECK(!device->updateDescriptorSet(set1, std::span{&badBufferWrite, 1}).hasValue());
+
+    // Validation: Mismatched descriptor type
+    DescriptorWrite typeMismatchWrite = DescriptorWrite::makeCombinedImageSampler(0, tex, smp);
+    TEST_CHECK(!device->updateDescriptorSet(set1, std::span{&typeMismatchWrite, 1}).hasValue());
+
+    // Valid update
+    DescriptorWrite writes[] = {
+        DescriptorWrite::makeBuffer(0, DescriptorType::UniformBuffer, ubo, 0, 256),
+        DescriptorWrite::makeCombinedImageSampler(1, tex, smp),
+    };
+    TEST_CHECK(device->updateDescriptorSet(set1, writes).hasValue());
+
+    // 4. Pipeline Layout Integration and Command Buffer Recording
+    PipelineLayoutDesc pipeLayoutDesc{
+        .pushConstants =
+            {
+                PushConstantRange{.stageFlags = ShaderStageFlags::Vertex, .offset = 0, .size = 64},
+            },
+        .descriptorSetLayoutHandles = {layout},
+        .debugName = "VulkanTestPipelineLayout",
+    };
+    auto pipeLayoutRes = device->createPipelineLayout(pipeLayoutDesc);
+    TEST_CHECK(pipeLayoutRes.hasValue());
+    PipelineLayoutHandle pipeLayout = pipeLayoutRes.value();
+
+    auto cmdRes = device->createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto cmd = std::move(cmdRes.value());
+    cmd->begin();
+
+    DescriptorSetHandle setsToBind[] = {set1};
+    cmd->bindDescriptorSets(pipeLayout, 0, setsToBind);
+    uint32_t pcData[16] = {1, 2, 3, 4};
+    cmd->pushConstants(pipeLayout, ShaderStageFlags::Vertex, 0, 64, pcData);
+    cmd->end();
+
+    // 5. Pool Reset and Invalidation
+    TEST_CHECK(device->resetDescriptorPool(pool).hasValue());
+    // Stale set1 write should be rejected after pool reset
+    DescriptorWrite afterResetWrite =
+        DescriptorWrite::makeBuffer(0, DescriptorType::UniformBuffer, ubo, 0, 256);
+    TEST_CHECK(!device->updateDescriptorSet(set1, std::span{&afterResetWrite, 1}).hasValue());
+
+    // Re-allocation succeeds after reset
+    auto setAfterReset = device->allocateDescriptorSet(pool, layout);
+    TEST_CHECK(setAfterReset.hasValue());
+
+    // Clean up
+    device->destroyDescriptorPool(pool);
+    device->destroyPipelineLayout(pipeLayout);
+    device->destroyDescriptorSetLayout(layout);
+    device->destroySampler(smp);
+    device->destroyTexture(tex);
+    device->destroyBuffer(ubo);
+
+    std::cout << "Vulkan descriptor layout, pool, set, update, and command binding verified!\n";
+    return 0;
+}
+
 int main() {
     std::cout << "Running Vulkan RHI Tests...\n";
 
@@ -1236,6 +1414,9 @@ int main() {
         return 1;
     }
     if (testVulkanBufferReadAndTextureCopy() != 0) {
+        return 1;
+    }
+    if (testVulkanDescriptorLifecycleAndBinding() != 0) {
         return 1;
     }
 
