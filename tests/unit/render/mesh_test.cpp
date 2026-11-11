@@ -128,6 +128,45 @@ static int testMeshDataTangents() {
     return 0;
 }
 
+static int testMeshDataTangentsDegenerateAndMirrored() {
+    // 1. Degenerate UVs: all vertices have identical UV (0, 0)
+    MeshData degenMesh{};
+    degenMesh.vertices = {
+        Vertex(Vec3(-1.0F, -1.0F, 0.0F), Vec3(0.0F, 0.0F, 1.0F), Vec2(0.0F, 0.0F)),
+        Vertex(Vec3(1.0F, -1.0F, 0.0F), Vec3(0.0F, 0.0F, 1.0F), Vec2(0.0F, 0.0F)),
+        Vertex(Vec3(1.0F, 1.0F, 0.0F), Vec3(0.0F, 0.0F, 1.0F), Vec2(0.0F, 0.0F)),
+    };
+    degenMesh.indices = {0, 1, 2};
+    degenMesh.generateTangents();
+
+    for (const auto& v : degenMesh.vertices) {
+        const Vec3 tanVec{v.tangent.x, v.tangent.y, v.tangent.z};
+        TEST_CHECK(tanVec.lengthSq() > 0.5F);                      // non-zero fallback
+        TEST_CHECK(std::abs(Vec3::dot(v.normal, tanVec)) < 1e-4F); // strictly orthogonal
+        TEST_CHECK(std::abs(v.tangent.w) == 1.0F);
+    }
+
+    // 2. Mirrored UVs: U axis inverted (U = 1 - x) relative to standard right-handed UV
+    MeshData mirroredMesh{};
+    mirroredMesh.vertices = {
+        Vertex(Vec3(-1.0F, -1.0F, 0.0F), Vec3(0.0F, 0.0F, 1.0F), Vec2(1.0F, 0.0F)),
+        Vertex(Vec3(1.0F, -1.0F, 0.0F), Vec3(0.0F, 0.0F, 1.0F), Vec2(0.0F, 0.0F)),
+        Vertex(Vec3(1.0F, 1.0F, 0.0F), Vec3(0.0F, 0.0F, 1.0F), Vec2(0.0F, 1.0F)),
+        Vertex(Vec3(-1.0F, 1.0F, 0.0F), Vec3(0.0F, 0.0F, 1.0F), Vec2(1.0F, 1.0F)),
+    };
+    mirroredMesh.indices = {0, 1, 2, 2, 3, 0};
+    mirroredMesh.generateTangents();
+
+    for (const auto& v : mirroredMesh.vertices) {
+        // Mirrored UV must produce negative bitangent handedness w = -1.0
+        TEST_CHECK(v.tangent.w == -1.0F);
+        const Vec3 tanVec{v.tangent.x, v.tangent.y, v.tangent.z};
+        TEST_CHECK(std::abs(Vec3::dot(v.normal, tanVec)) < 1e-4F);
+    }
+
+    return 0;
+}
+
 static int testObjImporterFromString() {
     const std::string_view objQuad = R"(
 # Test Quad
@@ -225,12 +264,14 @@ int main() {
         return 3;
     if (testMeshDataTangents() != 0)
         return 7;
+    if (testMeshDataTangentsDegenerateAndMirrored() != 0)
+        return 8;
     if (testObjImporterFromString() != 0)
         return 4;
     if (testObjImporterFromFile() != 0)
         return 5;
     if (testGpuMeshCreationAndRAII() != 0)
         return 6;
-    std::cout << "[Mesh Tests Passed: 7/7]\n";
+    std::cout << "[Mesh Tests Passed: 8/8]\n";
     return 0;
 }

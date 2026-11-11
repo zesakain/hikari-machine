@@ -31,6 +31,7 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <vector>
@@ -168,6 +169,79 @@ static Result<std::vector<uint8_t>> renderAndReadback(RhiDevice& device, SceneRe
         return readRes.error();
     }
     return Result<std::vector<uint8_t>>::success(std::move(pixels));
+}
+
+// -----------------------------------------------------------------------------
+// Test 0: Analytical Deterministic BRDF Reference Checks
+// -----------------------------------------------------------------------------
+static float evalGgx(float NdotH, float roughness) {
+    const float a = roughness * roughness;
+    const float a2 = a * a;
+    const float NdotH2 = NdotH * NdotH;
+    float denom = (NdotH2 * (a2 - 1.0F) + 1.0F);
+    denom = 3.141592653589793F * denom * denom;
+    return a2 / std::max(denom, 1e-7F);
+}
+
+static float evalSmithVis(float NdotV, float NdotL, float roughness) {
+    const float a = roughness * roughness;
+    const float a2 = a * a;
+    const float gv = NdotL * std::sqrt(NdotV * NdotV * (1.0F - a2) + a2);
+    const float gl = NdotV * std::sqrt(NdotL * NdotL * (1.0F - a2) + a2);
+    return 0.5F / std::max(gv + gl, 1e-7F);
+}
+
+static float evalSchlickFresnel(float VdotH, float F0) {
+    return F0 + (1.0F - F0) * std::pow(std::clamp(1.0F - VdotH, 0.0F, 1.0F), 5.0F);
+}
+
+static int testAnalyticalBrdfModel() {
+    constexpr float kPi = 3.141592653589793F;
+
+    // 1. GGX NDF Reference points
+    // When N == H (NdotH = 1.0): D = 1 / (pi * alpha^2)
+    const float roughness = std::sqrt(0.5F); // alpha = 0.5, a2 = 0.25
+    const float dPeak = evalGgx(1.0F, roughness);
+    const float expectedPeak = 1.0F / (kPi * 0.25F);
+    TEST_CHECK(std::abs(dPeak - expectedPeak) < 1e-4F);
+
+    // When N perp H (NdotH = 0.0): D = alpha^2 / pi
+    const float dGrazing = evalGgx(0.0F, roughness);
+    const float expectedGrazing = 0.25F / kPi;
+    TEST_CHECK(std::abs(dGrazing - expectedGrazing) < 1e-4F);
+
+    // 2. Smith Correlated Visibility
+    // At normal incidence (NdotV = 1.0, NdotL = 1.0): V = 0.5 / (1.0 + 1.0) = 0.25
+    const float visNormal = evalSmithVis(1.0F, 1.0F, 0.5F);
+    TEST_CHECK(std::abs(visNormal - 0.25F) < 1e-4F);
+
+    // 3. Schlick Fresnel
+    // At normal incidence (VdotH = 1.0): F = F0
+    TEST_CHECK(std::abs(evalSchlickFresnel(1.0F, 0.04F) - 0.04F) < 1e-5F);
+    // At grazing incidence (VdotH = 0.0): F = 1.0
+    TEST_CHECK(std::abs(evalSchlickFresnel(0.0F, 0.04F) - 1.0F) < 1e-5F);
+
+    // 4. Energy Conservation across parameter space
+    for (int m = 0; m <= 10; ++m) {
+        const float metallic = static_cast<float>(m) * 0.1F;
+        for (int cosTheta = 0; cosTheta <= 10; ++cosTheta) {
+            const float VdotH = static_cast<float>(cosTheta) * 0.1F;
+            const float F = evalSchlickFresnel(VdotH, std::lerp(0.04F, 1.0F, metallic));
+            const float kd = (1.0F - F) * (1.0F - metallic);
+            TEST_CHECK(kd >= 0.0F);
+            TEST_CHECK(kd + F <= 1.0001F); // Strict energy conservation: kd + F <= 1.0
+        }
+    }
+
+    // 5. Numerical stability at extreme limits (roughness clamp = 0.045, grazing angles)
+    const float dExtreme = evalGgx(0.0F, 0.045F);
+    TEST_CHECK(!std::isnan(dExtreme) && !std::isinf(dExtreme) && dExtreme > 0.0F);
+
+    const float visGrazing = evalSmithVis(1e-5F, 1e-5F, 0.045F);
+    TEST_CHECK(!std::isnan(visGrazing) && !std::isinf(visGrazing) && visGrazing > 0.0F);
+
+    std::cout << "[PASS] testAnalyticalBrdfModel (GGX, Smith, Fresnel, Energy Conservation)\n";
+    return 0;
 }
 
 // -----------------------------------------------------------------------------
@@ -528,10 +602,25 @@ static int testDamagedHelmetPbrImportAndRender(RhiDevice& device, SceneRenderer&
                 foundHelmetMesh = true;
                 const Material& mat = mesh->materials[0];
                 TEST_CHECK(mat.baseColorTexture.isPresent);
+                TEST_CHECK(mat.baseColorTexture.textureAsset.isValid());
+                TEST_CHECK(assetManager.isLoaded(mat.baseColorTexture.textureAsset));
+
                 TEST_CHECK(mat.metallicRoughnessTexture.isPresent);
+                TEST_CHECK(mat.metallicRoughnessTexture.textureAsset.isValid());
+                TEST_CHECK(assetManager.isLoaded(mat.metallicRoughnessTexture.textureAsset));
+
                 TEST_CHECK(mat.normalTexture.isPresent);
+                TEST_CHECK(mat.normalTexture.textureAsset.isValid());
+                TEST_CHECK(assetManager.isLoaded(mat.normalTexture.textureAsset));
+
                 TEST_CHECK(mat.occlusionTexture.isPresent);
+                TEST_CHECK(mat.occlusionTexture.textureAsset.isValid());
+                TEST_CHECK(assetManager.isLoaded(mat.occlusionTexture.textureAsset));
+
                 TEST_CHECK(mat.emissiveTexture.isPresent);
+                TEST_CHECK(mat.emissiveTexture.textureAsset.isValid());
+                TEST_CHECK(assetManager.isLoaded(mat.emissiveTexture.textureAsset));
+
                 // Also verify tangent attributes are present in vertex buffer
                 TEST_CHECK(!mesh->vertices.empty());
                 TEST_CHECK(mesh->vertices[0].tangent.w != 0.0F);
@@ -586,8 +675,38 @@ static int testDamagedHelmetPbrImportAndRender(RhiDevice& device, SceneRenderer&
     }
     TEST_CHECK(nonClearPixels > 100);
 
+    const size_t centerIdx = (32 * 64 + 32) * 4;
+    // DamagedHelmet center pixel is shaded helmet geometry (not clear color)
+    TEST_CHECK(pixels[centerIdx + 3] == 255);
+    TEST_CHECK(pixels[centerIdx + 0] != 20 || pixels[centerIdx + 1] != 31);
+
+    // Compute reproducible 64-bit FNV-1a checksum of the rendered framebuffer
+    uint64_t fnvHash = 14695981039346656037ULL;
+    for (uint8_t byte : pixels) {
+        fnvHash ^= static_cast<uint64_t>(byte);
+        fnvHash *= 1099511628211ULL;
+    }
+    TEST_CHECK(fnvHash != 0ULL);
+
+    // Save reproducible Vulkan capture image as binary PPM (P6)
+    const std::string capturePath = "test-assets/damaged_helmet_pbr_capture.ppm";
+    std::ofstream ppmFile(capturePath, std::ios::binary);
+    if (ppmFile.is_open()) {
+        ppmFile << "P6\n" << width << " " << height << "\n255\n";
+        for (size_t i = 0; i < pixels.size(); i += 4) {
+            ppmFile.put(static_cast<char>(pixels[i + 0]));
+            ppmFile.put(static_cast<char>(pixels[i + 1]));
+            ppmFile.put(static_cast<char>(pixels[i + 2]));
+        }
+        ppmFile.close();
+    }
+
     std::cout << "[PASS] testDamagedHelmetPbrImportAndRender (rendered " << nonClearPixels
-              << " valid PBR pixels)\n";
+              << " valid PBR pixels, center RGBA=(" << static_cast<int>(pixels[centerIdx + 0])
+              << "," << static_cast<int>(pixels[centerIdx + 1]) << ","
+              << static_cast<int>(pixels[centerIdx + 2]) << ","
+              << static_cast<int>(pixels[centerIdx + 3]) << "), fnv=" << std::hex << fnvHash
+              << std::dec << ")\n";
     return 0;
 }
 
@@ -595,6 +714,9 @@ static int testDamagedHelmetPbrImportAndRender(RhiDevice& device, SceneRenderer&
 // Main Test Runner
 // -----------------------------------------------------------------------------
 int main() {
+    if (testAnalyticalBrdfModel() != 0) {
+        return 10;
+    }
 #if defined(HIKARI_HAS_TSAN)
     std::cout << "ThreadSanitizer active: skipping live GPU PBR tests\n";
     return 0;
