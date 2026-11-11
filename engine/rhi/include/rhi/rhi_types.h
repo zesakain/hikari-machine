@@ -56,6 +56,9 @@ struct SamplerTag {};
 struct PipelineTag {};
 struct PipelineLayoutTag {};
 struct ShaderTag {};
+struct DescriptorSetLayoutTag {};
+struct DescriptorPoolTag {};
+struct DescriptorSetTag {};
 
 /// Generational handle for GPU buffer resources.
 using BufferHandle = ResourceHandle<BufferTag>;
@@ -74,6 +77,15 @@ using PipelineLayoutHandle = ResourceHandle<PipelineLayoutTag>;
 
 /// Generational handle for compiled shader modules.
 using ShaderHandle = ResourceHandle<ShaderTag>;
+
+/// Generational handle for descriptor set layouts.
+using DescriptorSetLayoutHandle = ResourceHandle<DescriptorSetLayoutTag>;
+
+/// Generational handle for descriptor pools.
+using DescriptorPoolHandle = ResourceHandle<DescriptorPoolTag>;
+
+/// Generational handle for descriptor sets.
+using DescriptorSetHandle = ResourceHandle<DescriptorSetTag>;
 
 /// @enum ShaderStageFlags
 /// @brief Bitmask specifying shader stages (vertex, fragment, compute).
