@@ -207,7 +207,7 @@ GpuMaterial* AssetManager::getGpuMaterial(AssetId meshId, size_t materialIndex) 
             return it->second.gpuMaterials[materialIndex].get();
         }
     }
-    return defaultMaterial_.get();
+    return nullptr;
 }
 
 const GpuMaterial* AssetManager::getGpuMaterial(AssetId meshId,
@@ -219,7 +219,7 @@ const GpuMaterial* AssetManager::getGpuMaterial(AssetId meshId,
             return it->second.gpuMaterials[materialIndex].get();
         }
     }
-    return defaultMaterial_.get();
+    return nullptr;
 }
 
 Result<GpuMaterial*>
