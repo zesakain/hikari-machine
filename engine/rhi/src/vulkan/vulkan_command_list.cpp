@@ -58,6 +58,7 @@ void VulkanCommandList::begin() {
     activeDepthFormat_ = TextureFormat::Undefined;
     hasFormatMismatch_ = false;
     pipelineBindCount_ = 0;
+    bindDescriptorSetsCount_ = 0;
     pushConstantCount_ = 0;
 
     VkCommandBufferBeginInfo beginInfo{
@@ -637,6 +638,38 @@ void VulkanCommandList::bindPipeline(PipelineHandle pipeline) {
         boundLayoutHandle_ = {};
         boundLayout_ = VK_NULL_HANDLE;
     }
+}
+
+void VulkanCommandList::bindDescriptorSets(PipelineLayoutHandle layout, uint32_t firstSet,
+                                           std::span<const DescriptorSetHandle> sets,
+                                           std::span<const uint32_t> dynamicOffsets) {
+    if (!isRecording_ || device_ == nullptr || cmdBuffer_ == VK_NULL_HANDLE || sets.empty()) {
+        return;
+    }
+    VkPipelineLayout vkLayout = device_->resolvePipelineLayout(layout);
+    if (vkLayout == VK_NULL_HANDLE) {
+        return;
+    }
+
+    constexpr size_t kMaxSetsOnStack = 8;
+    std::array<VkDescriptorSet, kMaxSetsOnStack> stackSets{};
+    std::vector<VkDescriptorSet> heapSets;
+    VkDescriptorSet* pDescriptorSets = stackSets.data();
+
+    if (sets.size() > kMaxSetsOnStack) {
+        heapSets.resize(sets.size());
+        pDescriptorSets = heapSets.data();
+    }
+
+    for (size_t i = 0; i < sets.size(); ++i) {
+        pDescriptorSets[i] = device_->resolveDescriptorSet(sets[i]);
+    }
+
+    vkCmdBindDescriptorSets(cmdBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, vkLayout, firstSet,
+                            static_cast<uint32_t>(sets.size()), pDescriptorSets,
+                            static_cast<uint32_t>(dynamicOffsets.size()),
+                            dynamicOffsets.empty() ? nullptr : dynamicOffsets.data());
+    ++bindDescriptorSetsCount_;
 }
 
 void VulkanCommandList::pushConstants(PipelineLayoutHandle layout, ShaderStageFlags stages,

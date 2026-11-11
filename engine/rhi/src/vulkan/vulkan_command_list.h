@@ -48,6 +48,9 @@ public:
     void setScissor(int32_t x, int32_t y, uint32_t width, uint32_t height) override;
 
     void bindPipeline(PipelineHandle pipeline) override;
+    void bindDescriptorSets(PipelineLayoutHandle layout, uint32_t firstSet,
+                            std::span<const DescriptorSetHandle> sets,
+                            std::span<const uint32_t> dynamicOffsets = {}) override;
     void pushConstants(PipelineLayoutHandle layout, ShaderStageFlags stages, uint32_t offset,
                        uint32_t size, const void* data) override;
 
@@ -77,6 +80,9 @@ public:
     [[nodiscard]] TextureFormat getActiveDepthFormat() const noexcept { return activeDepthFormat_; }
     [[nodiscard]] bool hasFormatMismatch() const noexcept { return hasFormatMismatch_; }
     [[nodiscard]] uint32_t getPipelineBindCount() const noexcept { return pipelineBindCount_; }
+    [[nodiscard]] uint32_t getBindDescriptorSetsCount() const noexcept {
+        return bindDescriptorSetsCount_;
+    }
     [[nodiscard]] uint32_t getPushConstantCount() const noexcept { return pushConstantCount_; }
 
     void cleanupStagingResources() noexcept;
@@ -101,6 +107,7 @@ private:
     VkPipelineLayout boundLayout_{VK_NULL_HANDLE};
     bool hasUnboundDraw_{false};
     uint32_t pipelineBindCount_{0};
+    uint32_t bindDescriptorSetsCount_{0};
     uint32_t pushConstantCount_{0};
 
     struct StagingBuffer {
