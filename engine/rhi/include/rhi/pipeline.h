@@ -21,6 +21,7 @@
 
 #include "core/error.h"
 #include "core/result.h"
+#include "rhi/descriptor.h"
 #include "rhi/rhi_types.h"
 #include "rhi/shader.h"
 
@@ -99,25 +100,11 @@ struct PushConstantRange {
     uint32_t size{0};
 };
 
-/// @struct DescriptorSetLayoutBinding
-/// @brief Resource binding specification within a descriptor set.
-struct DescriptorSetLayoutBinding {
-    uint32_t binding{0};
-    DescriptorType descriptorType{DescriptorType::UniformBuffer};
-    uint32_t descriptorCount{1};
-    ShaderStageFlags stageFlags{ShaderStageFlags::AllGraphics};
-};
-
-/// @struct DescriptorSetLayoutDesc
-/// @brief Layout of a single descriptor set.
-struct DescriptorSetLayoutDesc {
-    std::vector<DescriptorSetLayoutBinding> bindings{};
-};
-
 /// @struct PipelineLayoutDesc
-/// @brief Complete shader resource interface layout (push constants and descriptor sets).
+/// @brief Complete shader resource interface layout (push constants and descriptor set layouts).
 struct PipelineLayoutDesc {
     std::vector<PushConstantRange> pushConstants{};
+    std::vector<DescriptorSetLayoutHandle> descriptorSetLayoutHandles{};
     std::vector<DescriptorSetLayoutDesc> descriptorSetLayouts{};
     std::string_view debugName{};
 };
@@ -141,6 +128,12 @@ validatePipelineLayoutDesc(const PipelineLayoutDesc& desc) noexcept {
         if (pc.offset + pc.size > kMaxPushConstantSize) {
             return Error{.code = ErrorCode::InvalidArgument,
                          .message = "Push constant range exceeds maximum guaranteed size (128B)"};
+        }
+    }
+    for (const auto& dsl : desc.descriptorSetLayouts) {
+        auto dslRes = validateDescriptorSetLayoutDesc(dsl);
+        if (!dslRes.hasValue()) {
+            return dslRes;
         }
     }
     return Result<void>::success();
