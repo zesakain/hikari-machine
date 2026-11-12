@@ -157,6 +157,11 @@ static int testToneMappingMath() {
         TEST_CHECK(cur >= 0.0F && cur <= 1.0F);
         prevAces = cur;
     }
+    // Negative input safe clamping
+    TEST_CHECK(acesFittedCurve(-1.0F) <= 0.01F);
+    TEST_CHECK(acesFittedCurve(-100.0F) <= 0.01F);
+    // Extreme input safety
+    TEST_CHECK(acesFittedCurve(10000.0F) <= 1.0F && !std::isnan(acesFittedCurve(10000.0F)));
     // Asymptotic highlight roll-off
     TEST_CHECK(acesFittedCurve(0.0F) < 0.01F);
     TEST_CHECK(acesFittedCurve(0.18F) > 0.25F && acesFittedCurve(0.18F) < 0.45F);
@@ -171,10 +176,19 @@ static int testToneMappingMath() {
         TEST_CHECK(cur >= 0.0F && cur <= 1.0F);
         prevReinhard = cur;
     }
-    TEST_CHECK(std::abs(filmicReinhardCurve(0.0F) - 0.0F) < 1e-5F);
-    TEST_CHECK(filmicReinhardCurve(1.0F) > 0.50F && filmicReinhardCurve(1.0F) < 0.60F);
-    TEST_CHECK(filmicReinhardCurve(4.0F) > 0.90F);
-    TEST_CHECK(filmicReinhardCurve(100.0F) > 0.98F);
+    TEST_CHECK(std::abs(filmicReinhardCurve(0.0F, 4.0F) - 0.0F) < 1e-5F);
+    TEST_CHECK(filmicReinhardCurve(-5.0F, 4.0F) == 0.0F);
+    TEST_CHECK(filmicReinhardCurve(1.0F, 4.0F) > 0.50F && filmicReinhardCurve(1.0F, 4.0F) < 0.60F);
+    TEST_CHECK(filmicReinhardCurve(4.0F, 4.0F) > 0.90F);
+    TEST_CHECK(filmicReinhardCurve(100.0F, 4.0F) > 0.98F);
+    TEST_CHECK(filmicReinhardCurve(10000.0F, 4.0F) <= 1.0F &&
+               !std::isnan(filmicReinhardCurve(10000.0F, 4.0F)));
+
+    // Configurable White Point check: lower white point compresses faster
+    float rLowWhite = filmicReinhardCurve(2.0F, 2.0F);
+    float rHighWhite = filmicReinhardCurve(2.0F, 8.0F);
+    TEST_CHECK(rLowWhite > rHighWhite);
+    TEST_CHECK(std::abs(rLowWhite - 1.0F) < 1e-4F);
 
     // 3. Khronos PBR Neutral
     Vec3 lowColor(0.2F, 0.4F, 0.6F);
@@ -190,7 +204,24 @@ static int testToneMappingMath() {
     TEST_CHECK(mappedBright.x > mappedBright.y);
     TEST_CHECK(mappedBright.y > mappedBright.z);
 
-    // 4. sRGB Transfer Curve
+    // Negative and extreme input safety
+    Vec3 negMapped = neutralToneMappingCpu(Vec3(-1.0F, -0.5F, -0.1F));
+    TEST_CHECK(negMapped.x >= 0.0F && negMapped.y >= 0.0F && negMapped.z >= 0.0F);
+    Vec3 extremeMapped = neutralToneMappingCpu(Vec3(10000.0F, 5000.0F, 1000.0F));
+    TEST_CHECK(extremeMapped.x <= 1.0F && !std::isnan(extremeMapped.x));
+
+    // 4. Distinct Operator Outputs at Mid-Range Radiance (v = 2.0)
+    float vMid = 2.0F;
+    float opAces = acesFittedCurve(vMid);
+    float opReinhard = filmicReinhardCurve(vMid, 4.0F);
+    float opNeutral = neutralToneMappingCpu(Vec3(vMid, vMid, vMid)).x;
+    float opBypass = std::clamp(vMid, 0.0F, 1.0F);
+    TEST_CHECK(std::abs(opAces - opReinhard) > 0.05F);
+    TEST_CHECK(std::abs(opAces - opNeutral) > 0.02F);
+    TEST_CHECK(std::abs(opReinhard - opNeutral) > 0.05F);
+    TEST_CHECK(opBypass == 1.0F);
+
+    // 5. sRGB Transfer Curve
     TEST_CHECK(std::abs(linearToSrgbCpu(0.0F) - 0.0F) < 1e-5F);
     TEST_CHECK(std::abs(linearToSrgbCpu(1.0F) - 1.0F) < 1e-4F);
     // Linear segment threshold check
@@ -229,6 +260,17 @@ static int testBloomExtractionMath() {
     float high2 = extractThresholdCpu(10.0F, thresh, knee);
     TEST_CHECK(high1 > inKnee3 && high1 < 1.0F);
     TEST_CHECK(high2 > high1 && high2 > 0.85F);
+
+    // Sensitivity to threshold: higher threshold reduces extraction
+    float extLowThresh = extractThresholdCpu(2.0F, 1.0F, 0.5F);
+    float extHighThresh = extractThresholdCpu(2.0F, 1.5F, 0.5F);
+    TEST_CHECK(extLowThresh > extHighThresh);
+
+    // Sensitivity to knee: zero knee produces sharp step threshold
+    float hardBelow = extractThresholdCpu(0.99F, 1.0F, 0.0F);
+    float hardAbove = extractThresholdCpu(1.01F, 1.0F, 0.0F);
+    TEST_CHECK(hardBelow == 0.0F);
+    TEST_CHECK(hardAbove > 0.0F);
 
     std::cout << "  Bloom extraction verification passed.\n";
     return 0;
@@ -292,10 +334,171 @@ static int testSceneRendererHdrLifecycle() {
 }
 
 // -----------------------------------------------------------------------------
-// Test 4: Vulkan GPU Post-Processing Execution & Pixel Verification
+// Test 4: Genuine GPU Floating-Point HDR Radiance Readback
+// -----------------------------------------------------------------------------
+static float halfToFloat(uint16_t h) noexcept {
+    uint32_t sign = (static_cast<uint32_t>(h) & 0x8000u) << 16;
+    uint32_t exp = (static_cast<uint32_t>(h) & 0x7C00u) >> 10;
+    uint32_t mant = (static_cast<uint32_t>(h) & 0x03FFu);
+
+    if (exp == 0) {
+        if (mant == 0) {
+            uint32_t val = sign;
+            float f = 0.0F;
+            std::memcpy(&f, &val, sizeof(float));
+            return f;
+        }
+        while ((mant & 0x0400u) == 0) {
+            mant <<= 1;
+            exp--;
+        }
+        exp++;
+        mant &= ~0x0400u;
+    } else if (exp == 31) {
+        uint32_t val = sign | 0x7F800000u | (mant << 13);
+        float f = 0.0F;
+        std::memcpy(&f, &val, sizeof(float));
+        return f;
+    }
+
+    exp = exp + (127 - 15);
+    mant = mant << 13;
+    uint32_t val = sign | (exp << 23) | mant;
+    float f = 0.0F;
+    std::memcpy(&f, &val, sizeof(float));
+    return f;
+}
+
+static int testGpuHdrRadianceReadback() {
+    std::cout << "[Test 4] Verifying GPU offscreen HDR target readback (radiance > 1.0)...\n";
+
+    VulkanDeviceDesc devDesc{.windowHandle = nullptr, .enableValidation = true};
+    auto devRes = createVulkanDevice(devDesc);
+    if (!devRes.hasValue()) {
+        std::cout << "  Vulkan device unavailable on this host; skipping GPU HDR readback test.\n";
+        return 0;
+    }
+    auto device = std::move(devRes.value());
+
+    constexpr uint32_t width = 64;
+    constexpr uint32_t height = 64;
+    SceneRenderer renderer;
+    auto initRes = renderer.init(*device, width, height);
+    TEST_CHECK(initRes.hasValue());
+
+    PostProcessSettings pp{};
+    pp.enabled = true;
+    renderer.setPostProcessSettings(pp);
+
+    TEST_CHECK(renderer.isHdrActive());
+    TEST_CHECK(!renderer.isSdrFallbackActive());
+    TEST_CHECK(renderer.getHdrFormat() == rhi::TextureFormat::RGBA16_FLOAT ||
+               renderer.getHdrFormat() == rhi::TextureFormat::RGBA32_FLOAT);
+
+    world::World world;
+    physics::registerPhysicsComponents(world);
+    AssetManager assetManager;
+
+    // Create an emissive HDR quad with intense radiance
+    MeshData emissiveQuad{};
+    emissiveQuad.vertices = {
+        Vertex(Vec3(-1.0F, -1.0F, 0.0F), Vec3(0.0F, 0.0F, 1.0F), Vec2(0.0F, 1.0F),
+               Vec4(1.0F, 1.0F, 1.0F, 1.0F), Vec4(1.0F, 0.0F, 0.0F, 1.0F)),
+        Vertex(Vec3(1.0F, -1.0F, 0.0F), Vec3(0.0F, 0.0F, 1.0F), Vec2(1.0F, 1.0F),
+               Vec4(1.0F, 1.0F, 1.0F, 1.0F), Vec4(1.0F, 0.0F, 0.0F, 1.0F)),
+        Vertex(Vec3(1.0F, 1.0F, 0.0F), Vec3(0.0F, 0.0F, 1.0F), Vec2(1.0F, 0.0F),
+               Vec4(1.0F, 1.0F, 1.0F, 1.0F), Vec4(1.0F, 0.0F, 0.0F, 1.0F)),
+        Vertex(Vec3(-1.0F, 1.0F, 0.0F), Vec3(0.0F, 0.0F, 1.0F), Vec2(0.0F, 0.0F),
+               Vec4(1.0F, 1.0F, 1.0F, 1.0F), Vec4(1.0F, 0.0F, 0.0F, 1.0F)),
+    };
+    emissiveQuad.indices = {0, 1, 2, 2, 3, 0};
+    emissiveQuad.submeshes.push_back(Submesh{
+        .name = "EmissiveSubmesh",
+        .firstIndex = 0,
+        .indexCount = 6,
+        .vertexOffset = 0,
+        .materialIndex = 0,
+    });
+    Material emissiveMat{};
+    emissiveMat.baseColor = Vec4(1.0F, 1.0F, 1.0F, 1.0F);
+    emissiveMat.emissiveFactor = Vec3(8.0F, 6.0F, 4.0F); // High radiance > 1.0
+    emissiveQuad.materials = {emissiveMat};
+
+    auto regRes = assetManager.registerMesh("test/emissive_quad", emissiveQuad);
+    TEST_CHECK(regRes.hasValue());
+    AssetId meshId = regRes.value();
+
+    auto& ecs = world.getRawWorld();
+    auto entity = ecs.entity("HdrEmissiveEntity");
+    entity.set<MeshComponent>(MeshComponent{
+        .meshAsset = meshId,
+        .submeshIndex = kAllSubmeshes,
+        .visible = true,
+    });
+    entity.set<physics::PhysicsTransformComponent>(physics::PhysicsTransformComponent{
+        .transform = Transform(Vec3(0.0F, 0.0F, 0.0F)),
+    });
+
+    // FP16 buffer size: 64 * 64 * 4 * sizeof(uint16_t) = 32768 bytes
+    const size_t fp16ByteSize = width * height * 4 * sizeof(uint16_t);
+    BufferDesc rbDesc{
+        .sizeInBytes = fp16ByteSize,
+        .usage = BufferUsageFlags::TransferDst,
+        .memoryUsage = MemoryUsage::CpuToGpu,
+        .debugName = "HdrFp16ReadbackBuffer",
+    };
+    auto rbRes = device->createBuffer(rbDesc);
+    TEST_CHECK(rbRes.hasValue());
+    BufferHandle rbHandle = rbRes.value();
+
+    Mat4 view = Mat4::lookAt(Vec3(0, 0, 2), Vec3(0, 0, 0), Vec3(0, 1, 0));
+    Mat4 proj = Mat4::perspective(toRadians(60.0F), 1.0F, 0.1F, 100.0F);
+    Mat4 viewProj = proj * view;
+
+    auto cmdRes = device->createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto cmd = std::move(cmdRes.value());
+
+    cmd->begin();
+    renderer.renderScene(world, assetManager, *device, *cmd, viewProj);
+    // Copy directly from offscreen floating-point HDR target
+    cmd->copyTextureToBuffer(renderer.getHdrTarget(), rbHandle);
+    cmd->end();
+
+    TEST_CHECK(device->submit(cmd.get()).hasValue());
+    device->waitIdle();
+
+    std::vector<uint16_t> fp16Pixels(width * height * 4, 0);
+    TEST_CHECK(device->readBuffer(rbHandle, 0, fp16Pixels.data(), fp16ByteSize).hasValue());
+    device->destroyBuffer(rbHandle);
+    renderer.shutdown();
+
+    float maxRadiance = 0.0F;
+    size_t hdrPixelCount = 0;
+    for (size_t i = 0; i < fp16Pixels.size(); i += 4) {
+        float r = halfToFloat(fp16Pixels[i + 0]);
+        float g = halfToFloat(fp16Pixels[i + 1]);
+        float b = halfToFloat(fp16Pixels[i + 2]);
+        maxRadiance = std::max({maxRadiance, r, g, b});
+        if (r > 1.0F || g > 1.0F || b > 1.0F) {
+            hdrPixelCount++;
+        }
+    }
+
+    std::cout << "  GPU HDR readback verified: max radiance = " << maxRadiance
+              << ", pixels with radiance > 1.0 = " << hdrPixelCount << "\n";
+    TEST_CHECK(maxRadiance > 1.5F);
+    TEST_CHECK(hdrPixelCount > 100);
+    TEST_CHECK(!std::isnan(maxRadiance) && !std::isinf(maxRadiance));
+
+    return 0;
+}
+
+// -----------------------------------------------------------------------------
+// Test 5: Vulkan GPU Post-Processing Execution & Pixel Verification
 // -----------------------------------------------------------------------------
 static int testVulkanPostProcessRendering() {
-    std::cout << "[Test 4] Verifying Vulkan GPU HDR rendering, bloom, and tone mapping passes...\n";
+    std::cout << "[Test 5] Verifying Vulkan GPU HDR rendering, bloom, and tone mapping passes...\n";
 
     VulkanDeviceDesc devDesc{.windowHandle = nullptr, .enableValidation = true};
     auto devRes = createVulkanDevice(devDesc);
@@ -466,6 +669,35 @@ static int testVulkanPostProcessRendering() {
     sBypass.bloomEnabled = false;
     TEST_CHECK(capture("postprocess_bypass", sBypass, pxDummy) == 0);
 
+    // 6. Filmic Reinhard White Point adjustment
+    PostProcessSettings sReinhardLowWhite = sReinhard;
+    sReinhardLowWhite.reinhardWhitePoint = 1.5F;
+    std::vector<uint8_t> pxReinhardLowWhite;
+    TEST_CHECK(capture("postprocess_reinhard_low_white", sReinhardLowWhite, pxReinhardLowWhite) ==
+               0);
+
+    // 7. SDR Fallback offscreen capture
+    SceneRenderer sdrRenderer;
+    auto sdrInitRes = sdrRenderer.init(*device, width, height, TextureFormat::RGBA8_UNORM);
+    TEST_CHECK(sdrInitRes.hasValue());
+    PostProcessSettings sSdr = sAcesNormal;
+    sSdr.enabled = true;
+    sdrRenderer.setPostProcessSettings(sSdr);
+
+    cmd->begin();
+    sdrRenderer.renderScene(world, assetManager, *device, *cmd, viewProj);
+    sdrRenderer.renderPostProcess(*cmd);
+    cmd->copyTextureToBuffer(sdrRenderer.getColorTarget(), rbHandle);
+    cmd->end();
+
+    TEST_CHECK(device->submit(cmd.get()).hasValue());
+    device->waitIdle();
+
+    std::vector<uint8_t> pxSdr(byteSize, 0);
+    TEST_CHECK(device->readBuffer(rbHandle, 0, pxSdr.data(), byteSize).hasValue());
+    savePpm("test-assets/postprocess_sdr_fallback.ppm", pxSdr.data(), width, height);
+    sdrRenderer.shutdown();
+
     device->destroyBuffer(rbHandle);
     renderer.shutdown();
     std::cout << "  Vulkan GPU post-processing execution verified successfully.\n";
@@ -492,13 +724,18 @@ int main() {
         return 1;
     }
 
+    if (testGpuHdrRadianceReadback() != 0) {
+        std::cerr << "FAIL: GPU HDR radiance readback test\n";
+        return 1;
+    }
+
     if (testVulkanPostProcessRendering() != 0) {
         std::cerr << "FAIL: Vulkan GPU post-processing test\n";
         return 1;
     }
 
     std::cout << "========================================================\n";
-    std::cout << " ALL MILESTONE 10F POST-PROCESSING TESTS PASSED (4/4)\n";
+    std::cout << " ALL MILESTONE 10F POST-PROCESSING TESTS PASSED (5/5)\n";
     std::cout << "========================================================\n";
     return 0;
 }
