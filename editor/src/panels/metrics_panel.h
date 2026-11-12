@@ -25,8 +25,8 @@ public:
     void draw(EditorContext& ctx) override;
 
 private:
-    std::array<float, 60> frameHistory_{};
-    size_t historyIndex_{0};
+    std::array<float, 120> fallbackHistory_{};
+    size_t fallbackIndex_{0};
 };
 
 } // namespace eng::editor

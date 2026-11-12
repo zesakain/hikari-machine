@@ -356,7 +356,16 @@ body {
         uint32_t lastWindowWidth = window ? window->getWidth() : 1280;
         uint32_t lastWindowHeight = window ? window->getHeight() : 720;
 
+        Timestamp lastFrameTimestamp = Timestamp::now();
+        Duration lastCpuDuration = Duration::fromMilliseconds(2);
+
         while (running) {
+            const Timestamp currentFrameTimestamp = Timestamp::now();
+            Duration frameDuration = currentFrameTimestamp - lastFrameTimestamp;
+            lastFrameTimestamp = currentFrameTimestamp;
+
+            const Timestamp cpuStartTimestamp = Timestamp::now();
+
             platform->pollEvents();
             const auto& input = platform->getCurrentInput();
             const auto& prevInput = platform->getPreviousInput();
@@ -396,8 +405,9 @@ body {
             uiSystem.processInput(input, prevInput);
 #if defined(HIKARI_BUILD_EDITOR)
             if (editorEngine.isInitialized()) {
+                editorEngine.recordFrameTelemetry(frameDuration, lastCpuDuration);
                 editorEngine.processInput(input);
-                editorEngine.beginFrame(fixedStep, currentWidth, currentHeight);
+                editorEngine.beginFrame(frameDuration, currentWidth, currentHeight);
                 editorEngine.drawPanels();
             }
 #endif
@@ -465,6 +475,9 @@ body {
             // 5. Submit recorded commands to GPU queue
             (void)rhiDevice->submit(mainCmd.get());
 
+            const Timestamp cpuEndTimestamp = Timestamp::now();
+            lastCpuDuration = cpuEndTimestamp - cpuStartTimestamp;
+
             // 6. Present rendered swapchain image to display
             if (window) {
                 (void)rhiDevice->present();
@@ -485,14 +498,33 @@ body {
                     editorVerts = editorEngine.lastVertexCount();
                     editorIdxs = editorEngine.lastIndexCount();
                     editorPasses = editorEngine.executedEditorPasses();
-                }
+                    const auto& tel = editorEngine.getTelemetryTracker();
+                    ENG_LOG_FORMAT(
+                        LogLevel::Info, "Render",
+                        "Frame %u Telemetry: FPS: %.1f (Avg: %.1f), Frame: %.2f ms, CPU: %.2f ms | "
+                        "UI Draws: %u (Tris: %u), Editor Draws: %u (Verts: %u, Idxs: %u, Passes: "
+                        "%llu)",
+                        frameCount, static_cast<double>(tel.instantaneousFps()),
+                        static_cast<double>(tel.averageFps()),
+                        static_cast<double>(tel.frameTimeMs()),
+                        static_cast<double>(tel.cpuTimeMs()), uiStats.drawCalls,
+                        uiStats.triangleCount, editorDraws, editorVerts, editorIdxs,
+                        static_cast<unsigned long long>(editorPasses));
+                } else
 #endif
-                ENG_LOG_FORMAT(
-                    LogLevel::Info, "Render",
-                    "Frame %u Telemetry: UI Draws: %u (Tris: %u), Editor Draws: %u (Verts: "
-                    "%u, Idxs: %u, Passes: %llu)",
-                    frameCount, uiStats.drawCalls, uiStats.triangleCount, editorDraws, editorVerts,
-                    editorIdxs, static_cast<unsigned long long>(editorPasses));
+                {
+                    const double fpsVal = frameDuration.asNanoseconds() > 0
+                                              ? (1.0 / frameDuration.toSeconds())
+                                              : 60.0;
+                    ENG_LOG_FORMAT(LogLevel::Info, "Render",
+                                   "Frame %u Telemetry: FPS: %.1f, Frame: %.2f ms, CPU: %.2f ms | "
+                                   "UI Draws: %u (Tris: %u), Editor Draws: %u (Verts: "
+                                   "%u, Idxs: %u, Passes: %llu)",
+                                   frameCount, fpsVal, frameDuration.toSeconds() * 1000.0,
+                                   lastCpuDuration.toSeconds() * 1000.0, uiStats.drawCalls,
+                                   uiStats.triangleCount, editorDraws, editorVerts, editorIdxs,
+                                   static_cast<unsigned long long>(editorPasses));
+                }
             }
 
             if (targetFrames > 0 && frameCount >= targetFrames) {

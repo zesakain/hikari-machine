@@ -21,6 +21,10 @@
 #include <cstdint>
 #include <string_view>
 
+namespace eng {
+class FrameTelemetryTracker;
+} // namespace eng
+
 namespace eng::world {
 class World;
 } // namespace eng::world
@@ -79,6 +83,18 @@ struct EditorContext {
 
     float lastFrameTimeMs{16.6F};
     float currentFps{60.0F};
+    float averageFps{60.0F};
+    float minFps{60.0F};
+    float maxFps{60.0F};
+    float averageFrameTimeMs{16.6F};
+    float minFrameTimeMs{16.6F};
+    float maxFrameTimeMs{16.6F};
+    float cpuTimeMs{2.0F};
+    float averageCpuTimeMs{2.0F};
+    bool hasGpuTiming{false};
+    float gpuTimeMs{0.0F};
+    float averageGpuTimeMs{0.0F};
+    const FrameTelemetryTracker* telemetry{nullptr};
 
     uint32_t lastDrawCalls{0};
     uint32_t lastVertices{0};

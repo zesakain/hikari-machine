@@ -5,6 +5,7 @@
 
 #include "core/assert.h"
 #include "core/log.h"
+#include "core/time/frame_telemetry.h"
 #include "editor/editor_theme.h"
 #include "editor/hierarchy_panel.h"
 #include "editor/selection_model.h"
@@ -249,6 +250,9 @@ struct EditorEngine::Impl {
     bool initialized{false};
     bool vulkanBackendInitialized{false};
     framework::SimulationState lastSimulationState{framework::SimulationState::Edit};
+
+    FrameTelemetryTracker telemetryTracker{};
+    uint64_t lastTelemetryFrameCount{0};
 
     void updateViewportTextureRegistration() {
         if (!vulkanBackendInitialized || rhiDevice == nullptr) {
@@ -551,6 +555,17 @@ bool EditorEngine::isInitialized() const noexcept {
     return impl_->initialized;
 }
 
+void EditorEngine::recordFrameTelemetry(Duration frameDuration, Duration cpuDuration,
+                                        std::optional<Duration> gpuDuration) noexcept {
+    if (impl_) {
+        impl_->telemetryTracker.recordFrame(frameDuration, cpuDuration, gpuDuration);
+    }
+}
+
+const FrameTelemetryTracker& EditorEngine::getTelemetryTracker() const noexcept {
+    return impl_->telemetryTracker;
+}
+
 void EditorEngine::beginFrame(Duration dt, uint32_t width, uint32_t height) {
     if (!impl_->initialized) {
         return;
@@ -566,10 +581,34 @@ void EditorEngine::beginFrame(Duration dt, uint32_t width, uint32_t height) {
     }
 
     float deltaSec = static_cast<float>(dt.toSeconds());
-    io.DeltaTime = deltaSec > 0.0F ? deltaSec : (1.0F / 60.0F);
+    if (std::isnan(deltaSec) || std::isinf(deltaSec) ||
+        deltaSec < FrameTelemetryTracker::kMinValidDeltaSeconds) {
+        deltaSec = FrameTelemetryTracker::kMinValidDeltaSeconds;
+    } else if (deltaSec > FrameTelemetryTracker::kMaxValidDeltaSeconds) {
+        deltaSec = FrameTelemetryTracker::kMaxValidDeltaSeconds;
+    }
+    io.DeltaTime = deltaSec;
 
-    impl_->context.lastFrameTimeMs = io.DeltaTime * 1000.0F;
-    impl_->context.currentFps = io.Framerate > 0.0F ? io.Framerate : 60.0F;
+    // If external loop didn't record telemetry before beginFrame, record using dt
+    if (impl_->telemetryTracker.totalFrames() == impl_->lastTelemetryFrameCount) {
+        impl_->telemetryTracker.recordFrame(dt, Duration::fromMilliseconds(1));
+    }
+    impl_->lastTelemetryFrameCount = impl_->telemetryTracker.totalFrames();
+
+    impl_->context.currentFps = impl_->telemetryTracker.instantaneousFps();
+    impl_->context.averageFps = impl_->telemetryTracker.averageFps();
+    impl_->context.minFps = impl_->telemetryTracker.minFps();
+    impl_->context.maxFps = impl_->telemetryTracker.maxFps();
+    impl_->context.lastFrameTimeMs = impl_->telemetryTracker.frameTimeMs();
+    impl_->context.averageFrameTimeMs = impl_->telemetryTracker.averageFrameTimeMs();
+    impl_->context.minFrameTimeMs = impl_->telemetryTracker.minFrameTimeMs();
+    impl_->context.maxFrameTimeMs = impl_->telemetryTracker.maxFrameTimeMs();
+    impl_->context.cpuTimeMs = impl_->telemetryTracker.cpuTimeMs();
+    impl_->context.averageCpuTimeMs = impl_->telemetryTracker.averageCpuTimeMs();
+    impl_->context.hasGpuTiming = impl_->telemetryTracker.hasGpuTiming();
+    impl_->context.gpuTimeMs = impl_->telemetryTracker.gpuTimeMs();
+    impl_->context.averageGpuTimeMs = impl_->telemetryTracker.averageGpuTimeMs();
+    impl_->context.telemetry = &impl_->telemetryTracker;
 
     impl_->context.runtimeSession = impl_->runtimeSession;
     if (impl_->runtimeSession != nullptr) {

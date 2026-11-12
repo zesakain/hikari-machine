@@ -22,7 +22,12 @@
 #include "render/post_process_types.h"
 
 #include <memory>
+#include <optional>
 #include <string_view>
+
+namespace eng {
+class FrameTelemetryTracker;
+} // namespace eng
 
 namespace eng::platform {
 struct InputSnapshot;
@@ -93,6 +98,13 @@ public:
 
     /// Checks whether the editor engine is currently initialized.
     [[nodiscard]] bool isInitialized() const noexcept;
+
+    /// Updates live frame telemetry with monotonic frame duration and CPU workload duration.
+    void recordFrameTelemetry(Duration frameDuration, Duration cpuDuration,
+                              std::optional<Duration> gpuDuration = std::nullopt) noexcept;
+
+    /// Returns the live frame telemetry tracker.
+    [[nodiscard]] const FrameTelemetryTracker& getTelemetryTracker() const noexcept;
 
     /// Starts a new ImGui frame with the given delta time and physical window dimensions.
     void beginFrame(Duration dt, uint32_t width = 0, uint32_t height = 0);

@@ -229,6 +229,10 @@ if(HIKARI_BUILD_EDITOR)
     add_executable(script_editor_test unit/editor/script_editor_test.cpp)
     target_link_libraries(script_editor_test PRIVATE hikari::editor_lib hikari::engine_framework hikari::engine_world hikari::engine_rhi)
     add_test(NAME script_editor_test COMMAND script_editor_test)
+
+    add_executable(capture_editor_telemetry ${CMAKE_SOURCE_DIR}/tools/capture_editor_telemetry.cpp)
+    target_link_libraries(capture_editor_telemetry PRIVATE hikari::editor_lib hikari::engine_framework hikari::engine_render hikari::engine_physics hikari::engine_world hikari::engine_rhi imgui_static)
+    target_include_directories(capture_editor_telemetry PRIVATE ${imgui_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/editor/src)
 endif()
 
 

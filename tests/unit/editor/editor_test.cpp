@@ -3658,6 +3658,62 @@ static void testEditorPersistentBenchmarkScenes() {
     std::cout << "[PASS] testEditorPersistentBenchmarkScenes\n";
 }
 
+static void testEditorRealTimeTelemetry() {
+    std::cout << "Testing Editor Real-Time Telemetry and Workload Responsiveness...\n";
+    auto devRes = rhi::createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto nullDev = std::move(devRes.value());
+    EditorEngine editor;
+    TEST_CHECK(editor.initialize(*nullDev));
+
+    // 1. Initial telemetry state
+    TEST_CHECK(editor.getTelemetryTracker().totalFrames() == 0);
+
+    // 2. Normal 60 FPS frame (16.6ms)
+    editor.beginFrame(Duration::fromMicroseconds(16666));
+    TEST_CHECK(editor.getTelemetryTracker().totalFrames() == 1);
+    TEST_CHECK(editor.getTelemetryTracker().instantaneousFps() >= 59.9F &&
+               editor.getTelemetryTracker().instantaneousFps() <= 60.1F);
+    TEST_CHECK(editor.getTelemetryTracker().frameTimeMs() >= 16.6F &&
+               editor.getTelemetryTracker().frameTimeMs() <= 16.7F);
+    ImGui::EndFrame();
+
+    // 3. Simulated Lightweight Workload (125 FPS = 8.0ms, CPU 1.8ms)
+    editor.recordFrameTelemetry(Duration::fromMilliseconds(8), Duration::fromMicroseconds(1800));
+    editor.beginFrame(Duration::fromMilliseconds(8));
+    TEST_CHECK(editor.getTelemetryTracker().instantaneousFps() >= 124.9F &&
+               editor.getTelemetryTracker().instantaneousFps() <= 125.1F);
+    TEST_CHECK(editor.getTelemetryTracker().cpuTimeMs() == 1.8F);
+    ImGui::EndFrame();
+
+    // 4. Simulated Heavy Workload (30 FPS = 33.3ms, CPU 11.5ms)
+    for (int i = 0; i < 60; ++i) {
+        editor.recordFrameTelemetry(Duration::fromMicroseconds(33333),
+                                    Duration::fromMilliseconds(11));
+        editor.beginFrame(Duration::fromMicroseconds(33333));
+        ImGui::EndFrame();
+    }
+    TEST_CHECK(editor.getTelemetryTracker().instantaneousFps() >= 29.9F &&
+               editor.getTelemetryTracker().instantaneousFps() <= 30.1F);
+    TEST_CHECK(editor.getTelemetryTracker().cpuTimeMs() == 11.0F);
+    TEST_CHECK(editor.getTelemetryTracker().averageFps() < 60.0F);
+    TEST_CHECK(editor.getTelemetryTracker().maxFps() >= 124.0F);
+
+    // 5. Verify zero and invalid delta protection
+    editor.recordFrameTelemetry(Duration::zero(), Duration::zero());
+    editor.beginFrame(Duration::zero());
+    TEST_CHECK(!std::isnan(editor.getTelemetryTracker().instantaneousFps()));
+    TEST_CHECK(!std::isinf(editor.getTelemetryTracker().instantaneousFps()));
+    TEST_CHECK(editor.getTelemetryTracker().instantaneousFps() > 0.0F);
+
+    // 6. Draw all panels with real telemetry to confirm Metrics and Status bar stability
+    editor.drawPanels();
+    ImGui::EndFrame();
+
+    editor.shutdown();
+    std::cout << "[PASS] testEditorRealTimeTelemetry\n";
+}
+
 int main() {
     std::cout << "Running Editor subsystem unit tests...\n";
     const std::filesystem::path candidates[] = {"assets/models", "../../../assets/models",
@@ -3726,6 +3782,9 @@ int main() {
     // Milestone 10G: Sponza Benchmark Scene Loading in Editor
     testEditorBenchmarkSceneLoading();
     testEditorPersistentBenchmarkScenes();
+
+    // Live FPS and Real-Time Telemetry Tests
+    testEditorRealTimeTelemetry();
 
     std::cout << "All Editor subsystem tests PASSED!\n";
     return 0;

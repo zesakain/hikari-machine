@@ -1195,9 +1195,23 @@ struct WorkspaceManager::Impl {
                                       ImGui::GetColorU32(toImVec4(fpsColor)));
             ImGui::Dummy(ImVec2((radius * 2.0F) + 5.0F, lineHeight));
             ImGui::SameLine(0.0F, 0.0F);
-            ImGui::TextColored(toImVec4(fpsColor), "%.1f FPS (%.2f ms)",
-                               static_cast<double>(ctx.currentFps),
-                               static_cast<double>(ctx.lastFrameTimeMs));
+            ImGui::TextColored(
+                toImVec4(fpsColor), "FPS: %.1f | Frame: %.2f ms | CPU: %.2f ms | GPU: %s",
+                static_cast<double>(ctx.currentFps), static_cast<double>(ctx.lastFrameTimeMs),
+                static_cast<double>(ctx.cpuTimeMs), ctx.hasGpuTiming ? "Active" : "N/A");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "FPS: %.1f (Avg: %.1f, Min: %.1f, Max: %.1f)\n"
+                    "Frame Time: %.2f ms (Avg: %.2f ms)\n"
+                    "CPU Time: %.2f ms (Avg: %.2f ms)\n"
+                    "GPU Hardware Time: %s",
+                    static_cast<double>(ctx.currentFps), static_cast<double>(ctx.averageFps),
+                    static_cast<double>(ctx.minFps), static_cast<double>(ctx.maxFps),
+                    static_cast<double>(ctx.lastFrameTimeMs),
+                    static_cast<double>(ctx.averageFrameTimeMs), static_cast<double>(ctx.cpuTimeMs),
+                    static_cast<double>(ctx.averageCpuTimeMs),
+                    ctx.hasGpuTiming ? "Active" : "N/A (Queries unsupported)");
+            }
         }
         ImGui::End();
         ImGui::PopStyleColor();
