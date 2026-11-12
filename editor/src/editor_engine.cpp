@@ -23,14 +23,204 @@
 #include "rhi/rhi_device.h"
 #include "rhi/sampler.h"
 
+#include <SDL3/SDL.h>
 #include <algorithm>
+#include <bitset>
 #include <cstdio>
 #include <cstring>
 #include <imgui.h>
 #include <imgui_impl_vulkan.h>
+#include <string>
 #include <vulkan/vulkan.h>
 
 namespace eng::editor {
+
+namespace {
+
+// Shared in-memory clipboard buffer fallback for headless/null RHI execution
+std::string s_headlessClipboard{};
+
+/// Maps platform hardware-neutral KeyCode to Dear ImGui key identifier.
+[[nodiscard]] constexpr ImGuiKey toImGuiKey(platform::KeyCode key) noexcept {
+    switch (key) {
+    case platform::KeyCode::Tab:
+        return ImGuiKey_Tab;
+    case platform::KeyCode::Left:
+        return ImGuiKey_LeftArrow;
+    case platform::KeyCode::Right:
+        return ImGuiKey_RightArrow;
+    case platform::KeyCode::Up:
+        return ImGuiKey_UpArrow;
+    case platform::KeyCode::Down:
+        return ImGuiKey_DownArrow;
+    case platform::KeyCode::PageUp:
+        return ImGuiKey_PageUp;
+    case platform::KeyCode::PageDown:
+        return ImGuiKey_PageDown;
+    case platform::KeyCode::Home:
+        return ImGuiKey_Home;
+    case platform::KeyCode::End:
+        return ImGuiKey_End;
+    case platform::KeyCode::Insert:
+        return ImGuiKey_Insert;
+    case platform::KeyCode::Delete:
+        return ImGuiKey_Delete;
+    case platform::KeyCode::Backspace:
+        return ImGuiKey_Backspace;
+    case platform::KeyCode::Space:
+        return ImGuiKey_Space;
+    case platform::KeyCode::Return:
+        return ImGuiKey_Enter;
+    case platform::KeyCode::Escape:
+        return ImGuiKey_Escape;
+    case platform::KeyCode::Apostrophe:
+        return ImGuiKey_Apostrophe;
+    case platform::KeyCode::Comma:
+        return ImGuiKey_Comma;
+    case platform::KeyCode::Minus:
+        return ImGuiKey_Minus;
+    case platform::KeyCode::Period:
+        return ImGuiKey_Period;
+    case platform::KeyCode::Slash:
+        return ImGuiKey_Slash;
+    case platform::KeyCode::Semicolon:
+        return ImGuiKey_Semicolon;
+    case platform::KeyCode::Equals:
+        return ImGuiKey_Equal;
+    case platform::KeyCode::LeftBracket:
+        return ImGuiKey_LeftBracket;
+    case platform::KeyCode::Backslash:
+        return ImGuiKey_Backslash;
+    case platform::KeyCode::RightBracket:
+        return ImGuiKey_RightBracket;
+    case platform::KeyCode::Grave:
+        return ImGuiKey_GraveAccent;
+    case platform::KeyCode::CapsLock:
+        return ImGuiKey_CapsLock;
+    case platform::KeyCode::ScrollLock:
+        return ImGuiKey_ScrollLock;
+    case platform::KeyCode::PrintScreen:
+        return ImGuiKey_PrintScreen;
+    case platform::KeyCode::Pause:
+        return ImGuiKey_Pause;
+    case platform::KeyCode::LeftCtrl:
+        return ImGuiKey_LeftCtrl;
+    case platform::KeyCode::LeftShift:
+        return ImGuiKey_LeftShift;
+    case platform::KeyCode::LeftAlt:
+        return ImGuiKey_LeftAlt;
+    case platform::KeyCode::LeftGui:
+        return ImGuiKey_LeftSuper;
+    case platform::KeyCode::RightCtrl:
+        return ImGuiKey_RightCtrl;
+    case platform::KeyCode::RightShift:
+        return ImGuiKey_RightShift;
+    case platform::KeyCode::RightAlt:
+        return ImGuiKey_RightAlt;
+    case platform::KeyCode::RightGui:
+        return ImGuiKey_RightSuper;
+    case platform::KeyCode::Num0:
+        return ImGuiKey_0;
+    case platform::KeyCode::Num1:
+        return ImGuiKey_1;
+    case platform::KeyCode::Num2:
+        return ImGuiKey_2;
+    case platform::KeyCode::Num3:
+        return ImGuiKey_3;
+    case platform::KeyCode::Num4:
+        return ImGuiKey_4;
+    case platform::KeyCode::Num5:
+        return ImGuiKey_5;
+    case platform::KeyCode::Num6:
+        return ImGuiKey_6;
+    case platform::KeyCode::Num7:
+        return ImGuiKey_7;
+    case platform::KeyCode::Num8:
+        return ImGuiKey_8;
+    case platform::KeyCode::Num9:
+        return ImGuiKey_9;
+    case platform::KeyCode::A:
+        return ImGuiKey_A;
+    case platform::KeyCode::B:
+        return ImGuiKey_B;
+    case platform::KeyCode::C:
+        return ImGuiKey_C;
+    case platform::KeyCode::D:
+        return ImGuiKey_D;
+    case platform::KeyCode::E:
+        return ImGuiKey_E;
+    case platform::KeyCode::F:
+        return ImGuiKey_F;
+    case platform::KeyCode::G:
+        return ImGuiKey_G;
+    case platform::KeyCode::H:
+        return ImGuiKey_H;
+    case platform::KeyCode::I:
+        return ImGuiKey_I;
+    case platform::KeyCode::J:
+        return ImGuiKey_J;
+    case platform::KeyCode::K:
+        return ImGuiKey_K;
+    case platform::KeyCode::L:
+        return ImGuiKey_L;
+    case platform::KeyCode::M:
+        return ImGuiKey_M;
+    case platform::KeyCode::N:
+        return ImGuiKey_N;
+    case platform::KeyCode::O:
+        return ImGuiKey_O;
+    case platform::KeyCode::P:
+        return ImGuiKey_P;
+    case platform::KeyCode::Q:
+        return ImGuiKey_Q;
+    case platform::KeyCode::R:
+        return ImGuiKey_R;
+    case platform::KeyCode::S:
+        return ImGuiKey_S;
+    case platform::KeyCode::T:
+        return ImGuiKey_T;
+    case platform::KeyCode::U:
+        return ImGuiKey_U;
+    case platform::KeyCode::V:
+        return ImGuiKey_V;
+    case platform::KeyCode::W:
+        return ImGuiKey_W;
+    case platform::KeyCode::X:
+        return ImGuiKey_X;
+    case platform::KeyCode::Y:
+        return ImGuiKey_Y;
+    case platform::KeyCode::Z:
+        return ImGuiKey_Z;
+    case platform::KeyCode::F1:
+        return ImGuiKey_F1;
+    case platform::KeyCode::F2:
+        return ImGuiKey_F2;
+    case platform::KeyCode::F3:
+        return ImGuiKey_F3;
+    case platform::KeyCode::F4:
+        return ImGuiKey_F4;
+    case platform::KeyCode::F5:
+        return ImGuiKey_F5;
+    case platform::KeyCode::F6:
+        return ImGuiKey_F6;
+    case platform::KeyCode::F7:
+        return ImGuiKey_F7;
+    case platform::KeyCode::F8:
+        return ImGuiKey_F8;
+    case platform::KeyCode::F9:
+        return ImGuiKey_F9;
+    case platform::KeyCode::F10:
+        return ImGuiKey_F10;
+    case platform::KeyCode::F11:
+        return ImGuiKey_F11;
+    case platform::KeyCode::F12:
+        return ImGuiKey_F12;
+    default:
+        return ImGuiKey_None;
+    }
+}
+
+} // namespace
 
 struct EditorEngine::Impl {
     ImGuiContext* imguiContext{nullptr};
@@ -51,6 +241,9 @@ struct EditorEngine::Impl {
 
     framework::RuntimeSession internalRuntimeSession{};
     framework::RuntimeSession* runtimeSession{&internalRuntimeSession};
+
+    std::bitset<static_cast<size_t>(platform::KeyCode::Count)> lastKeys{};
+    std::string clipboardData{};
 
     bool initialized{false};
     bool vulkanBackendInitialized{false};
@@ -166,6 +359,41 @@ bool EditorEngine::initialize(rhi::RhiDevice& rhiDevice, const EditorConfig& con
     io.IniFilename = nullptr;                         // Managed explicitly by WorkspaceManager
     io.DisplaySize = ImVec2(1280.0F, 720.0F);
     io.DeltaTime = 1.0F / 60.0F;
+
+    // Configure OS and fallback clipboard callbacks for text editing and shortcuts
+    io.ClipboardUserData = impl_.get();
+    io.GetClipboardTextFn = [](void*) -> const char* {
+        const char* sdlText = SDL_GetClipboardText();
+        if (sdlText != nullptr && sdlText[0] != '\0') {
+            return sdlText;
+        }
+        return s_headlessClipboard.c_str();
+    };
+    io.SetClipboardTextFn = [](void*, const char* text) {
+        if (text != nullptr) {
+            SDL_SetClipboardText(text);
+            s_headlessClipboard = text;
+        }
+    };
+
+    ImGuiPlatformIO& platformIo = ImGui::GetPlatformIO();
+    platformIo.Platform_SetImeDataFn = [](ImGuiContext*, ImGuiViewport* viewport,
+                                          ImGuiPlatformImeData* data) {
+        if (data == nullptr || viewport == nullptr) {
+            return;
+        }
+        SDL_Window* window = SDL_GetKeyboardFocus();
+        if (window != nullptr && data->WantVisible) {
+            SDL_Rect r{
+                .x = static_cast<int>(data->InputPos.x - viewport->Pos.x),
+                .y = static_cast<int>(data->InputPos.y - viewport->Pos.y + data->InputLineHeight),
+                .w = 1,
+                .h = static_cast<int>(data->InputLineHeight),
+            };
+            SDL_SetTextInputArea(window, &r, 0);
+            SDL_StartTextInput(window);
+        }
+    };
 
     // Apply official Hikari dark graphite theme and desktop typography
     applyEditorTheme(ThemeColors::defaultDark());
@@ -439,7 +667,10 @@ void EditorEngine::processInput(const platform::InputSnapshot& input) {
         return;
     }
 
+    ImGui::SetCurrentContext(impl_->imguiContext);
     ImGuiIO& io = ImGui::GetIO();
+
+    // 1. Mouse pointer positioning, buttons, and scrolling
     io.AddMousePosEvent(input.mouseX, input.mouseY);
     io.AddMouseButtonEvent(
         0, input.mouseButtons.test(static_cast<size_t>(platform::MouseButton::Left)));
@@ -448,6 +679,70 @@ void EditorEngine::processInput(const platform::InputSnapshot& input) {
     io.AddMouseButtonEvent(
         2, input.mouseButtons.test(static_cast<size_t>(platform::MouseButton::Middle)));
     io.AddMouseWheelEvent(0.0F, input.wheelDeltaY);
+
+    // 2. Window focus activation and loss transitions
+    if (input.focusChanged) {
+        io.AddFocusEvent(input.isWindowFocused);
+    }
+
+    // 3. Discrete keyboard press, release, and repeat events
+    if (input.keyEventCount > 0) {
+        for (uint32_t i = 0; i < input.keyEventCount; ++i) {
+            const auto& evt = input.keyEvents[i];
+            const ImGuiKey key = toImGuiKey(evt.code);
+            if (key != ImGuiKey_None) {
+                io.AddKeyEvent(key, evt.down);
+            }
+        }
+    } else {
+        // Fallback: Infer state transitions when explicit key events were not populated
+        for (size_t i = 0; i < static_cast<size_t>(platform::KeyCode::Count); ++i) {
+            const bool down = input.keys.test(i);
+            if (down != impl_->lastKeys.test(i)) {
+                const ImGuiKey key = toImGuiKey(static_cast<platform::KeyCode>(i));
+                if (key != ImGuiKey_None) {
+                    io.AddKeyEvent(key, down);
+                }
+            }
+        }
+    }
+    impl_->lastKeys = input.keys;
+
+    // 4. Modifier key states (Ctrl, Shift, Alt, Super/Gui)
+    const bool ctrl = input.isKeyDown(platform::KeyCode::LeftCtrl) ||
+                      input.isKeyDown(platform::KeyCode::RightCtrl);
+    const bool shift = input.isKeyDown(platform::KeyCode::LeftShift) ||
+                       input.isKeyDown(platform::KeyCode::RightShift);
+    const bool alt =
+        input.isKeyDown(platform::KeyCode::LeftAlt) || input.isKeyDown(platform::KeyCode::RightAlt);
+    const bool super =
+        input.isKeyDown(platform::KeyCode::LeftGui) || input.isKeyDown(platform::KeyCode::RightGui);
+
+    io.AddKeyEvent(ImGuiMod_Ctrl, ctrl);
+    io.AddKeyEvent(ImGuiMod_Shift, shift);
+    io.AddKeyEvent(ImGuiMod_Alt, alt);
+    io.AddKeyEvent(ImGuiMod_Super, super);
+
+    // 5. UTF-8 character text input stream
+    if (input.textInputLength > 0 && input.textInput[0] != '\0') {
+        io.AddInputCharactersUTF8(input.textInput.data());
+    }
+}
+
+bool EditorEngine::wantCaptureKeyboard() const noexcept {
+    if (!impl_->initialized || impl_->imguiContext == nullptr) {
+        return false;
+    }
+    ImGui::SetCurrentContext(impl_->imguiContext);
+    return ImGui::GetIO().WantCaptureKeyboard;
+}
+
+bool EditorEngine::wantTextInput() const noexcept {
+    if (!impl_->initialized || impl_->imguiContext == nullptr) {
+        return false;
+    }
+    ImGui::SetCurrentContext(impl_->imguiContext);
+    return ImGui::GetIO().WantTextInput;
 }
 
 void EditorEngine::bindWorld(world::World* world) noexcept {

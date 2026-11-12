@@ -110,11 +110,19 @@ public:
 
     /// Resizes the offscreen GPU viewport render targets and updates ImGui texture registration.
     ///
-    /// Synchronizes the GPU device queue, frees previous descriptor sets, and allocates new targets.
+    /// Synchronizes the GPU device queue, frees previous descriptor sets, and allocates new
+    /// targets.
     bool resizeViewport(uint32_t width, uint32_t height);
 
     /// Translates platform input snapshot states into ImGui mouse and keyboard events.
     void processInput(const platform::InputSnapshot& input);
+
+    /// Returns true if Dear ImGui currently wants to capture keyboard input (e.g. text field
+    /// focused).
+    [[nodiscard]] bool wantCaptureKeyboard() const noexcept;
+
+    /// Returns true if Dear ImGui currently has an active text input widget.
+    [[nodiscard]] bool wantTextInput() const noexcept;
 
     /// Binds the authoritative Shared World for entity inspection.
     void bindWorld(world::World* world) noexcept;

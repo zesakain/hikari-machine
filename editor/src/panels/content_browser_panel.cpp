@@ -898,11 +898,16 @@ void ContentBrowserPanel::drawModals() {
 
     if (ImGui::BeginPopupModal("Create Folder##Modal", nullptr,
                                ImGuiWindowFlags_AlwaysAutoResize)) {
+        if (ImGui::IsWindowAppearing()) {
+            ImGui::SetKeyboardFocusHere();
+        }
         ImGui::Text("Enter folder name:");
-        ImGui::InputText("##FolderNameInput", folderNameBuffer_.data(), folderNameBuffer_.size());
+        const bool enterPressed =
+            ImGui::InputText("##FolderNameInput", folderNameBuffer_.data(),
+                             folderNameBuffer_.size(), ImGuiInputTextFlags_EnterReturnsTrue);
 
         ImGui::Spacing();
-        if (ImGui::Button("Create", ImVec2(80.0F, 0.0F))) {
+        if (ImGui::Button("Create", ImVec2(80.0F, 0.0F)) || enterPressed) {
             auto res = controller_.createFolder(folderNameBuffer_.data());
             if (!res.hasValue()) {
                 errorMessage_ = res.error().message;
@@ -911,7 +916,7 @@ void ContentBrowserPanel::drawModals() {
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(80.0F, 0.0F))) {
+        if (ImGui::Button("Cancel", ImVec2(80.0F, 0.0F)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
             ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();
@@ -924,11 +929,16 @@ void ContentBrowserPanel::drawModals() {
     }
 
     if (ImGui::BeginPopupModal("Create File##Modal", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        if (ImGui::IsWindowAppearing()) {
+            ImGui::SetKeyboardFocusHere();
+        }
         ImGui::Text("Enter file name:");
-        ImGui::InputText("##FileNameInput", fileNameBuffer_.data(), fileNameBuffer_.size());
+        const bool enterPressed =
+            ImGui::InputText("##FileNameInput", fileNameBuffer_.data(), fileNameBuffer_.size(),
+                             ImGuiInputTextFlags_EnterReturnsTrue);
 
         ImGui::Spacing();
-        if (ImGui::Button("Create", ImVec2(80.0F, 0.0F))) {
+        if (ImGui::Button("Create", ImVec2(80.0F, 0.0F)) || enterPressed) {
             auto res = controller_.createFile(fileNameBuffer_.data(), pendingFileTemplate_);
             if (!res.hasValue()) {
                 errorMessage_ = res.error().message;
@@ -937,7 +947,7 @@ void ContentBrowserPanel::drawModals() {
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(80.0F, 0.0F))) {
+        if (ImGui::Button("Cancel", ImVec2(80.0F, 0.0F)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
             ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();
@@ -950,11 +960,16 @@ void ContentBrowserPanel::drawModals() {
     }
 
     if (ImGui::BeginPopupModal("Rename##Modal", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        if (ImGui::IsWindowAppearing()) {
+            ImGui::SetKeyboardFocusHere();
+        }
         ImGui::Text("Enter new name for '%s':", targetRenamePath_.filename().string().c_str());
-        ImGui::InputText("##RenameInput", renameBuffer_.data(), renameBuffer_.size());
+        const bool enterPressed = ImGui::InputText(
+            "##RenameInput", renameBuffer_.data(), renameBuffer_.size(),
+            ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
 
         ImGui::Spacing();
-        if (ImGui::Button("Rename", ImVec2(80.0F, 0.0F))) {
+        if (ImGui::Button("Rename", ImVec2(80.0F, 0.0F)) || enterPressed) {
             auto res = controller_.renameItem(targetRenamePath_, renameBuffer_.data());
             if (!res.hasValue()) {
                 errorMessage_ = res.error().message;
@@ -963,7 +978,7 @@ void ContentBrowserPanel::drawModals() {
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(80.0F, 0.0F))) {
+        if (ImGui::Button("Cancel", ImVec2(80.0F, 0.0F)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
             ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();
@@ -999,7 +1014,7 @@ void ContentBrowserPanel::drawModals() {
         }
 
         ImGui::Spacing();
-        if (ImGui::Button("Delete", ImVec2(80.0F, 0.0F))) {
+        if (ImGui::Button("Delete", ImVec2(80.0F, 0.0F)) || ImGui::IsKeyPressed(ImGuiKey_Enter)) {
             auto res = controller_.deleteItem(targetDeletePath_, isDeleteNonEmptyDir_);
             if (!res.hasValue()) {
                 errorMessage_ = res.error().message;
@@ -1010,7 +1025,7 @@ void ContentBrowserPanel::drawModals() {
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(80.0F, 0.0F))) {
+        if (ImGui::Button("Cancel", ImVec2(80.0F, 0.0F)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
             ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();
@@ -1028,7 +1043,8 @@ void ContentBrowserPanel::drawModals() {
         ImGui::TextWrapped("%s", errorMessage_.c_str());
 
         ImGui::Spacing();
-        if (ImGui::Button("OK", ImVec2(80.0F, 0.0F))) {
+        if (ImGui::Button("OK", ImVec2(80.0F, 0.0F)) || ImGui::IsKeyPressed(ImGuiKey_Enter) ||
+            ImGui::IsKeyPressed(ImGuiKey_Escape)) {
             ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();

@@ -7,6 +7,7 @@ if(NOT HIKARI_BUILD_EDITOR)
 endif()
 
 find_package(Vulkan REQUIRED)
+find_package(SDL3 CONFIG REQUIRED)
 
 include(FetchContent)
 
@@ -85,4 +86,5 @@ target_link_libraries(editor_lib
     PRIVATE
         imgui_static
         Vulkan::Vulkan
+        SDL3::SDL3
 )
