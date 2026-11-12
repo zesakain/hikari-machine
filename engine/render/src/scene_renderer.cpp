@@ -72,9 +72,10 @@ SceneRenderer::SceneRenderer(SceneRenderer&& other) noexcept
       shadowDepthTarget_(other.shadowDepthTarget_), shadowSampler_(other.shadowSampler_),
       shadowVertexShader_(other.shadowVertexShader_),
       shadowPipelineLayout_(other.shadowPipelineLayout_), shadowPipeline_(other.shadowPipeline_),
-      pipelineLayout_(other.pipelineLayout_), pipeline_(other.pipeline_),
-      hdrTarget_(other.hdrTarget_), hdrFormat_(other.hdrFormat_),
-      postProcessSettings_(other.postProcessSettings_),
+      depthPrepassPipeline_(other.depthPrepassPipeline_), pipelineLayout_(other.pipelineLayout_),
+      pipeline_(other.pipeline_), pipelineDepthPrepass_(other.pipelineDepthPrepass_),
+      hdrPipelineDepthPrepass_(other.hdrPipelineDepthPrepass_), hdrTarget_(other.hdrTarget_),
+      hdrFormat_(other.hdrFormat_), postProcessSettings_(other.postProcessSettings_),
       postProcessSampler_(other.postProcessSampler_),
       fullscreenVertexShader_(other.fullscreenVertexShader_),
       bloomDownFragmentShader_(other.bloomDownFragmentShader_),
@@ -123,8 +124,11 @@ SceneRenderer::SceneRenderer(SceneRenderer&& other) noexcept
     other.shadowVertexShader_ = {};
     other.shadowPipelineLayout_ = {};
     other.shadowPipeline_ = {};
+    other.depthPrepassPipeline_ = {};
     other.pipelineLayout_ = {};
     other.pipeline_ = {};
+    other.pipelineDepthPrepass_ = {};
+    other.hdrPipelineDepthPrepass_ = {};
     other.hdrTarget_ = {};
     other.postProcessSampler_ = {};
     other.fullscreenVertexShader_ = {};
@@ -167,8 +171,11 @@ SceneRenderer& SceneRenderer::operator=(SceneRenderer&& other) noexcept {
         shadowVertexShader_ = other.shadowVertexShader_;
         shadowPipelineLayout_ = other.shadowPipelineLayout_;
         shadowPipeline_ = other.shadowPipeline_;
+        depthPrepassPipeline_ = other.depthPrepassPipeline_;
         pipelineLayout_ = other.pipelineLayout_;
         pipeline_ = other.pipeline_;
+        pipelineDepthPrepass_ = other.pipelineDepthPrepass_;
+        hdrPipelineDepthPrepass_ = other.hdrPipelineDepthPrepass_;
 
         hdrTarget_ = other.hdrTarget_;
         hdrFormat_ = other.hdrFormat_;
@@ -229,8 +236,11 @@ SceneRenderer& SceneRenderer::operator=(SceneRenderer&& other) noexcept {
         other.shadowVertexShader_ = {};
         other.shadowPipelineLayout_ = {};
         other.shadowPipeline_ = {};
+        other.depthPrepassPipeline_ = {};
         other.pipelineLayout_ = {};
         other.pipeline_ = {};
+        other.pipelineDepthPrepass_ = {};
+        other.hdrPipelineDepthPrepass_ = {};
         other.hdrTarget_ = {};
         other.postProcessSampler_ = {};
         other.fullscreenVertexShader_ = {};
@@ -670,6 +680,38 @@ Result<void> SceneRenderer::init(rhi::RhiDevice& device, uint32_t width, uint32_
     }
     shadowPipeline_ = shadowPipeRes.value();
 
+    // 7b. Create Depth Prepass Pipeline (vertex-only writing to scene depthTarget_)
+    rhi::GraphicsPipelineDesc depthPrepassDesc = shadowPipeDesc;
+    depthPrepassDesc.depthAttachmentFormat = depthFormat_;
+    depthPrepassDesc.debugName = "DepthPrepassPipeline";
+    auto depthPrepassRes = device_->createGraphicsPipeline(depthPrepassDesc);
+    if (depthPrepassRes.hasValue()) {
+        depthPrepassPipeline_ = depthPrepassRes.value();
+    }
+
+    // 7c. Main PBR Pipelines for Depth Prepass (depth test Equal/LessOrEqual with depth write
+    // disabled)
+    rhi::GraphicsPipelineDesc pipeDepthPrepassDesc = pipeDesc;
+    pipeDepthPrepassDesc.depthStencil.depthTestEnable = true;
+    pipeDepthPrepassDesc.depthStencil.depthWriteEnable = false;
+    pipeDepthPrepassDesc.depthStencil.depthCompareOp = rhi::CompareOp::LessOrEqual;
+    pipeDepthPrepassDesc.debugName = "MeshGraphicsPipeline_DepthPrepass";
+    auto pipeDpRes = device_->createGraphicsPipeline(pipeDepthPrepassDesc);
+    if (pipeDpRes.hasValue()) {
+        pipelineDepthPrepass_ = pipeDpRes.value();
+    }
+
+    if (hdrFormat_ != colorFormat_) {
+        pipeDepthPrepassDesc.colorAttachmentFormats = {hdrFormat_};
+        pipeDepthPrepassDesc.debugName = "MeshHdrGraphicsPipeline_DepthPrepass";
+        auto hdrDpRes = device_->createGraphicsPipeline(pipeDepthPrepassDesc);
+        if (hdrDpRes.hasValue()) {
+            hdrPipelineDepthPrepass_ = hdrDpRes.value();
+        }
+    } else {
+        hdrPipelineDepthPrepass_ = pipelineDepthPrepass_;
+    }
+
     // 8. Initialize Post-Processing & HDR Resources
     auto ppRes = initPostProcessResources();
     if (!ppRes.hasValue()) {
@@ -771,6 +813,20 @@ void SceneRenderer::shutdown() {
         if (wireframeLdrPipeline_.isValid()) {
             device_->destroyGraphicsPipeline(wireframeLdrPipeline_);
             wireframeLdrPipeline_ = {};
+        }
+
+        if (depthPrepassPipeline_.isValid()) {
+            device_->destroyGraphicsPipeline(depthPrepassPipeline_);
+            depthPrepassPipeline_ = {};
+        }
+        if (pipelineDepthPrepass_.isValid()) {
+            device_->destroyGraphicsPipeline(pipelineDepthPrepass_);
+            pipelineDepthPrepass_ = {};
+        }
+        if (hdrPipelineDepthPrepass_.isValid() &&
+            hdrPipelineDepthPrepass_ != pipelineDepthPrepass_) {
+            device_->destroyGraphicsPipeline(hdrPipelineDepthPrepass_);
+            hdrPipelineDepthPrepass_ = {};
         }
 
         if (shadowPipeline_.isValid()) {
@@ -1028,10 +1084,25 @@ void SceneRenderer::buildRenderGraph() {
             [this](rhi::RhiCommandList& cmdList) { recordShadowPass(cmdList); });
     }
 
-    // 2. Main PBR Scene Pass
+    // 2. Early Depth Prepass
+    const bool hasDepthPrepass = settings_.performance.depthPrepass &&
+                                 depthPrepassPipeline_.isValid() && depthTarget_.isValid();
+    if (hasDepthPrepass) {
+        renderGraph_.addPass(
+            "DepthPrepass",
+            [depthId](RenderPassBuilder& builder) {
+                if (depthId.isValid()) {
+                    builder.writeTexture(depthId, rhi::TextureUsageFlags::DepthStencilAttachment);
+                }
+            },
+            [this](rhi::RhiCommandList& cmdList) { recordDepthPrepass(cmdList); });
+    }
+
+    // 3. Main PBR Scene Pass
     renderGraph_.addPass(
         "MainPbrPass",
-        [hasShadowPass, shadowId, lightBufId, colorId, depthId](RenderPassBuilder& builder) {
+        [hasShadowPass, shadowId, lightBufId, colorId, depthId,
+         hasDepthPrepass](RenderPassBuilder& builder) {
             if (hasShadowPass && shadowId.isValid()) {
                 builder.readTexture(shadowId, rhi::TextureUsageFlags::Sampled);
             }
@@ -1042,7 +1113,11 @@ void SceneRenderer::buildRenderGraph() {
                 builder.writeTexture(colorId, rhi::TextureUsageFlags::ColorAttachment);
             }
             if (depthId.isValid()) {
-                builder.writeTexture(depthId, rhi::TextureUsageFlags::DepthStencilAttachment);
+                if (hasDepthPrepass) {
+                    builder.readTexture(depthId, rhi::TextureUsageFlags::DepthStencilAttachment);
+                } else {
+                    builder.writeTexture(depthId, rhi::TextureUsageFlags::DepthStencilAttachment);
+                }
             }
         },
         [this](rhi::RhiCommandList& cmdList) { recordMainPbrPass(cmdList); });
@@ -1173,6 +1248,117 @@ void SceneRenderer::recordShadowPass(rhi::RhiCommandList& cmdList) {
     }
 }
 
+void SceneRenderer::recordDepthPrepass(rhi::RhiCommandList& cmdList) {
+    if (currentWorld_ == nullptr || currentAssetManager_ == nullptr ||
+        !depthPrepassPipeline_.isValid() || !depthTarget_.isValid()) {
+        return;
+    }
+
+    if (currentHasTimestamps_) {
+        cmdList.writeTimestamp(currentBaseQuery_ + 12, rhi::GpuTimestampStage::TopOfPipe);
+    }
+
+    rhi::RenderPassBeginInfo passInfo{
+        .colorTarget = {},
+        .depthTarget = depthTarget_,
+        .clearColor = {0.0F, 0.0F, 0.0F, 1.0F},
+        .clearDepth = 1.0F,
+        .clearTarget = false,
+        .clearDepthTarget = true,
+    };
+    cmdList.beginRenderPass(passInfo);
+    cmdList.setViewport(0.0F, 0.0F, static_cast<float>(width_), static_cast<float>(height_));
+    cmdList.setScissor(0, 0, width_, height_);
+    cmdList.bindPipeline(depthPrepassPipeline_);
+
+    const bool applyCameraCulling =
+        settings_.performance.frustumCulling && !currentViewProj_.isNearlyEqual(Mat4::identity());
+    const Frustum cameraFrustum = Frustum::fromViewProjection(currentViewProj_);
+
+    auto& ecs = currentWorld_->getRawWorld();
+    auto query = ecs.query<const MeshComponent>();
+    query.each([&](flecs::entity e, const MeshComponent& meshComp) {
+        if (!meshComp.visible) {
+            return;
+        }
+
+        AssetId meshId = meshComp.meshAsset;
+        if ((!meshId.isValid() || !currentAssetManager_->isLoaded(meshId)) &&
+            !meshComp.assetPath.empty()) {
+            meshId = currentAssetManager_->findAssetByPath(meshComp.assetPath);
+        }
+        if (!meshId.isValid() || !currentAssetManager_->isLoaded(meshId)) {
+            return;
+        }
+
+        GpuMesh* gpuMesh = currentAssetManager_->getGpuMesh(meshId);
+        if (gpuMesh == nullptr || !gpuMesh->isValid()) {
+            return;
+        }
+
+        Mat4 model = Mat4::identity();
+        if (e.has<world::WorldTransformComponent>()) {
+            const auto* wt = e.get<world::WorldTransformComponent>();
+            if (wt != nullptr) {
+                model = wt->worldMatrix;
+            }
+        } else if (e.has<world::TransformComponent>()) {
+            const auto* tc = e.get<world::TransformComponent>();
+            if (tc != nullptr) {
+                model = tc->transform.toMatrix();
+            }
+        } else if (e.has<physics::PhysicsTransformComponent>()) {
+            const auto* tc = e.get<physics::PhysicsTransformComponent>();
+            if (tc != nullptr) {
+                model = tc->transform.toMatrix();
+            }
+        }
+
+        if (applyCameraCulling) {
+            const AABB localBounds = (meshComp.submeshIndex < gpuMesh->getSubmeshes().size())
+                                         ? gpuMesh->getSubmeshes()[meshComp.submeshIndex].bounds
+                                         : gpuMesh->getBounds();
+            const AABB worldBounds = localBounds.transform(model);
+            if (!cameraFrustum.intersectsAABB(worldBounds)) {
+                return;
+            }
+        }
+
+        alignas(16) float pushData[32];
+        std::memcpy(&pushData[0], currentViewProj_.m, 64);
+        std::memcpy(&pushData[16], model.m, 64);
+        cmdList.pushConstants(shadowPipelineLayout_, rhi::ShaderStageFlags::Vertex, 0,
+                              sizeof(pushData), pushData);
+
+        cmdList.bindVertexBuffer(0, gpuMesh->getVertexBuffer(), 0);
+        if (gpuMesh->getIndexBuffer().isValid() && gpuMesh->getIndexCount() > 0) {
+            cmdList.bindIndexBuffer(gpuMesh->getIndexBuffer(), 0, true);
+            const auto& submeshes = gpuMesh->getSubmeshes();
+            if (meshComp.submeshIndex < submeshes.size()) {
+                const auto& sub = submeshes[meshComp.submeshIndex];
+                cmdList.drawIndexed(sub.indexCount, 1, sub.firstIndex, sub.vertexOffset, 0);
+                lastRenderStats_.depthPrepassDrawCalls++;
+            } else if (submeshes.empty()) {
+                cmdList.drawIndexed(gpuMesh->getIndexCount(), 1, 0, 0, 0);
+                lastRenderStats_.depthPrepassDrawCalls++;
+            } else {
+                for (const auto& sub : submeshes) {
+                    cmdList.drawIndexed(sub.indexCount, 1, sub.firstIndex, sub.vertexOffset, 0);
+                    lastRenderStats_.depthPrepassDrawCalls++;
+                }
+            }
+        } else if (gpuMesh->getVertexCount() > 0) {
+            cmdList.draw(gpuMesh->getVertexCount(), 1, 0, 0);
+            lastRenderStats_.depthPrepassDrawCalls++;
+        }
+    });
+
+    cmdList.endRenderPass();
+    if (currentHasTimestamps_) {
+        cmdList.writeTimestamp(currentBaseQuery_ + 13, rhi::GpuTimestampStage::BottomOfPipe);
+    }
+}
+
 void SceneRenderer::recordMainPbrPass(rhi::RhiCommandList& cmdList) {
     if (currentWorld_ == nullptr || currentAssetManager_ == nullptr) {
         return;
@@ -1180,9 +1366,19 @@ void SceneRenderer::recordMainPbrPass(rhi::RhiCommandList& cmdList) {
     const bool managePass = colorTarget_.isValid();
 
     const bool useHdr = postProcessSettings_.enabled && hdrTarget_.isValid();
+    const bool useDepthPrepass =
+        settings_.performance.depthPrepass && depthPrepassPipeline_.isValid();
     const rhi::TextureHandle sceneColorTarget = useHdr ? hdrTarget_ : colorTarget_;
     rhi::PipelineHandle scenePipeline =
         (useHdr && hdrPipeline_.isValid()) ? hdrPipeline_ : pipeline_;
+
+    if (useDepthPrepass) {
+        if (useHdr && hdrPipelineDepthPrepass_.isValid()) {
+            scenePipeline = hdrPipelineDepthPrepass_;
+        } else if (!useHdr && pipelineDepthPrepass_.isValid()) {
+            scenePipeline = pipelineDepthPrepass_;
+        }
+    }
 
     if (settings_.debug.viewMode == DebugViewMode::Wireframe) {
         if (useHdr && wireframePipeline_.isValid()) {
@@ -1204,7 +1400,7 @@ void SceneRenderer::recordMainPbrPass(rhi::RhiCommandList& cmdList) {
             .clearColor = {0.08F, 0.12F, 0.20F, 1.0F},
             .clearDepth = 1.0F,
             .clearTarget = true,
-            .clearDepthTarget = true,
+            .clearDepthTarget = !useDepthPrepass,
         };
         cmdList.beginRenderPass(passInfo);
         cmdList.setViewport(0.0F, 0.0F, static_cast<float>(width_), static_cast<float>(height_));
@@ -2232,6 +2428,8 @@ void SceneRenderer::updateGpuTimings(rhi::RhiDevice& device) {
         gpuPassTimings_.totalSceneMs = totalOpt.value();
         gpuPassTimings_.shadowPassMs =
             device.getQueryTimeMs(readbackBase + 2, readbackBase + 3).value_or(0.0F);
+        gpuPassTimings_.depthPrepassMs =
+            device.getQueryTimeMs(readbackBase + 12, readbackBase + 13).value_or(0.0F);
         gpuPassTimings_.mainPbrPassMs =
             device.getQueryTimeMs(readbackBase + 4, readbackBase + 5).value_or(0.0F);
         gpuPassTimings_.bloomDownsampleMs =

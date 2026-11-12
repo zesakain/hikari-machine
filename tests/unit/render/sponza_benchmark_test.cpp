@@ -375,7 +375,7 @@ static int testVulkanSponzaLiveRenderingAndCertification() {
     TEST_CHECK(culledStats.culledPrimitives > 0);
     TEST_CHECK(culledStats.drawCalls < warmStats.drawCalls);
 
-    // Benchmark 10 consecutive frames measuring frame latency
+    // Benchmark 10 consecutive frames measuring frame latency with Depth Prepass OFF
     constexpr uint32_t kBenchFrames = 10;
     double totalGpuMs = 0.0;
     RenderStats benchStats{};
@@ -400,12 +400,54 @@ static int testVulkanSponzaLiveRenderingAndCertification() {
 
     const double avgFrameMs = totalGpuMs / kBenchFrames;
     const double avgFps = 1000.0 / avgFrameMs;
-    std::cout << "  Performance Benchmark (" << width << "x" << height << ", " << kBenchFrames
-              << " frames):\n";
+    std::cout << "  Performance Benchmark (Depth Prepass OFF, " << width << "x" << height << ", "
+              << kBenchFrames << " frames):\n";
     std::cout << "    Avg Frame Time: " << avgFrameMs << " ms\n";
     std::cout << "    Equivalent FPS: " << avgFps << " FPS\n";
     std::cout << "    Draw Calls: " << benchStats.drawCalls << '\n';
+    std::cout << "    Shadow Draw Calls: " << benchStats.shadowDrawCalls << '\n';
     std::cout << "    Triangles: " << benchStats.triangles << '\n';
+
+    // Empirical Evaluation: Benchmark 10 consecutive frames with Depth Prepass ON
+    GraphicsSettings dpSettings = renderer.getGraphicsSettings();
+    dpSettings.performance.depthPrepass = true;
+    (void)renderer.applyGraphicsSettings(dpSettings);
+
+    double totalGpuDpMs = 0.0;
+    RenderStats dpBenchStats{};
+
+    for (uint32_t f = 0; f < kBenchFrames; ++f) {
+        const auto tStart = std::chrono::high_resolution_clock::now();
+
+        cmd->begin();
+        dpBenchStats = renderer.renderScene(world, assetManager, *device, *cmd, viewProjOverview);
+        if (renderer.isPostProcessingEnabled()) {
+            renderer.renderPostProcess(*cmd);
+        }
+        cmd->end();
+
+        (void)device->submit(cmd.get());
+        device->waitIdle();
+
+        const auto tEnd = std::chrono::high_resolution_clock::now();
+        const double frameMs = std::chrono::duration<double, std::milli>(tEnd - tStart).count();
+        totalGpuDpMs += frameMs;
+    }
+
+    const double avgDpFrameMs = totalGpuDpMs / kBenchFrames;
+    const double avgDpFps = 1000.0 / avgDpFrameMs;
+    std::cout << "  Empirical Evaluation (Depth Prepass ON, " << width << "x" << height << ", "
+              << kBenchFrames << " frames):\n";
+    std::cout << "    Avg Frame Time: " << avgDpFrameMs << " ms\n";
+    std::cout << "    Equivalent FPS: " << avgDpFps << " FPS\n";
+    std::cout << "    Depth Prepass Draw Calls: " << dpBenchStats.depthPrepassDrawCalls << '\n';
+    std::cout << "    Main PBR Draw Calls: " << dpBenchStats.drawCalls << '\n';
+    std::cout << "    Shadow Draw Calls: " << dpBenchStats.shadowDrawCalls << '\n';
+    TEST_CHECK(dpBenchStats.depthPrepassDrawCalls > 0);
+
+    // Restore optimal default (depthPrepass = false for Pascal architecture)
+    dpSettings.performance.depthPrepass = false;
+    (void)renderer.applyGraphicsSettings(dpSettings);
 
     // Capture 1: Sponza Overview (ACES tone mapping)
     cmd->begin();

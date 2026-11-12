@@ -48,13 +48,14 @@ namespace eng::render {
 /// @struct RenderStats
 /// @brief Telemetry metrics collected during scene rendering.
 struct RenderStats {
-    uint32_t drawCalls{0};        ///< Main forward PBR draw calls
-    uint32_t shadowDrawCalls{0};  ///< Directional shadow depth draw calls
-    uint32_t triangles{0};        ///< Triangles rasterized in main PBR pass
-    uint32_t shadowTriangles{0};  ///< Triangles rasterized in shadow pass
-    uint32_t vertices{0};         ///< Vertices evaluated in main PBR pass
-    uint32_t meshesRendered{0};   ///< Mesh entities evaluated and rendered
-    uint32_t culledPrimitives{0}; ///< Mesh primitives culled or skipped
+    uint32_t drawCalls{0};             ///< Main forward PBR draw calls
+    uint32_t shadowDrawCalls{0};       ///< Directional shadow depth draw calls
+    uint32_t depthPrepassDrawCalls{0}; ///< Early depth prepass draw calls
+    uint32_t triangles{0};             ///< Triangles rasterized in main PBR pass
+    uint32_t shadowTriangles{0};       ///< Triangles rasterized in shadow pass
+    uint32_t vertices{0};              ///< Vertices evaluated in main PBR pass
+    uint32_t meshesRendered{0};        ///< Mesh entities evaluated and rendered
+    uint32_t culledPrimitives{0};      ///< Mesh primitives culled or skipped
 };
 
 /// @struct GpuPassTimings
@@ -66,6 +67,8 @@ struct GpuPassTimings {
     float totalSceneMs{0.0F};
     /// Duration of directional shadow map generation (milliseconds).
     float shadowPassMs{0.0F};
+    /// Duration of early depth prepass (milliseconds).
+    float depthPrepassMs{0.0F};
     /// Duration of forward PBR mesh rasterization and material shading (milliseconds).
     float mainPbrPassMs{0.0F};
     /// Duration of bloom downsampling pyramid passes (milliseconds).
@@ -252,6 +255,7 @@ private:
     void buildRenderGraph();
     void buildPostProcessGraph();
     void recordShadowPass(rhi::RhiCommandList& cmdList);
+    void recordDepthPrepass(rhi::RhiCommandList& cmdList);
     void recordMainPbrPass(rhi::RhiCommandList& cmdList);
     void recordBloomDownsamplePass(rhi::RhiCommandList& cmdList, size_t level);
     void recordBloomUpsamplePass(rhi::RhiCommandList& cmdList, size_t step, size_t targetLevel);
@@ -272,8 +276,11 @@ private:
     rhi::ShaderHandle shadowVertexShader_{};
     rhi::PipelineLayoutHandle shadowPipelineLayout_{};
     rhi::PipelineHandle shadowPipeline_{};
+    rhi::PipelineHandle depthPrepassPipeline_{};
     rhi::PipelineLayoutHandle pipelineLayout_{};
     rhi::PipelineHandle pipeline_{};
+    rhi::PipelineHandle pipelineDepthPrepass_{};
+    rhi::PipelineHandle hdrPipelineDepthPrepass_{};
 
     // HDR and Post-Processing Resources
     rhi::TextureHandle hdrTarget_{};
