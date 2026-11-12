@@ -869,6 +869,10 @@ bool EditorEngine::isHdrActive() const noexcept {
     return impl_->sceneRenderer.isHdrActive();
 }
 
+bool EditorEngine::isSdrFallbackActive() const noexcept {
+    return impl_->sceneRenderer.isSdrFallbackActive();
+}
+
 bool EditorEngine::isGpuViewportActive() const noexcept {
     return impl_->context.gpuRenderingActive && (impl_->viewportDescriptorSet != VK_NULL_HANDLE);
 }

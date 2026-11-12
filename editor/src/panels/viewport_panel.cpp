@@ -254,8 +254,13 @@ void ViewportPanel::draw(EditorContext& ctx) {
 
                 auto ppSettings = ctx.sceneRenderer->getPostProcessSettings();
                 const bool hdrActive = ctx.sceneRenderer->isHdrActive();
+                const bool sdrFallback = ctx.sceneRenderer->isSdrFallbackActive();
                 const char* hdrBadge =
-                    hdrActive ? "[HDR: RGBA16F]" : (ppSettings.enabled ? "[HDR: Active]" : "[LDR]");
+                    hdrActive
+                        ? (ctx.sceneRenderer->getHdrFormat() == rhi::TextureFormat::RGBA32_FLOAT
+                               ? "[HDR: RGBA32F]"
+                               : "[HDR: RGBA16F]")
+                        : (sdrFallback ? "[SDR Fallback: RGBA8]" : "[LDR]");
                 if (ImGui::Button(hdrBadge)) {
                     ImGui::OpenPopup("PostProcessSettingsPopup");
                 }
@@ -266,6 +271,14 @@ void ViewportPanel::draw(EditorContext& ctx) {
 
                 if (ImGui::BeginPopup("PostProcessSettingsPopup")) {
                     ImGui::TextUnformatted("Post-Processing & Tone Mapping");
+                    if (hdrActive) {
+                        ImGui::TextColored(ImVec4(0.3F, 0.9F, 0.3F, 1.0F), "Genuine FP HDR Active");
+                    } else if (sdrFallback) {
+                        ImGui::TextColored(ImVec4(0.9F, 0.7F, 0.2F, 1.0F),
+                                           "SDR Fallback (8-bit UNORM)");
+                    } else {
+                        ImGui::TextColored(ImVec4(0.6F, 0.6F, 0.6F, 1.0F), "LDR Direct Rendering");
+                    }
                     ImGui::Separator();
 
                     bool ppEnabled = ppSettings.enabled;
@@ -287,6 +300,14 @@ void ViewportPanel::draw(EditorContext& ctx) {
                         if (ImGui::Combo("Tone Map", &currentTm, tmOps, 4)) {
                             ppSettings.toneMapOp = static_cast<render::ToneMapOperator>(currentTm);
                             ctx.sceneRenderer->setPostProcessSettings(ppSettings);
+                        }
+
+                        if (ppSettings.toneMapOp == render::ToneMapOperator::FilmicReinhard) {
+                            float white = ppSettings.reinhardWhitePoint;
+                            if (ImGui::SliderFloat("White Point", &white, 1.0F, 20.0F, "%.1f")) {
+                                ppSettings.reinhardWhitePoint = white;
+                                ctx.sceneRenderer->setPostProcessSettings(ppSettings);
+                            }
                         }
 
                         ImGui::Separator();

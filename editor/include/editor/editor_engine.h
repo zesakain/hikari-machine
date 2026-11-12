@@ -170,8 +170,11 @@ public:
     /// Configures post-processing settings on the internal SceneRenderer.
     void setPostProcessSettings(const render::PostProcessSettings& settings) noexcept;
 
-    /// Checks whether HDR scene rendering is active.
+    /// Checks whether genuine floating-point HDR scene rendering is active.
     [[nodiscard]] bool isHdrActive() const noexcept;
+
+    /// Checks whether post-processing is operating in SDR fallback mode.
+    [[nodiscard]] bool isSdrFallbackActive() const noexcept;
 
     /// Checks whether GPU viewport presentation is active.
     [[nodiscard]] bool isGpuViewportActive() const noexcept;
