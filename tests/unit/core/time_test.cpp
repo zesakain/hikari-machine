@@ -338,6 +338,151 @@ int testBudgetAccounting() {
     return 0;
 }
 
+int testFrameTelemetryBasic() {
+    eng::FrameTelemetryTracker tracker;
+    TEST_CHECK(tracker.totalFrames() == 0);
+    TEST_CHECK(tracker.sampleCount() == 0);
+    TEST_CHECK(tracker.instantaneousFps() == 0.0F);
+
+    // 60 FPS: 16.666 ms frame, 4 ms CPU
+    const auto frameTime = eng::Duration::fromMicroseconds(16666);
+    const auto cpuTime = eng::Duration::fromMilliseconds(4);
+
+    tracker.recordFrame(frameTime, cpuTime);
+    TEST_CHECK(tracker.totalFrames() == 1);
+    TEST_CHECK(tracker.sampleCount() == 1);
+    TEST_CHECK(tracker.historyIndex() == 1);
+
+    // Instantaneous FPS ~ 60.0
+    TEST_CHECK(tracker.instantaneousFps() >= 59.9F && tracker.instantaneousFps() <= 60.1F);
+    TEST_CHECK(tracker.averageFps() == tracker.instantaneousFps());
+    TEST_CHECK(tracker.minFps() == tracker.instantaneousFps());
+    TEST_CHECK(tracker.maxFps() == tracker.instantaneousFps());
+
+    // Frame times in ms
+    TEST_CHECK(tracker.frameTimeMs() >= 16.6F && tracker.frameTimeMs() <= 16.7F);
+    TEST_CHECK(tracker.averageFrameTimeMs() == tracker.frameTimeMs());
+    TEST_CHECK(tracker.cpuTimeMs() == 4.0F);
+    TEST_CHECK(tracker.averageCpuTimeMs() == 4.0F);
+    TEST_CHECK(!tracker.hasGpuTiming());
+
+    return 0;
+}
+
+int testFrameTelemetryZeroAndInvalidDelta() {
+    eng::FrameTelemetryTracker tracker;
+
+    // Zero delta time should not divide by zero or produce NaN/Inf
+    tracker.recordFrame(eng::Duration::zero(), eng::Duration::zero());
+    TEST_CHECK(!std::isnan(tracker.instantaneousFps()));
+    TEST_CHECK(!std::isinf(tracker.instantaneousFps()));
+    TEST_CHECK(tracker.instantaneousFps() > 0.0F);
+    TEST_CHECK(tracker.instantaneousFps() <= 10000.0F);
+
+    // Negative delta time should clamp safely
+    tracker.recordFrame(eng::Duration::fromMilliseconds(-50), eng::Duration::fromMilliseconds(-5));
+    TEST_CHECK(!std::isnan(tracker.instantaneousFps()));
+    TEST_CHECK(!std::isinf(tracker.instantaneousFps()));
+    TEST_CHECK(tracker.instantaneousFps() > 0.0F);
+    TEST_CHECK(tracker.cpuTimeMs() == 0.0F);
+
+    // Massive delta time (e.g. 10 seconds debugger pause) clamped to ceiling (1.0 sec = 1 FPS)
+    tracker.recordFrame(eng::Duration::fromSeconds(10.0), eng::Duration::fromSeconds(5.0));
+    TEST_CHECK(tracker.frameTimeMs() == 1000.0F);
+    TEST_CHECK(tracker.instantaneousFps() == 1.0F);
+
+    return 0;
+}
+
+int testFrameTelemetryRollingAverageAndHistory() {
+    eng::FrameTelemetryTracker tracker;
+
+    // Record 60 frames of 10ms (100 FPS), CPU 2ms
+    for (int i = 0; i < 60; ++i) {
+        tracker.recordFrame(eng::Duration::fromMilliseconds(10),
+                            eng::Duration::fromMilliseconds(2));
+    }
+    TEST_CHECK(tracker.totalFrames() == 60);
+    TEST_CHECK(tracker.sampleCount() == 60);
+    TEST_CHECK(tracker.historyIndex() == 60);
+    TEST_CHECK(tracker.averageFps() >= 99.9F && tracker.averageFps() <= 100.1F);
+    TEST_CHECK(tracker.averageFrameTimeMs() >= 9.9F && tracker.averageFrameTimeMs() <= 10.1F);
+    TEST_CHECK(tracker.averageCpuTimeMs() == 2.0F);
+
+    // Fill beyond capacity (120 capacity)
+    for (int i = 0; i < 100; ++i) {
+        tracker.recordFrame(eng::Duration::fromMilliseconds(20),
+                            eng::Duration::fromMilliseconds(5));
+    }
+    TEST_CHECK(tracker.totalFrames() == 160);
+    TEST_CHECK(tracker.sampleCount() == eng::FrameTelemetryTracker::kHistoryCapacity);
+    TEST_CHECK(tracker.historyIndex() == 160 % eng::FrameTelemetryTracker::kHistoryCapacity);
+
+    // Now min FPS is 50.0 (from 20ms frames) and max FPS is 100.0 (from remaining 10ms frames)
+    TEST_CHECK(tracker.minFps() >= 49.9F && tracker.minFps() <= 50.1F);
+    TEST_CHECK(tracker.maxFps() >= 99.9F && tracker.maxFps() <= 100.1F);
+
+    // Reset clears state
+    tracker.reset();
+    TEST_CHECK(tracker.totalFrames() == 0);
+    TEST_CHECK(tracker.sampleCount() == 0);
+    TEST_CHECK(tracker.historyIndex() == 0);
+    TEST_CHECK(tracker.instantaneousFps() == 0.0F);
+
+    return 0;
+}
+
+int testFrameTelemetrySimulatedWorkloadChanges() {
+    eng::FrameTelemetryTracker tracker;
+
+    // Simulate Workload A: Lightweight scene (120 FPS = 8.33ms frame, 1.5ms CPU)
+    for (int i = 0; i < 120; ++i) {
+        tracker.recordFrame(eng::Duration::fromMicroseconds(8333),
+                            eng::Duration::fromMicroseconds(1500));
+    }
+    float lightFps = tracker.averageFps();
+    float lightCpu = tracker.averageCpuTimeMs();
+    TEST_CHECK(lightFps >= 119.0F && lightFps <= 121.0F);
+    TEST_CHECK(lightCpu >= 1.4F && lightCpu <= 1.6F);
+
+    // Simulate Workload B: Heavy Sponza scene (30 FPS = 33.33ms frame, 12ms CPU)
+    for (int i = 0; i < 120; ++i) {
+        tracker.recordFrame(eng::Duration::fromMicroseconds(33333),
+                            eng::Duration::fromMilliseconds(12));
+    }
+    float heavyFps = tracker.averageFps();
+    float heavyCpu = tracker.averageCpuTimeMs();
+    TEST_CHECK(heavyFps >= 29.5F && heavyFps <= 30.5F);
+    TEST_CHECK(heavyCpu >= 11.9F && heavyCpu <= 12.1F);
+
+    // Telemetry demonstrably responded to workload change
+    TEST_CHECK(heavyFps < lightFps);
+    TEST_CHECK(heavyCpu > lightCpu);
+
+    return 0;
+}
+
+int testFrameTelemetryGpuTiming() {
+    eng::FrameTelemetryTracker tracker;
+    TEST_CHECK(!tracker.hasGpuTiming());
+    TEST_CHECK(tracker.gpuTimeMs() == 0.0F);
+
+    // Record frame with GPU timestamp
+    tracker.recordFrame(eng::Duration::fromMilliseconds(16), eng::Duration::fromMilliseconds(3),
+                        eng::Duration::fromMicroseconds(7500));
+    TEST_CHECK(tracker.hasGpuTiming());
+    TEST_CHECK(tracker.gpuTimeMs() == 7.5F);
+    TEST_CHECK(tracker.averageGpuTimeMs() == 7.5F);
+
+    // Subsequent frame without GPU timing reports false
+    tracker.recordFrame(eng::Duration::fromMilliseconds(16), eng::Duration::fromMilliseconds(3),
+                        std::nullopt);
+    TEST_CHECK(!tracker.hasGpuTiming());
+    TEST_CHECK(tracker.gpuTimeMs() == 0.0F);
+
+    return 0;
+}
+
 } // namespace
 
 int main() {
@@ -364,6 +509,21 @@ int main() {
     }
     if (testBudgetAccounting() != 0) {
         return 8;
+    }
+    if (testFrameTelemetryBasic() != 0) {
+        return 9;
+    }
+    if (testFrameTelemetryZeroAndInvalidDelta() != 0) {
+        return 10;
+    }
+    if (testFrameTelemetryRollingAverageAndHistory() != 0) {
+        return 11;
+    }
+    if (testFrameTelemetrySimulatedWorkloadChanges() != 0) {
+        return 12;
+    }
+    if (testFrameTelemetryGpuTiming() != 0) {
+        return 13;
     }
 
     return 0;

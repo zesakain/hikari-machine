@@ -6,4 +6,5 @@
 #include <core/time/budget.h>
 #include <core/time/clock.h>
 #include <core/time/duration.h>
+#include <core/time/frame_telemetry.h>
 #include <core/time/timestamp.h>

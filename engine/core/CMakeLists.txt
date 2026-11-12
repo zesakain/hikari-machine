@@ -10,6 +10,7 @@ add_library(engine_core STATIC
     src/budget.cpp
     src/clock.cpp
     src/event.cpp
+    src/frame_telemetry.cpp
     src/job_system.cpp
     src/json.cpp
     src/linear_allocator.cpp
