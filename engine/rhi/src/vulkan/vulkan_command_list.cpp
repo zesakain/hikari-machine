@@ -1460,6 +1460,23 @@ void VulkanCommandList::cleanupStagingResources() noexcept {
     stagingBuffers_.clear();
 }
 
+void VulkanCommandList::writeTimestamp(uint32_t queryIndex, GpuTimestampStage stage) {
+    if (device_ == nullptr || device_->getQueryPool() == VK_NULL_HANDLE) {
+        return;
+    }
+    VkPipelineStageFlagBits vkStage = (stage == GpuTimestampStage::TopOfPipe)
+                                          ? VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT
+                                          : VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+    vkCmdWriteTimestamp(cmdBuffer_, vkStage, device_->getQueryPool(), queryIndex);
+}
+
+void VulkanCommandList::resetQueryPool(uint32_t firstQuery, uint32_t queryCount) {
+    if (device_ == nullptr || device_->getQueryPool() == VK_NULL_HANDLE || queryCount == 0) {
+        return;
+    }
+    vkCmdResetQueryPool(cmdBuffer_, device_->getQueryPool(), firstQuery, queryCount);
+}
+
 NativeCommandListHandles VulkanCommandList::getNativeCommandListHandles() const noexcept {
     return NativeCommandListHandles{
         .commandBuffer = cmdBuffer_,

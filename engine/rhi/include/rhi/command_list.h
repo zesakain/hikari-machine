@@ -205,6 +205,38 @@ public:
     virtual void updateBuffer(BufferHandle dst, size_t dstOffset, const void* data,
                               size_t size) = 0;
 
+    /// Records a GPU hardware timestamp into the specified query slot.
+    ///
+    /// Contract:
+    /// - queryIndex must fall within allocated query pool capacity.
+    /// - Query slot must have been reset prior to recording in this command buffer.
+    ///
+    /// Cost:
+    /// Zero heap allocations; records inline into underlying command buffer. Allowed in hot path.
+    ///
+    /// @param queryIndex Zero-based query index in the active query pool.
+    /// @param stage Pipeline boundary to sample (TopOfPipe or BottomOfPipe).
+    virtual void writeTimestamp(uint32_t queryIndex,
+                                GpuTimestampStage stage = GpuTimestampStage::BottomOfPipe) {
+        (void)queryIndex;
+        (void)stage;
+    }
+
+    /// Resets a range of query pool slots for subsequent timestamp recording.
+    ///
+    /// Contract:
+    /// - Must be called outside an active render pass.
+    ///
+    /// Cost:
+    /// Zero heap allocations. Allowed in hot path.
+    ///
+    /// @param firstQuery Starting query slot index to reset.
+    /// @param queryCount Number of consecutive query slots to reset.
+    virtual void resetQueryPool(uint32_t firstQuery, uint32_t queryCount) {
+        (void)firstQuery;
+        (void)queryCount;
+    }
+
     /// Returns opaque pointers to underlying backend command buffer handles (or null in
     /// headless/null mode).
     [[nodiscard]] virtual NativeCommandListHandles getNativeCommandListHandles() const noexcept {

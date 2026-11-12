@@ -77,6 +77,10 @@ public:
     void generateMipmaps(TextureHandle texture) override;
     void updateBuffer(BufferHandle dst, size_t dstOffset, const void* data, size_t size) override;
 
+    void writeTimestamp(uint32_t queryIndex,
+                        GpuTimestampStage stage = GpuTimestampStage::BottomOfPipe) override;
+    void resetQueryPool(uint32_t firstQuery, uint32_t queryCount) override;
+
     [[nodiscard]] NativeCommandListHandles getNativeCommandListHandles() const noexcept override;
 
     [[nodiscard]] VkCommandBuffer handle() const noexcept { return cmdBuffer_; }

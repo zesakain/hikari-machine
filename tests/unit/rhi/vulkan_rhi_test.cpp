@@ -1474,6 +1474,53 @@ static int testVulkanTextureFormatCapabilities() {
     return 0;
 }
 
+static int testVulkanGpuTimestampQueries() {
+    VulkanDeviceDesc devDesc{.windowHandle = nullptr, .enableValidation = false};
+    auto devRes = createVulkanDevice(devDesc);
+    if (!devRes.hasValue()) {
+        std::cout << "Vulkan device unavailable; skipping timestamp test\n";
+        return 0;
+    }
+    auto device = std::move(devRes.value());
+    const auto& caps = device->getCaps();
+
+    if (!caps.features.timestampQueries) {
+        std::cout << "GPU timestamp queries not supported; skipping query execution test\n";
+        return 0;
+    }
+
+    TEST_CHECK(caps.limits.timestampPeriod > 0.0F);
+    TEST_CHECK(caps.limits.timestampValidBits >= 32);
+
+    auto cmdRes = device->createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto cmd = std::move(cmdRes.value());
+
+    cmd->begin();
+    cmd->resetQueryPool(0, 4);
+    cmd->writeTimestamp(0, GpuTimestampStage::TopOfPipe);
+    cmd->writeTimestamp(1, GpuTimestampStage::BottomOfPipe);
+    cmd->end();
+
+    auto submitRes = device->submit(cmd.get());
+    TEST_CHECK(submitRes.hasValue());
+
+    auto durMs = device->getQueryTimeMs(0, 1);
+    TEST_CHECK(durMs.has_value());
+    TEST_CHECK(durMs.value() >= 0.0F);
+
+    const auto queueStats = device->getQueueTimingStats();
+    TEST_CHECK(queueStats.submitTimeMs >= 0.0F);
+    TEST_CHECK(queueStats.fenceWaitTimeMs >= 0.0F);
+
+    uint64_t rawTimestamps[2]{};
+    bool ok = device->getQueryResults(0, 2, rawTimestamps);
+    TEST_CHECK(ok);
+    TEST_CHECK(rawTimestamps[1] >= rawTimestamps[0]);
+
+    return 0;
+}
+
 int main() {
     std::cout << "Running Vulkan RHI Tests...\n";
 
@@ -1485,6 +1532,9 @@ int main() {
 #endif
 
     if (testVulkanDeviceCapabilities() != 0) {
+        return 1;
+    }
+    if (testVulkanGpuTimestampQueries() != 0) {
         return 1;
     }
     if (testVulkanBufferLifecycle() != 0) {

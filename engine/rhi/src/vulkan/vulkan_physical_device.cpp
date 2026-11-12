@@ -34,6 +34,7 @@ Result<std::unique_ptr<VulkanPhysicalDevice>> VulkanPhysicalDevice::select(VkIns
         VkPhysicalDevice device{VK_NULL_HANDLE};
         QueueFamilyIndices queues{};
         int score{0};
+        uint32_t timestampValidBits{0};
         VkPhysicalDeviceProperties properties{};
         VkPhysicalDeviceFeatures features{};
         VkPhysicalDeviceMemoryProperties memory{};
@@ -56,6 +57,7 @@ Result<std::unique_ptr<VulkanPhysicalDevice>> VulkanPhysicalDevice::select(VkIns
         for (uint32_t i = 0; i < queueFamilyCount; ++i) {
             if ((queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0) {
                 cand.queues.graphicsFamily = i;
+                cand.timestampValidBits = queueFamilies[i].timestampValidBits;
             }
 
             if (requirePresent) {
@@ -137,16 +139,23 @@ Result<std::unique_ptr<VulkanPhysicalDevice>> VulkanPhysicalDevice::select(VkIns
     caps.limits.maxBoundDescriptorSets = selected.properties.limits.maxBoundDescriptorSets;
     caps.limits.maxColorAttachments = selected.properties.limits.maxColorAttachments;
     caps.limits.maxSamplerAnisotropy = selected.properties.limits.maxSamplerAnisotropy;
+    caps.limits.timestampPeriod = selected.properties.limits.timestampPeriod;
+    caps.limits.timestampValidBits = selected.timestampValidBits;
 
     // Feature flags
     caps.features.dynamicRendering = true;
     caps.features.timelineSemaphores = true;
     caps.features.samplerAnisotropy = (selected.features.samplerAnisotropy == VK_TRUE);
+    caps.features.timestampQueries =
+        (caps.limits.timestampPeriod > 0.0F && caps.limits.timestampValidBits > 0);
     caps.features.descriptorIndexing = false;
     caps.features.rayTracing = false;
     caps.features.meshShaders = false;
 
-    ENG_LOG_INFO("Vulkan", "Selected GPU device successfully");
+    ENG_LOG_INFO("Vulkan", "Selected GPU device: " + deviceName +
+                               " (TimestampPeriod: " + std::to_string(caps.limits.timestampPeriod) +
+                               "ns, ValidBits: " + std::to_string(caps.limits.timestampValidBits) +
+                               ")");
 
     return std::unique_ptr<VulkanPhysicalDevice>(
         new VulkanPhysicalDevice(selected.device, selected.queues, caps, std::move(deviceName)));

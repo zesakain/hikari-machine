@@ -47,6 +47,8 @@ struct GpuLimits {
     uint32_t maxBoundDescriptorSets{4};
     uint32_t maxColorAttachments{8};
     float maxSamplerAnisotropy{16.0F};
+    float timestampPeriod{0.0F};
+    uint32_t timestampValidBits{0};
 };
 
 /// @struct GpuFeatures
@@ -60,6 +62,9 @@ struct GpuFeatures {
 
     /// Hardware-accelerated anisotropic texture filtering.
     bool samplerAnisotropy{true};
+
+    /// Hardware timestamp queries supported on graphics queue.
+    bool timestampQueries{false};
 
     /// Bindless texture and buffer array indexing.
     bool descriptorIndexing{false};

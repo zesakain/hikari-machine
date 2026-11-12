@@ -7,6 +7,7 @@
 
 #include <SDL3/SDL_vulkan.h>
 #include <algorithm>
+#include <core/time/timestamp.h>
 
 namespace eng::rhi {
 
@@ -31,10 +32,31 @@ VulkanDevice::VulkanDevice(std::unique_ptr<VulkanInstance> instance,
     : instance_(std::move(instance)), physicalDevice_(std::move(physicalDevice)), device_(device),
       graphicsQueue_(graphicsQueue), presentQueue_(presentQueue),
       graphicsQueueFamily_(graphicsQueueFamily), commandPool_(commandPool),
-      memoryManager_(std::move(memoryManager)), swapchain_(std::move(swapchain)) {}
+      memoryManager_(std::move(memoryManager)), swapchain_(std::move(swapchain)) {
+    if (physicalDevice_ != nullptr && physicalDevice_->getCaps().features.timestampQueries) {
+        VkQueryPoolCreateInfo poolInfo{
+            .sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .queryType = VK_QUERY_TYPE_TIMESTAMP,
+            .queryCount = kMaxTimestampQueries,
+            .pipelineStatistics = 0,
+        };
+        VkResult res = vkCreateQueryPool(device_, &poolInfo, nullptr, &queryPool_);
+        if (res != VK_SUCCESS) {
+            ENG_LOG_WARN("Vulkan", "Failed to create GPU timestamp query pool");
+            queryPool_ = VK_NULL_HANDLE;
+        }
+    }
+}
 
 VulkanDevice::~VulkanDevice() noexcept {
     waitIdle();
+
+    if (queryPool_ != VK_NULL_HANDLE) {
+        vkDestroyQueryPool(device_, queryPool_, nullptr);
+        queryPool_ = VK_NULL_HANDLE;
+    }
 
     // Detach all active command lists and clean up their staging resources
     // while the device is still valid and idle.
@@ -1281,13 +1303,22 @@ Result<void> VulkanDevice::submit(RhiCommandList* commandList) {
         .pSignalSemaphores = nullptr,
     };
 
+    const Timestamp tSubmitStart = Timestamp::now();
     res = vkQueueSubmit(graphicsQueue_, 1, &submitInfo, fence);
+    const Timestamp tSubmitEnd = Timestamp::now();
+    queueTimingStats_.submitTimeMs =
+        static_cast<float>((tSubmitEnd - tSubmitStart).asMilliseconds());
+
     if (res != VK_SUCCESS) {
         vkDestroyFence(device_, fence, nullptr);
         return Error{.code = ErrorCode::CommandSubmissionFailed, .message = "vkQueueSubmit failed"};
     }
 
+    const Timestamp tFenceStart = Timestamp::now();
     res = vkWaitForFences(device_, 1, &fence, VK_TRUE, 2000000000ULL); // 2 second timeout
+    const Timestamp tFenceEnd = Timestamp::now();
+    queueTimingStats_.fenceWaitTimeMs =
+        static_cast<float>((tFenceEnd - tFenceStart).asMilliseconds());
     vkDestroyFence(device_, fence, nullptr);
 
     vkCmd->cleanupStagingResources();
@@ -1447,7 +1478,10 @@ Result<uint32_t> VulkanDevice::acquireNextImage() {
     if (!swapchain_) {
         return 0;
     }
+    const Timestamp tAcqStart = Timestamp::now();
     auto acqRes = swapchain_->acquireNextImage();
+    const Timestamp tAcqEnd = Timestamp::now();
+    queueTimingStats_.acquireTimeMs = static_cast<float>((tAcqEnd - tAcqStart).asMilliseconds());
     if (acqRes.hasValue()) {
         currentSwapchainImageIndex_ = acqRes.value();
     }
@@ -1458,7 +1492,66 @@ Result<void> VulkanDevice::present() {
     if (!swapchain_) {
         return Result<void>::success();
     }
-    return swapchain_->present(presentQueue_, currentSwapchainImageIndex_, VK_NULL_HANDLE);
+    const Timestamp tPresStart = Timestamp::now();
+    auto presRes = swapchain_->present(presentQueue_, currentSwapchainImageIndex_, VK_NULL_HANDLE);
+    const Timestamp tPresEnd = Timestamp::now();
+    queueTimingStats_.presentTimeMs = static_cast<float>((tPresEnd - tPresStart).asMilliseconds());
+    return presRes;
+}
+
+bool VulkanDevice::getQueryResults(uint32_t firstQuery, uint32_t queryCount,
+                                   uint64_t* outTimestamps) {
+    if (queryPool_ == VK_NULL_HANDLE || outTimestamps == nullptr || queryCount == 0 ||
+        (firstQuery + queryCount) > kMaxTimestampQueries) {
+        return false;
+    }
+    VkResult res = vkGetQueryPoolResults(device_, queryPool_, firstQuery, queryCount,
+                                         queryCount * sizeof(uint64_t), outTimestamps,
+                                         sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
+    return res == VK_SUCCESS;
+}
+
+std::optional<float> VulkanDevice::getQueryTimeMs(uint32_t startQueryIndex,
+                                                  uint32_t endQueryIndex) {
+    if (queryPool_ == VK_NULL_HANDLE || startQueryIndex >= kMaxTimestampQueries ||
+        endQueryIndex >= kMaxTimestampQueries) {
+        return std::nullopt;
+    }
+    const uint32_t minQuery = std::min(startQueryIndex, endQueryIndex);
+    const uint32_t maxQuery = std::max(startQueryIndex, endQueryIndex);
+    const uint32_t count = (maxQuery - minQuery) + 1;
+    if (count > kMaxTimestampQueries) {
+        return std::nullopt;
+    }
+
+    uint64_t rawTimestamps[kMaxTimestampQueries]{};
+    if (!getQueryResults(minQuery, count, rawTimestamps)) {
+        return std::nullopt;
+    }
+
+    const uint64_t start = rawTimestamps[startQueryIndex - minQuery];
+    const uint64_t end = rawTimestamps[endQueryIndex - minQuery];
+
+    const uint32_t validBits = physicalDevice_->getCaps().limits.timestampValidBits;
+    const float periodNs = physicalDevice_->getCaps().limits.timestampPeriod;
+    if (periodNs <= 0.0F || validBits == 0) {
+        return std::nullopt;
+    }
+
+    uint64_t deltaTicks = 0;
+    if (validBits >= 64) {
+        if (end < start) {
+            return std::nullopt;
+        }
+        deltaTicks = end - start;
+    } else {
+        const uint64_t mask = (1ULL << validBits) - 1ULL;
+        deltaTicks = (end >= start) ? (end - start) : ((end + (1ULL << validBits)) - start);
+        deltaTicks &= mask;
+    }
+
+    const double elapsedNs = static_cast<double>(deltaTicks) * static_cast<double>(periodNs);
+    return static_cast<float>(elapsedNs / 1000000.0);
 }
 
 Result<void> VulkanDevice::resize(uint32_t width, uint32_t height) {

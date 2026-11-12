@@ -30,9 +30,23 @@
 #include "rhi/texture.h"
 
 #include <memory>
+#include <optional>
 #include <span>
 
 namespace eng::rhi {
+
+/// @struct QueueTimingStats
+/// @brief Microsecond-resolution CPU queue synchronization and dispatch telemetry.
+struct QueueTimingStats {
+    /// Wall-clock CPU time spent executing queue submission (e.g. vkQueueSubmit).
+    float submitTimeMs{0.0F};
+    /// Wall-clock CPU time spent waiting on GPU fence synchronization (e.g. vkWaitForFences).
+    float fenceWaitTimeMs{0.0F};
+    /// Wall-clock CPU time spent acquiring next swapchain image (e.g. vkAcquireNextImageKHR).
+    float acquireTimeMs{0.0F};
+    /// Wall-clock CPU time spent presenting rendered swapchain image (e.g. vkQueuePresentKHR).
+    float presentTimeMs{0.0F};
+};
 
 /// @struct NativeDeviceHandles
 /// @brief Opaque container for backend-specific native graphics device handles.
@@ -283,6 +297,43 @@ public:
     [[nodiscard]] virtual void* getNativeSampler(SamplerHandle handle) const noexcept {
         (void)handle;
         return nullptr;
+    }
+
+    /// Returns queue synchronization, fence wait, and presentation timing telemetry for the last
+    /// frame.
+    [[nodiscard]] virtual QueueTimingStats getQueueTimingStats() const noexcept { return {}; }
+
+    /// Retrieves elapsed duration in milliseconds between two recorded GPU timestamps.
+    ///
+    /// Contract:
+    /// - startQueryIndex and endQueryIndex must have been recorded within the active query pool.
+    /// - Non-blocking: returns std::nullopt if the GPU has not finished executing the queries.
+    ///
+    /// Cost:
+    /// Zero heap allocations. Non-blocking host query check. Allowed in hot path.
+    ///
+    /// @param startQueryIndex Query slot marking start of timed operation.
+    /// @param endQueryIndex Query slot marking end of timed operation.
+    /// @return Elapsed duration in milliseconds, or std::nullopt if not ready or unsupported.
+    [[nodiscard]] virtual std::optional<float> getQueryTimeMs(uint32_t startQueryIndex,
+                                                              uint32_t endQueryIndex) {
+        (void)startQueryIndex;
+        (void)endQueryIndex;
+        return std::nullopt;
+    }
+
+    /// Asynchronously fetches raw 64-bit GPU query timestamps without blocking CPU execution.
+    ///
+    /// @param firstQuery Starting query slot index.
+    /// @param queryCount Number of consecutive queries to query.
+    /// @param outTimestamps Destination buffer of capacity at least queryCount.
+    /// @return True if all queries were ready and populated, false if pending or unsupported.
+    virtual bool getQueryResults(uint32_t firstQuery, uint32_t queryCount,
+                                 uint64_t* outTimestamps) {
+        (void)firstQuery;
+        (void)queryCount;
+        (void)outTimestamps;
+        return false;
     }
 };
 

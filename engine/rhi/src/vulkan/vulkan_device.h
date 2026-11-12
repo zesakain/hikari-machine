@@ -95,8 +95,17 @@ public:
     [[nodiscard]] void* getNativeTextureView(TextureHandle handle) const noexcept override;
     [[nodiscard]] void* getNativeSampler(SamplerHandle handle) const noexcept override;
 
+    [[nodiscard]] QueueTimingStats getQueueTimingStats() const noexcept override {
+        return queueTimingStats_;
+    }
+    [[nodiscard]] std::optional<float> getQueryTimeMs(uint32_t startQueryIndex,
+                                                      uint32_t endQueryIndex) override;
+    bool getQueryResults(uint32_t firstQuery, uint32_t queryCount,
+                         uint64_t* outTimestamps) override;
+
     // Internal backend helpers
     [[nodiscard]] VkDevice getLogicalDevice() const noexcept { return device_; }
+    [[nodiscard]] VkQueryPool getQueryPool() const noexcept { return queryPool_; }
     [[nodiscard]] VulkanPhysicalDevice* getPhysicalDevice() noexcept {
         return physicalDevice_.get();
     }
@@ -163,6 +172,9 @@ private:
     std::unique_ptr<VulkanMemoryManager> memoryManager_;
     std::unique_ptr<VulkanSwapchain> swapchain_;
     uint32_t currentSwapchainImageIndex_{0};
+    VkQueryPool queryPool_{VK_NULL_HANDLE};
+    static constexpr uint32_t kMaxTimestampQueries = 64;
+    QueueTimingStats queueTimingStats_{};
 
     std::vector<VulkanBufferSlot> buffers_;
     std::vector<VulkanTextureSlot> textures_;

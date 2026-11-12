@@ -116,6 +116,15 @@ constexpr bool hasFlag(ShaderStageFlags flags, ShaderStageFlags test) noexcept {
     return (flags & test) == test;
 }
 
+/// @enum GpuTimestampStage
+/// @brief Pipeline stage boundary for hardware timestamp query recording.
+enum class GpuTimestampStage : uint8_t {
+    /// Beginning of command execution in the pipeline.
+    TopOfPipe = 0,
+    /// Completion of command execution in the pipeline.
+    BottomOfPipe = 1,
+};
+
 /// @enum VertexFormat
 /// @brief Vertex attribute component layout and data format.
 enum class VertexFormat : uint8_t {
