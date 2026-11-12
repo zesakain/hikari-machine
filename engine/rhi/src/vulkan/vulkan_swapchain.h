@@ -45,9 +45,10 @@ public:
     [[nodiscard]] Result<void> present(VkQueue queue, uint32_t imageIndex,
                                        VkSemaphore waitSemaphore) noexcept;
 
-    /// Recreates swapchain with updated window dimensions.
-    [[nodiscard]] Result<void> recreate(uint32_t newWidth, uint32_t newHeight);
+    /// Recreates swapchain with updated window dimensions and optional vsync mode.
+    [[nodiscard]] Result<void> recreate(uint32_t newWidth, uint32_t newHeight, bool vsync = false);
 
+    [[nodiscard]] bool isVsyncEnabled() const noexcept { return vsync_; }
     [[nodiscard]] VkSurfaceKHR getSurface() const noexcept { return surface_; }
     [[nodiscard]] VkSwapchainKHR getSwapchain() const noexcept { return swapchain_; }
     [[nodiscard]] VkFormat getImageFormat() const noexcept { return imageFormat_; }
@@ -78,6 +79,7 @@ private:
     VkFormat imageFormat_{VK_FORMAT_B8G8R8A8_UNORM};
     VkExtent2D extent_{.width = 0, .height = 0};
     VkSemaphore acquireSemaphore_{VK_NULL_HANDLE};
+    bool vsync_{false};
     std::vector<VkImage> images_;
     std::vector<VkImageView> imageViews_;
 };

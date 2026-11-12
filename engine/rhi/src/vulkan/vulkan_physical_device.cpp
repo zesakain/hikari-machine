@@ -151,6 +151,7 @@ Result<std::unique_ptr<VulkanPhysicalDevice>> VulkanPhysicalDevice::select(VkIns
     caps.features.descriptorIndexing = false;
     caps.features.rayTracing = false;
     caps.features.meshShaders = false;
+    caps.features.fillModeNonSolid = (selected.features.fillModeNonSolid == VK_TRUE);
 
     ENG_LOG_INFO("Vulkan", "Selected GPU device: " + deviceName +
                                " (TimestampPeriod: " + std::to_string(caps.limits.timestampPeriod) +

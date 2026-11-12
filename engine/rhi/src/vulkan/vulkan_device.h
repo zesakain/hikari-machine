@@ -90,6 +90,8 @@ public:
     [[nodiscard]] Result<uint32_t> acquireNextImage() override;
     Result<void> present() override;
     Result<void> resize(uint32_t width, uint32_t height) override;
+    Result<void> setVsync(bool enabled) override;
+    [[nodiscard]] bool isVsyncEnabled() const noexcept override;
 
     [[nodiscard]] NativeDeviceHandles getNativeDeviceHandles() const noexcept override;
     [[nodiscard]] void* getNativeTextureView(TextureHandle handle) const noexcept override;

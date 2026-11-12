@@ -283,6 +283,19 @@ public:
         return Result<void>::success();
     }
 
+    /// Configures vertical synchronization (VSync) on the presentation swapchain.
+    ///
+    /// @param enabled True to lock frame presentation to display refresh (FIFO); false for
+    /// uncapped/mailbox.
+    /// @return Result indicating success or swapchain recreation error.
+    virtual Result<void> setVsync(bool enabled) {
+        (void)enabled;
+        return Result<void>::success();
+    }
+
+    /// Returns whether vertical synchronization is currently enabled on the device swapchain.
+    [[nodiscard]] virtual bool isVsyncEnabled() const noexcept { return false; }
+
     /// Returns opaque pointers to underlying backend device handles (or null in headless/null
     /// mode).
     [[nodiscard]] virtual NativeDeviceHandles getNativeDeviceHandles() const noexcept { return {}; }

@@ -74,6 +74,9 @@ struct GpuFeatures {
 
     /// Task and mesh shader pipeline execution.
     bool meshShaders{false};
+
+    /// Wireframe and point rasterization modes (VK_POLYGON_MODE_LINE / POINT).
+    bool fillModeNonSolid{false};
 };
 
 /// @struct GpuCaps

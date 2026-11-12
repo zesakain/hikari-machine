@@ -289,6 +289,9 @@ Result<std::unique_ptr<VulkanDevice>> VulkanDevice::create(const VulkanDeviceDes
     if (physicalDevice->getCaps().features.samplerAnisotropy) {
         deviceFeatures.samplerAnisotropy = VK_TRUE;
     }
+    if (physicalDevice->getCaps().features.fillModeNonSolid) {
+        deviceFeatures.fillModeNonSolid = VK_TRUE;
+    }
 
     VkDeviceCreateInfo deviceCreateInfo{
         .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
@@ -1558,7 +1561,23 @@ Result<void> VulkanDevice::resize(uint32_t width, uint32_t height) {
     if (!swapchain_) {
         return Result<void>::success();
     }
-    return swapchain_->recreate(width, height);
+    return swapchain_->recreate(width, height, isVsyncEnabled());
+}
+
+Result<void> VulkanDevice::setVsync(bool enabled) {
+    if (!swapchain_) {
+        return Result<void>::success();
+    }
+    if (swapchain_->isVsyncEnabled() == enabled) {
+        return Result<void>::success();
+    }
+    waitIdle();
+    const auto ext = swapchain_->getExtent();
+    return swapchain_->recreate(ext.width, ext.height, enabled);
+}
+
+bool VulkanDevice::isVsyncEnabled() const noexcept {
+    return swapchain_ ? swapchain_->isVsyncEnabled() : false;
 }
 
 NativeDeviceHandles VulkanDevice::getNativeDeviceHandles() const noexcept {

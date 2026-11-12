@@ -82,12 +82,13 @@ VulkanSwapchain::create(VkInstance instance, VkPhysicalDevice physicalDevice, Vk
     return swapchainObj;
 }
 
-Result<void> VulkanSwapchain::recreate(uint32_t newWidth, uint32_t newHeight) {
+Result<void> VulkanSwapchain::recreate(uint32_t newWidth, uint32_t newHeight, bool vsync) {
     if (newWidth == 0 || newHeight == 0) {
         // Window is minimized; pause swapchain operations safely
         return Result<void>::success();
     }
 
+    vsync_ = vsync;
     vkDeviceWaitIdle(device_);
 
     // 1. Surface capabilities
@@ -126,11 +127,13 @@ Result<void> VulkanSwapchain::recreate(uint32_t newWidth, uint32_t newHeight) {
                                                   presentModes.data());
     }
 
-    VkPresentModeKHR selectedMode = VK_PRESENT_MODE_FIFO_KHR; // Guaranteed support by spec
-    for (const auto& mode : presentModes) {
-        if (mode == VK_PRESENT_MODE_MAILBOX_KHR) {
-            selectedMode = VK_PRESENT_MODE_MAILBOX_KHR;
-            break;
+    VkPresentModeKHR selectedMode = VK_PRESENT_MODE_FIFO_KHR; // Guaranteed support by spec (VSync)
+    if (!vsync_) {
+        for (const auto& mode : presentModes) {
+            if (mode == VK_PRESENT_MODE_MAILBOX_KHR) {
+                selectedMode = VK_PRESENT_MODE_MAILBOX_KHR;
+                break;
+            }
         }
     }
 
