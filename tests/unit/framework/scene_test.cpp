@@ -6,6 +6,9 @@
 #include "framework/scene.h"
 #include "framework/scene_serializer.h"
 #include "physics/physics_components.h"
+#include "render/camera_component.h"
+#include "render/light_components.h"
+#include "render/post_process_types.h"
 #include "script/script_components.h"
 #include "world/world.h"
 
@@ -347,6 +350,144 @@ int testSampleSceneFileLoads() {
     return 0;
 }
 
+int testLightAndCameraSerializationRoundTrip() {
+    World worldA;
+
+    // 1. Directional Sun
+    EntityHandle sun = worldA.createEntity("Sunlight");
+    render::DirectionalLightComponent dl{};
+    dl.direction = Vec3(0.4F, 0.85F, 0.3F).normalized();
+    dl.color = Vec3(1.0F, 0.96F, 0.90F);
+    dl.intensity = 3.5F;
+    dl.castShadows = true;
+    dl.shadowBias = 0.0025F;
+    dl.enabled = true;
+    worldA.setComponent(sun, dl);
+
+    // 2. Point Light
+    EntityHandle lamp = worldA.createEntity("TorchLamp");
+    render::PointLightComponent pl{};
+    pl.position = Vec3(2.0F, 1.5F, -3.0F);
+    pl.color = Vec3(1.0F, 0.7F, 0.3F);
+    pl.intensity = 12.0F;
+    pl.range = 8.5F;
+    pl.enabled = true;
+    worldA.setComponent(lamp, pl);
+
+    // 3. Spot Light
+    EntityHandle spot = worldA.createEntity("WallSpot");
+    render::SpotLightComponent sl{};
+    sl.position = Vec3(-1.0F, 4.0F, 0.0F);
+    sl.direction = Vec3(0.0F, -1.0F, 0.0F);
+    sl.color = Vec3(0.8F, 0.9F, 1.0F);
+    sl.intensity = 20.0F;
+    sl.range = 15.0F;
+    sl.innerConeAngle = 0.35F;
+    sl.outerConeAngle = 0.55F;
+    sl.castShadows = true;
+    sl.enabled = true;
+    worldA.setComponent(spot, sl);
+
+    // 4. Primary Scene Camera
+    EntityHandle cam = worldA.createEntity("MainCamera");
+    worldA.setComponent(cam, TransformComponent{Transform(Vec3(0.0F, 2.0F, 5.0F))});
+    render::CameraComponent cc{};
+    cc.fovDegrees = 65.0F;
+    cc.nearPlane = 0.05F;
+    cc.farPlane = 2000.0F;
+    cc.isPrimary = true;
+    worldA.setComponent(cam, cc);
+
+    // Post process settings
+    render::PostProcessSettings ppSettings{};
+    ppSettings.enabled = true;
+    ppSettings.exposure = 1.25F;
+    ppSettings.toneMapOp = render::ToneMapOperator::AcesFitted;
+    ppSettings.bloomEnabled = true;
+    ppSettings.bloomThreshold = 0.95F;
+    ppSettings.bloomIntensity = 0.05F;
+    ppSettings.bloomKnee = 0.45F;
+    ppSettings.reinhardWhitePoint = 3.8F;
+
+    SceneMetadata meta{.name = "BenchmarkTestScene", .generator = "Hikari 10G", .timestamp = 55555};
+    Vec3 camPos(0.0F, 2.0F, 5.0F);
+    Vec3 camTgt(0.0F, 1.5F, 0.0F);
+
+    auto serRes = SceneSerializer::serializeToString(worldA, meta, {}, ppSettings, camPos, camTgt);
+    TEST_CHECK(serRes.hasValue());
+    const std::string jsonText = serRes.value();
+
+    TEST_CHECK(jsonText.find("\"DirectionalLight\"") != std::string::npos);
+    TEST_CHECK(jsonText.find("\"PointLight\"") != std::string::npos);
+    TEST_CHECK(jsonText.find("\"SpotLight\"") != std::string::npos);
+    TEST_CHECK(jsonText.find("\"Camera\"") != std::string::npos);
+    TEST_CHECK(jsonText.find("\"settings\"") != std::string::npos);
+    TEST_CHECK(jsonText.find("\"postProcess\"") != std::string::npos);
+    TEST_CHECK(jsonText.find("\"ACES\"") != std::string::npos);
+
+    // Deserialize into fresh World B
+    World worldB;
+    auto desRes = SceneSerializer::deserializeFromString(worldB, jsonText, true);
+    TEST_CHECK(desRes.hasValue());
+    const auto& res = desRes.value();
+    TEST_CHECK(res.entitiesLoaded == 4);
+    TEST_CHECK(res.metadata.name == "BenchmarkTestScene");
+    TEST_CHECK(res.postProcessSettings.has_value());
+    TEST_CHECK(res.postProcessSettings->enabled == true);
+    TEST_CHECK(std::abs(res.postProcessSettings->exposure - 1.25F) < 1e-4F);
+    TEST_CHECK(res.postProcessSettings->toneMapOp == render::ToneMapOperator::AcesFitted);
+    TEST_CHECK(res.postProcessSettings->bloomEnabled == true);
+    TEST_CHECK(res.cameraPosition.has_value());
+    TEST_CHECK(std::abs(res.cameraPosition->z - 5.0F) < 1e-4F);
+    TEST_CHECK(res.cameraTarget.has_value());
+    TEST_CHECK(std::abs(res.cameraTarget->y - 1.5F) < 1e-4F);
+
+    // Verify entity components in World B
+    auto entsB = worldB.getAllEntities();
+    TEST_CHECK(entsB.size() == 4);
+
+    bool foundSun = false;
+    bool foundLamp = false;
+    bool foundSpot = false;
+    bool foundCam = false;
+
+    for (auto h : entsB) {
+        if (worldB.getEntityName(h) == "Sunlight") {
+            const auto* dlc = worldB.getComponent<render::DirectionalLightComponent>(h);
+            TEST_CHECK(dlc != nullptr);
+            TEST_CHECK(dlc->castShadows == true);
+            TEST_CHECK(std::abs(dlc->intensity - 3.5F) < 1e-4F);
+            TEST_CHECK(std::abs(dlc->shadowBias - 0.0025F) < 1e-4F);
+            foundSun = true;
+        } else if (worldB.getEntityName(h) == "TorchLamp") {
+            const auto* plc = worldB.getComponent<render::PointLightComponent>(h);
+            TEST_CHECK(plc != nullptr);
+            TEST_CHECK(std::abs(plc->intensity - 12.0F) < 1e-4F);
+            TEST_CHECK(std::abs(plc->range - 8.5F) < 1e-4F);
+            foundLamp = true;
+        } else if (worldB.getEntityName(h) == "WallSpot") {
+            const auto* slc = worldB.getComponent<render::SpotLightComponent>(h);
+            TEST_CHECK(slc != nullptr);
+            TEST_CHECK(slc->castShadows == true);
+            TEST_CHECK(std::abs(slc->intensity - 20.0F) < 1e-4F);
+            TEST_CHECK(std::abs(slc->range - 15.0F) < 1e-4F);
+            foundSpot = true;
+        } else if (worldB.getEntityName(h) == "MainCamera") {
+            const auto* ccB = worldB.getComponent<render::CameraComponent>(h);
+            TEST_CHECK(ccB != nullptr);
+            TEST_CHECK(ccB->isPrimary == true);
+            TEST_CHECK(std::abs(ccB->fovDegrees - 65.0F) < 1e-4F);
+            TEST_CHECK(std::abs(ccB->nearPlane - 0.05F) < 1e-4F);
+            TEST_CHECK(std::abs(ccB->farPlane - 2000.0F) < 1e-4F);
+            foundCam = true;
+        }
+    }
+
+    TEST_CHECK(foundSun && foundLamp && foundSpot && foundCam);
+
+    return 0;
+}
+
 } // namespace
 
 int main() {
@@ -363,6 +504,8 @@ int main() {
     if (testUnknownComponentWarning() != 0)
         return 1;
     if (testSampleSceneFileLoads() != 0)
+        return 1;
+    if (testLightAndCameraSerializationRoundTrip() != 0)
         return 1;
 
     std::cout << "All SceneSerializer unit tests passed successfully.\n";

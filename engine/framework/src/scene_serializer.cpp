@@ -7,7 +7,10 @@
 #include "core/json.h"
 #include "core/log.h"
 #include "physics/physics_components.h"
+#include "render/camera_component.h"
+#include "render/light_components.h"
 #include "render/mesh_component.h"
+#include "render/post_process_types.h"
 #include "script/script_components.h"
 #include "world/components.h"
 #include "world/hierarchy_systems.h"
@@ -55,6 +58,31 @@ struct StagedMesh {
     bool present{false};
 };
 
+struct StagedDirectionalLight {
+    render::DirectionalLightComponent light{};
+    bool present{false};
+};
+
+struct StagedPointLight {
+    render::PointLightComponent light{};
+    bool present{false};
+};
+
+struct StagedSpotLight {
+    render::SpotLightComponent light{};
+    bool present{false};
+};
+
+struct StagedCamera {
+    render::CameraComponent camera{};
+    bool present{false};
+};
+
+struct StagedPostProcess {
+    render::PostProcessSettings settings{};
+    bool present{false};
+};
+
 struct StagedEntity {
     uint64_t stableId{0};
     uint64_t parentStableId{0};
@@ -64,6 +92,11 @@ struct StagedEntity {
     StagedCollider collider{};
     StagedScript script{};
     StagedMesh mesh{};
+    StagedDirectionalLight directionalLight{};
+    StagedPointLight pointLight{};
+    StagedSpotLight spotLight{};
+    StagedCamera camera{};
+    StagedPostProcess postProcess{};
 };
 
 const char* motionTypeToString(physics::MotionType type) noexcept {
@@ -157,11 +190,74 @@ std::optional<Quat> jsonToQuat(const core::JsonValue& val) {
     return Quat(x, y, z, w).normalized();
 }
 
+const char* toneMapOpToString(render::ToneMapOperator op) noexcept {
+    switch (op) {
+    case render::ToneMapOperator::AcesFitted:
+        return "ACES";
+    case render::ToneMapOperator::FilmicReinhard:
+        return "Reinhard";
+    case render::ToneMapOperator::Neutral:
+        return "Neutral";
+    case render::ToneMapOperator::Bypass:
+        return "Bypass";
+    default:
+        return "ACES";
+    }
+}
+
+std::optional<render::ToneMapOperator> stringToToneMapOp(std::string_view str) noexcept {
+    if (str == "ACES" || str == "AcesFitted" || str == "aces") {
+        return render::ToneMapOperator::AcesFitted;
+    }
+    if (str == "Reinhard" || str == "FilmicReinhard" || str == "reinhard") {
+        return render::ToneMapOperator::FilmicReinhard;
+    }
+    if (str == "Neutral" || str == "neutral") {
+        return render::ToneMapOperator::Neutral;
+    }
+    if (str == "Bypass" || str == "bypass") {
+        return render::ToneMapOperator::Bypass;
+    }
+    return std::nullopt;
+}
+
+core::JsonValue postProcessToJson(const render::PostProcessSettings& pp) {
+    core::JsonValue obj = core::JsonValue::makeObject();
+    obj.set("enabled", pp.enabled);
+    obj.set("exposure", pp.exposure);
+    obj.set("toneMapOp", toneMapOpToString(pp.toneMapOp));
+    obj.set("bloomEnabled", pp.bloomEnabled);
+    obj.set("bloomThreshold", pp.bloomThreshold);
+    obj.set("bloomKnee", pp.bloomKnee);
+    obj.set("reinhardWhitePoint", pp.reinhardWhitePoint);
+    obj.set("bloomIntensity", pp.bloomIntensity);
+    obj.set("bloomFilterRadius", pp.bloomFilterRadius);
+    return obj;
+}
+
+render::PostProcessSettings jsonToPostProcess(const core::JsonValue& obj) {
+    render::PostProcessSettings pp{};
+    pp.enabled = obj.getBool("enabled", pp.enabled);
+    pp.exposure = obj.getFloat("exposure", pp.exposure);
+    std::string_view opStr = obj.getString("toneMapOp", "ACES");
+    if (auto opOpt = stringToToneMapOp(opStr)) {
+        pp.toneMapOp = *opOpt;
+    }
+    pp.bloomEnabled = obj.getBool("bloomEnabled", pp.bloomEnabled);
+    pp.bloomThreshold = obj.getFloat("bloomThreshold", pp.bloomThreshold);
+    pp.bloomKnee = obj.getFloat("bloomKnee", pp.bloomKnee);
+    pp.reinhardWhitePoint = obj.getFloat("reinhardWhitePoint", pp.reinhardWhitePoint);
+    pp.bloomIntensity = obj.getFloat("bloomIntensity", pp.bloomIntensity);
+    pp.bloomFilterRadius = obj.getFloat("bloomFilterRadius", pp.bloomFilterRadius);
+    return pp;
+}
+
 } // namespace
 
-Result<std::string> SceneSerializer::serializeToString(world::World& world,
-                                                       const SceneMetadata& metadata,
-                                                       const SerializationOptions& options) {
+Result<std::string> SceneSerializer::serializeToString(
+    world::World& world, const SceneMetadata& metadata, const SerializationOptions& options,
+    const std::optional<render::PostProcessSettings>& postProcess,
+    const std::optional<Vec3>& cameraPosition, const std::optional<Vec3>& cameraTarget) {
     using namespace eng::core;
 
     JsonValue root = JsonValue::makeObject();
@@ -279,26 +375,127 @@ Result<std::string> SceneSerializer::serializeToString(world::World& world,
             compsObj.set("Mesh", std::move(mcObj));
         }
 
+        // 6. DirectionalLightComponent
+        if (const auto* dl = world.getComponent<render::DirectionalLightComponent>(h)) {
+            JsonValue dlObj = JsonValue::makeObject();
+            dlObj.set("direction", vec3ToJson(dl->direction));
+            dlObj.set("color", vec3ToJson(dl->color));
+            dlObj.set("intensity", dl->intensity);
+            dlObj.set("castShadows", dl->castShadows);
+            dlObj.set("shadowBias", dl->shadowBias);
+            dlObj.set("enabled", dl->enabled);
+            compsObj.set("DirectionalLight", std::move(dlObj));
+        }
+
+        // 7. PointLightComponent
+        if (const auto* pl = world.getComponent<render::PointLightComponent>(h)) {
+            JsonValue plObj = JsonValue::makeObject();
+            plObj.set("position", vec3ToJson(pl->position));
+            plObj.set("color", vec3ToJson(pl->color));
+            plObj.set("intensity", pl->intensity);
+            plObj.set("range", pl->range);
+            plObj.set("enabled", pl->enabled);
+            compsObj.set("PointLight", std::move(plObj));
+        }
+
+        // 8. SpotLightComponent
+        if (const auto* sl = world.getComponent<render::SpotLightComponent>(h)) {
+            JsonValue slObj = JsonValue::makeObject();
+            slObj.set("position", vec3ToJson(sl->position));
+            slObj.set("direction", vec3ToJson(sl->direction));
+            slObj.set("color", vec3ToJson(sl->color));
+            slObj.set("intensity", sl->intensity);
+            slObj.set("range", sl->range);
+            slObj.set("innerConeAngle", sl->innerConeAngle);
+            slObj.set("outerConeAngle", sl->outerConeAngle);
+            slObj.set("castShadows", sl->castShadows);
+            slObj.set("enabled", sl->enabled);
+            compsObj.set("SpotLight", std::move(slObj));
+        }
+
+        // 9. CameraComponent
+        if (const auto* cc = world.getComponent<render::CameraComponent>(h)) {
+            JsonValue ccObj = JsonValue::makeObject();
+            ccObj.set("fovDegrees", cc->fovDegrees);
+            ccObj.set("nearPlane", cc->nearPlane);
+            ccObj.set("farPlane", cc->farPlane);
+            ccObj.set("isPrimary", cc->isPrimary);
+            compsObj.set("Camera", std::move(ccObj));
+        }
+
+        // 10. PostProcessSettings
+        if (const auto* pp = world.getComponent<render::PostProcessSettings>(h)) {
+            compsObj.set("PostProcess", postProcessToJson(*pp));
+        }
+
         entObj.set("components", std::move(compsObj));
         entityArray.pushBack(std::move(entObj));
     }
 
     root.set("entities", std::move(entityArray));
 
+    // Resolve scene-level settings
+    std::optional<render::PostProcessSettings> finalPp = postProcess;
+    if (!finalPp.has_value()) {
+        for (auto h : entities) {
+            if (const auto* pp = world.getComponent<render::PostProcessSettings>(h)) {
+                finalPp = *pp;
+                break;
+            }
+        }
+    }
+
+    std::optional<Vec3> finalCamPos = cameraPosition;
+    std::optional<Vec3> finalCamTarget = cameraTarget;
+    if (!finalCamPos.has_value()) {
+        for (auto h : entities) {
+            if (const auto* cc = world.getComponent<render::CameraComponent>(h)) {
+                if (cc->isPrimary) {
+                    if (const auto* tc = world.getComponent<world::TransformComponent>(h)) {
+                        finalCamPos = tc->transform.position;
+                        const Mat4 rotMat = Mat4::fromRotation(tc->transform.rotation);
+                        const Vec3 fwd = rotMat.transformPoint(Vec3(0.0F, 0.0F, -1.0F));
+                        finalCamTarget = *finalCamPos + (fwd * 5.0F);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    if (finalPp.has_value() || finalCamPos.has_value()) {
+        JsonValue settingsObj = JsonValue::makeObject();
+        if (finalPp.has_value()) {
+            settingsObj.set("postProcess", postProcessToJson(*finalPp));
+        }
+        if (finalCamPos.has_value()) {
+            JsonValue camObj = JsonValue::makeObject();
+            camObj.set("position", vec3ToJson(*finalCamPos));
+            if (finalCamTarget.has_value()) {
+                camObj.set("target", vec3ToJson(*finalCamTarget));
+            }
+            settingsObj.set("camera", std::move(camObj));
+        }
+        root.set("settings", std::move(settingsObj));
+    }
+
     return Result<std::string>::success(
         root.serialize(options.prettyPrint ? options.indentSpaces : 0));
 }
 
-Result<void> SceneSerializer::serializeToFile(world::World& world,
-                                              const std::filesystem::path& path,
-                                              const SceneMetadata& metadata,
-                                              const SerializationOptions& options) {
+Result<void>
+SceneSerializer::serializeToFile(world::World& world, const std::filesystem::path& path,
+                                 const SceneMetadata& metadata, const SerializationOptions& options,
+                                 const std::optional<render::PostProcessSettings>& postProcess,
+                                 const std::optional<Vec3>& cameraPosition,
+                                 const std::optional<Vec3>& cameraTarget) {
     if (path.empty()) {
         return Result<void>::failure(Error(ErrorCode::InvalidArgument, "Empty scene file path"));
     }
 
     // 1. Serialize into memory buffer first
-    auto strRes = serializeToString(world, metadata, options);
+    auto strRes =
+        serializeToString(world, metadata, options, postProcess, cameraPosition, cameraTarget);
     if (!strRes.hasValue()) {
         return Result<void>::failure(strRes.error());
     }
@@ -390,6 +587,30 @@ Result<DeserializationResult> SceneSerializer::deserializeFromString(world::Worl
 
     // 4. Staging and pre-validation (Transactional guarantee: World is not touched if any check
     // fails)
+    SceneMetadata metadata{};
+    if (const auto* metaVal = root.getObject("metadata")) {
+        metadata.name = std::string(metaVal->getString("name", "Untitled"));
+        metadata.generator = std::string(metaVal->getString("generator", "Hikari Engine"));
+        metadata.timestamp = metaVal->getUInt64("timestamp", 0);
+    }
+
+    std::optional<render::PostProcessSettings> scenePostProcess;
+    std::optional<Vec3> sceneCamPos;
+    std::optional<Vec3> sceneCamTarget;
+    if (const auto* settingsVal = root.getObject("settings")) {
+        if (const auto* ppVal = settingsVal->getObject("postProcess")) {
+            scenePostProcess = jsonToPostProcess(*ppVal);
+        }
+        if (const auto* camVal = settingsVal->getObject("camera")) {
+            if (auto pos = jsonToVec3(*camVal->find("position"))) {
+                sceneCamPos = *pos;
+            }
+            if (auto tgt = jsonToVec3(*camVal->find("target"))) {
+                sceneCamTarget = *tgt;
+            }
+        }
+    }
+
     std::vector<StagedEntity> stagedEntities;
     stagedEntities.reserve(entityArray->size());
     std::unordered_set<uint64_t> seenIds;
@@ -488,6 +709,59 @@ Result<DeserializationResult> SceneSerializer::deserializeFromString(world::Worl
                         static_cast<uint32_t>(compData.getInt("submeshIndex", 0));
                     staged.mesh.visible = compData.getBool("visible", true);
                     staged.mesh.castShadows = compData.getBool("castShadows", true);
+                } else if (compName == "DirectionalLight") {
+                    staged.directionalLight.present = true;
+                    if (auto dir = jsonToVec3(*compData.find("direction"))) {
+                        staged.directionalLight.light.direction = dir->normalized();
+                    }
+                    if (auto col = jsonToVec3(*compData.find("color"))) {
+                        staged.directionalLight.light.color = *col;
+                    }
+                    staged.directionalLight.light.intensity = compData.getFloat("intensity", 2.5F);
+                    staged.directionalLight.light.castShadows =
+                        compData.getBool("castShadows", true);
+                    staged.directionalLight.light.shadowBias =
+                        compData.getFloat("shadowBias", 0.005F);
+                    staged.directionalLight.light.enabled = compData.getBool("enabled", true);
+                } else if (compName == "PointLight") {
+                    staged.pointLight.present = true;
+                    if (auto pos = jsonToVec3(*compData.find("position"))) {
+                        staged.pointLight.light.position = *pos;
+                    }
+                    if (auto col = jsonToVec3(*compData.find("color"))) {
+                        staged.pointLight.light.color = *col;
+                    }
+                    staged.pointLight.light.intensity = compData.getFloat("intensity", 10.0F);
+                    staged.pointLight.light.range = compData.getFloat("range", 10.0F);
+                    staged.pointLight.light.enabled = compData.getBool("enabled", true);
+                } else if (compName == "SpotLight") {
+                    staged.spotLight.present = true;
+                    if (auto pos = jsonToVec3(*compData.find("position"))) {
+                        staged.spotLight.light.position = *pos;
+                    }
+                    if (auto dir = jsonToVec3(*compData.find("direction"))) {
+                        staged.spotLight.light.direction = dir->normalized();
+                    }
+                    if (auto col = jsonToVec3(*compData.find("color"))) {
+                        staged.spotLight.light.color = *col;
+                    }
+                    staged.spotLight.light.intensity = compData.getFloat("intensity", 15.0F);
+                    staged.spotLight.light.range = compData.getFloat("range", 15.0F);
+                    staged.spotLight.light.innerConeAngle =
+                        compData.getFloat("innerConeAngle", 0.35F);
+                    staged.spotLight.light.outerConeAngle =
+                        compData.getFloat("outerConeAngle", 0.55F);
+                    staged.spotLight.light.castShadows = compData.getBool("castShadows", false);
+                    staged.spotLight.light.enabled = compData.getBool("enabled", true);
+                } else if (compName == "Camera") {
+                    staged.camera.present = true;
+                    staged.camera.camera.fovDegrees = compData.getFloat("fovDegrees", 60.0F);
+                    staged.camera.camera.nearPlane = compData.getFloat("nearPlane", 0.1F);
+                    staged.camera.camera.farPlane = compData.getFloat("farPlane", 1000.0F);
+                    staged.camera.camera.isPrimary = compData.getBool("isPrimary", true);
+                } else if (compName == "PostProcess") {
+                    staged.postProcess.present = true;
+                    staged.postProcess.settings = jsonToPostProcess(compData);
                 } else {
                     warnings.push_back("Unknown component '" + compName + "' skipped on entity " +
                                        std::to_string(stableId));
@@ -555,6 +829,36 @@ Result<DeserializationResult> SceneSerializer::deserializeFromString(world::Worl
             mc.castShadows = staged.mesh.castShadows;
             world.setComponent(h, mc);
         }
+
+        if (staged.directionalLight.present) {
+            world.setComponent(h, staged.directionalLight.light);
+        }
+
+        if (staged.pointLight.present) {
+            world.setComponent(h, staged.pointLight.light);
+        }
+
+        if (staged.spotLight.present) {
+            world.setComponent(h, staged.spotLight.light);
+        }
+
+        if (staged.camera.present) {
+            world.setComponent(h, staged.camera.camera);
+            if (!sceneCamPos.has_value() && staged.camera.camera.isPrimary &&
+                staged.transform.present) {
+                sceneCamPos = staged.transform.position;
+                const Mat4 rotMat = Mat4::fromRotation(staged.transform.rotation);
+                const Vec3 fwd = rotMat.transformPoint(Vec3(0.0F, 0.0F, -1.0F));
+                sceneCamTarget = staged.transform.position + (fwd * 5.0F);
+            }
+        }
+
+        if (staged.postProcess.present) {
+            world.setComponent(h, staged.postProcess.settings);
+            if (!scenePostProcess.has_value()) {
+                scenePostProcess = staged.postProcess.settings;
+            }
+        }
     }
 
     // 6. Establish parent-child hierarchy
@@ -576,6 +880,10 @@ Result<DeserializationResult> SceneSerializer::deserializeFromString(world::Worl
     return Result<DeserializationResult>::success(DeserializationResult{
         .entitiesLoaded = stagedEntities.size(),
         .warnings = std::move(warnings),
+        .metadata = std::move(metadata),
+        .postProcessSettings = scenePostProcess,
+        .cameraPosition = sceneCamPos,
+        .cameraTarget = sceneCamTarget,
     });
 }
 

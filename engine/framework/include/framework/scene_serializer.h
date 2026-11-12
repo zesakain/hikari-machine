@@ -20,11 +20,14 @@
 
 #pragma once
 
+#include "core/math.h"
 #include "core/result.h"
 #include "framework/scene.h"
+#include "render/post_process_types.h"
 #include "world/world.h"
 
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -43,6 +46,10 @@ struct SerializationOptions {
 struct DeserializationResult {
     size_t entitiesLoaded{0};
     std::vector<std::string> warnings;
+    SceneMetadata metadata;
+    std::optional<render::PostProcessSettings> postProcessSettings;
+    std::optional<Vec3> cameraPosition;
+    std::optional<Vec3> cameraTarget;
 };
 
 /// @class SceneSerializer
@@ -56,10 +63,16 @@ public:
     /// @param world Source World containing active simulation entities.
     /// @param metadata Header metadata to embed in the scene file.
     /// @param options Formatting options.
+    /// @param postProcess Optional scene post-processing settings.
+    /// @param cameraPosition Optional default camera world position.
+    /// @param cameraTarget Optional default camera look-at target.
     /// @return Result with serialized JSON string, or Error on failure.
     [[nodiscard]] static Result<std::string>
     serializeToString(world::World& world, const SceneMetadata& metadata = {},
-                      const SerializationOptions& options = {});
+                      const SerializationOptions& options = {},
+                      const std::optional<render::PostProcessSettings>& postProcess = std::nullopt,
+                      const std::optional<Vec3>& cameraPosition = std::nullopt,
+                      const std::optional<Vec3>& cameraTarget = std::nullopt);
 
     /// Serializes active entities and persistent components from World into a .hikari file on disk.
     /// Uses an atomic temporary-file-and-rename pattern to ensure existing files are never
@@ -69,11 +82,16 @@ public:
     /// @param path Target filesystem path for the .hikari file.
     /// @param metadata Header metadata to embed in the scene file.
     /// @param options Formatting options.
+    /// @param postProcess Optional scene post-processing settings.
+    /// @param cameraPosition Optional default camera world position.
+    /// @param cameraTarget Optional default camera look-at target.
     /// @return Result<void> on success, or Error on file write failure.
-    [[nodiscard]] static Result<void> serializeToFile(world::World& world,
-                                                      const std::filesystem::path& path,
-                                                      const SceneMetadata& metadata = {},
-                                                      const SerializationOptions& options = {});
+    [[nodiscard]] static Result<void>
+    serializeToFile(world::World& world, const std::filesystem::path& path,
+                    const SceneMetadata& metadata = {}, const SerializationOptions& options = {},
+                    const std::optional<render::PostProcessSettings>& postProcess = std::nullopt,
+                    const std::optional<Vec3>& cameraPosition = std::nullopt,
+                    const std::optional<Vec3>& cameraTarget = std::nullopt);
 
     /// Deserializes a .hikari JSON text buffer into the target World.
     /// Transactional: if validation fails, the target World is completely untouched.
