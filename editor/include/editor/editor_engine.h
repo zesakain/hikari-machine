@@ -19,6 +19,7 @@
 #pragma once
 
 #include "core/time/duration.h"
+#include "render/post_process_types.h"
 
 #include <memory>
 #include <string_view>
@@ -162,6 +163,15 @@ public:
 
     /// Returns the internal SceneRenderer subsystem (const).
     [[nodiscard]] const render::SceneRenderer& getSceneRenderer() const noexcept;
+
+    /// Returns the current post-processing settings configured on the internal SceneRenderer.
+    [[nodiscard]] const render::PostProcessSettings& getPostProcessSettings() const noexcept;
+
+    /// Configures post-processing settings on the internal SceneRenderer.
+    void setPostProcessSettings(const render::PostProcessSettings& settings) noexcept;
+
+    /// Checks whether HDR scene rendering is active.
+    [[nodiscard]] bool isHdrActive() const noexcept;
 
     /// Checks whether GPU viewport presentation is active.
     [[nodiscard]] bool isGpuViewportActive() const noexcept;

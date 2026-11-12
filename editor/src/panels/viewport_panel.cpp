@@ -14,6 +14,7 @@
 #include "physics/physics_components.h"
 #include "render/asset_manager.h"
 #include "render/mesh_component.h"
+#include "render/scene_renderer.h"
 #include "world/components.h"
 
 #include <algorithm>
@@ -244,6 +245,81 @@ void ViewportPanel::draw(EditorContext& ctx) {
                 (isGpuAvailable && s_useGpuRenderer) ? "Renderer: GPU" : "Renderer: CPU";
             if (ImGui::Button(rendererLabel)) {
                 s_useGpuRenderer = !s_useGpuRenderer;
+            }
+
+            if (ctx.sceneRenderer != nullptr) {
+                ImGui::SameLine();
+                ImGui::TextColored(toImVec4(theme.borderMedium), "|");
+                ImGui::SameLine();
+
+                auto ppSettings = ctx.sceneRenderer->getPostProcessSettings();
+                const bool hdrActive = ctx.sceneRenderer->isHdrActive();
+                const char* hdrBadge =
+                    hdrActive ? "[HDR: RGBA16F]" : (ppSettings.enabled ? "[HDR: Active]" : "[LDR]");
+                if (ImGui::Button(hdrBadge)) {
+                    ImGui::OpenPopup("PostProcessSettingsPopup");
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip(
+                        "Click to configure HDR Exposure, Tone Mapping, and Bloom Post FX");
+                }
+
+                if (ImGui::BeginPopup("PostProcessSettingsPopup")) {
+                    ImGui::TextUnformatted("Post-Processing & Tone Mapping");
+                    ImGui::Separator();
+
+                    bool ppEnabled = ppSettings.enabled;
+                    if (ImGui::Checkbox("Enable Post-Processing", &ppEnabled)) {
+                        ppSettings.enabled = ppEnabled;
+                        ctx.sceneRenderer->setPostProcessSettings(ppSettings);
+                    }
+
+                    if (ppSettings.enabled) {
+                        float exposure = ppSettings.exposure;
+                        if (ImGui::DragFloat("Exposure", &exposure, 0.05F, 0.01F, 10.0F, "%.2f")) {
+                            ppSettings.exposure = std::clamp(exposure, 0.01F, 10.0F);
+                            ctx.sceneRenderer->setPostProcessSettings(ppSettings);
+                        }
+
+                        const char* tmOps[] = {"ACES Fitted", "Filmic Reinhard", "Khronos Neutral",
+                                               "Linear Bypass"};
+                        int currentTm = static_cast<int>(ppSettings.toneMapOp);
+                        if (ImGui::Combo("Tone Map", &currentTm, tmOps, 4)) {
+                            ppSettings.toneMapOp = static_cast<render::ToneMapOperator>(currentTm);
+                            ctx.sceneRenderer->setPostProcessSettings(ppSettings);
+                        }
+
+                        ImGui::Separator();
+                        ImGui::TextUnformatted("Bloom Effect");
+
+                        bool bloomEnabled = ppSettings.bloomEnabled;
+                        if (ImGui::Checkbox("Enable Bloom", &bloomEnabled)) {
+                            ppSettings.bloomEnabled = bloomEnabled;
+                            ctx.sceneRenderer->setPostProcessSettings(ppSettings);
+                        }
+
+                        if (ppSettings.bloomEnabled) {
+                            float thresh = ppSettings.bloomThreshold;
+                            if (ImGui::SliderFloat("Threshold", &thresh, 0.0F, 10.0F, "%.2f")) {
+                                ppSettings.bloomThreshold = thresh;
+                                ctx.sceneRenderer->setPostProcessSettings(ppSettings);
+                            }
+
+                            float knee = ppSettings.bloomKnee;
+                            if (ImGui::SliderFloat("Knee", &knee, 0.0F, 2.0F, "%.2f")) {
+                                ppSettings.bloomKnee = knee;
+                                ctx.sceneRenderer->setPostProcessSettings(ppSettings);
+                            }
+
+                            float intensity = ppSettings.bloomIntensity;
+                            if (ImGui::SliderFloat("Intensity", &intensity, 0.0F, 0.5F, "%.3f")) {
+                                ppSettings.bloomIntensity = intensity;
+                                ctx.sceneRenderer->setPostProcessSettings(ppSettings);
+                            }
+                        }
+                    }
+                    ImGui::EndPopup();
+                }
             }
         }
         ImGui::EndChild();

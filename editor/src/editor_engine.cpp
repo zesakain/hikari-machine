@@ -463,6 +463,18 @@ bool EditorEngine::initialize(rhi::RhiDevice& rhiDevice, const EditorConfig& con
 
     impl_->context.sceneRenderer = &impl_->sceneRenderer;
 
+    // Enable HDR, ACES Tone Mapping and Bloom by default in Editor
+    render::PostProcessSettings ppSettings{};
+    ppSettings.enabled = true;
+    ppSettings.exposure = 1.0F;
+    ppSettings.toneMapOp = render::ToneMapOperator::AcesFitted;
+    ppSettings.bloomEnabled = true;
+    ppSettings.bloomThreshold = 1.0F;
+    ppSettings.bloomKnee = 0.5F;
+    ppSettings.bloomIntensity = 0.04F;
+    ppSettings.bloomFilterRadius = 1.0F;
+    impl_->sceneRenderer.setPostProcessSettings(ppSettings);
+
     // Create linear clamp-to-edge sampler for the editor viewport
     rhi::SamplerDesc samplerDesc{
         .minFilter = rhi::Filter::Linear,
@@ -631,6 +643,9 @@ void EditorEngine::renderScene(rhi::RhiCommandList& cmdList) {
 
     (void)impl_->sceneRenderer.renderScene(*targetWorld, impl_->assetManager, *impl_->rhiDevice,
                                            cmdList, impl_->viewportCameraViewProj);
+    if (impl_->sceneRenderer.isPostProcessingEnabled()) {
+        impl_->sceneRenderer.renderPostProcess(cmdList);
+    }
 }
 
 void EditorEngine::endFrame(rhi::RhiCommandList& cmdList) {
@@ -840,6 +855,18 @@ render::SceneRenderer& EditorEngine::getSceneRenderer() noexcept {
 
 const render::SceneRenderer& EditorEngine::getSceneRenderer() const noexcept {
     return impl_->sceneRenderer;
+}
+
+const render::PostProcessSettings& EditorEngine::getPostProcessSettings() const noexcept {
+    return impl_->sceneRenderer.getPostProcessSettings();
+}
+
+void EditorEngine::setPostProcessSettings(const render::PostProcessSettings& settings) noexcept {
+    impl_->sceneRenderer.setPostProcessSettings(settings);
+}
+
+bool EditorEngine::isHdrActive() const noexcept {
+    return impl_->sceneRenderer.isHdrActive();
 }
 
 bool EditorEngine::isGpuViewportActive() const noexcept {

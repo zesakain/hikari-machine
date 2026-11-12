@@ -11,6 +11,7 @@
 #include "physics/physics_components.h"
 #include "render/asset_manager.h"
 #include "render/mesh_component.h"
+#include "render/scene_renderer.h"
 #include "script/script_components.h"
 #include "world/world.h"
 
@@ -1351,6 +1352,76 @@ void InspectorPanel::draw(EditorContext& ctx) {
             ImGui::BulletText("Ctrl+Click: Add/remove entity in multi-selection");
             ImGui::BulletText("Shift+Click: Contiguous range selection");
             ImGui::BulletText("Right-click header: Reset component or remove");
+
+            if (ctx.sceneRenderer != nullptr) {
+                ImGui::Spacing();
+                ImGui::Separator();
+                ImGui::Spacing();
+
+                auto pp = ctx.sceneRenderer->getPostProcessSettings();
+                const bool hdrActive = ctx.sceneRenderer->isHdrActive();
+                if (ImGui::CollapsingHeader("Scene Post-Processing & Tone Mapping",
+                                            ImGuiTreeNodeFlags_DefaultOpen)) {
+                    ImGui::Text("HDR Status: %s",
+                                hdrActive ? "Active (RGBA16F Float Target)"
+                                          : (pp.enabled ? "Active" : "Disabled (LDR Direct)"));
+
+                    bool ppEnabled = pp.enabled;
+                    if (ImGui::Checkbox("Enable Post-Processing Pipeline", &ppEnabled)) {
+                        pp.enabled = ppEnabled;
+                        ctx.sceneRenderer->setPostProcessSettings(pp);
+                    }
+
+                    if (pp.enabled) {
+                        float exposure = pp.exposure;
+                        if (ImGui::DragFloat("Photometric Exposure", &exposure, 0.05F, 0.01F, 10.0F,
+                                             "%.2f")) {
+                            pp.exposure = std::clamp(exposure, 0.01F, 10.0F);
+                            ctx.sceneRenderer->setPostProcessSettings(pp);
+                        }
+
+                        const char* tmOps[] = {"ACES Fitted", "Filmic Reinhard",
+                                               "Khronos PBR Neutral", "Linear Bypass"};
+                        int currentTm = static_cast<int>(pp.toneMapOp);
+                        if (ImGui::Combo("Tone Mapping Operator", &currentTm, tmOps, 4)) {
+                            pp.toneMapOp = static_cast<render::ToneMapOperator>(currentTm);
+                            ctx.sceneRenderer->setPostProcessSettings(pp);
+                        }
+
+                        ImGui::Spacing();
+                        ImGui::SeparatorText("Bloom Filter");
+
+                        bool bloomEnabled = pp.bloomEnabled;
+                        if (ImGui::Checkbox("Enable Bloom Pyramid", &bloomEnabled)) {
+                            pp.bloomEnabled = bloomEnabled;
+                            ctx.sceneRenderer->setPostProcessSettings(pp);
+                        }
+
+                        if (pp.bloomEnabled) {
+                            float thresh = pp.bloomThreshold;
+                            if (ImGui::SliderFloat("Luminance Threshold", &thresh, 0.0F, 10.0F,
+                                                   "%.2f")) {
+                                pp.bloomThreshold = thresh;
+                                ctx.sceneRenderer->setPostProcessSettings(pp);
+                            }
+
+                            float knee = pp.bloomKnee;
+                            if (ImGui::SliderFloat("Soft Knee Half-Width", &knee, 0.0F, 2.0F,
+                                                   "%.2f")) {
+                                pp.bloomKnee = knee;
+                                ctx.sceneRenderer->setPostProcessSettings(pp);
+                            }
+
+                            float intensity = pp.bloomIntensity;
+                            if (ImGui::SliderFloat("Composite Intensity", &intensity, 0.0F, 0.5F,
+                                                   "%.3f")) {
+                                pp.bloomIntensity = intensity;
+                                ctx.sceneRenderer->setPostProcessSettings(pp);
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
     ImGui::End();
