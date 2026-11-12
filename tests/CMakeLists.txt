@@ -95,6 +95,10 @@ add_executable(conductor_test unit/framework/conductor_test.cpp)
 target_link_libraries(conductor_test PRIVATE hikari::engine_framework)
 add_test(NAME conductor_test COMMAND conductor_test)
 
+add_executable(shared_world_conductor_test unit/framework/shared_world_conductor_test.cpp)
+target_link_libraries(shared_world_conductor_test PRIVATE hikari::engine_framework)
+add_test(NAME shared_world_conductor_test COMMAND shared_world_conductor_test)
+
 add_executable(clock_domain_test unit/framework/clock_domain_test.cpp)
 target_link_libraries(clock_domain_test PRIVATE hikari::engine_framework)
 add_test(NAME clock_domain_test COMMAND clock_domain_test)
