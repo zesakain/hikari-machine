@@ -31,6 +31,7 @@
 #include <filesystem>
 #include <fstream>
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <iostream>
 
 using namespace eng;
@@ -2850,6 +2851,246 @@ static void testEditorSpawnPathsConsistentTransformInitialization() {
     std::cout << "[PASS] testEditorSpawnPathsConsistentTransformInitialization\n";
 }
 
+static void testEditorTextInputAndKeyboardSuite() {
+    auto devRes = rhi::createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto nullDevice = std::move(devRes.value());
+
+    auto cmdRes = nullDevice->createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto nullCmd = std::move(cmdRes.value());
+
+    EditorEngine editor;
+    TEST_CHECK(editor.initialize(*nullDevice));
+
+    // A. Text Input & B. Keyboard Events
+    // Run an initial frame with an InputText widget to activate it
+    char buffer[128]{};
+
+    auto tickFrame = [&](const platform::InputSnapshot& input, bool setFocus = false) {
+        editor.processInput(input);
+        nullCmd->begin();
+        editor.beginFrame(Duration::fromMilliseconds(16));
+
+        editor.drawPanels();
+
+        ImGui::SetNextWindowSize(ImVec2(400, 300));
+        if (ImGui::Begin("InputTestWindow")) {
+            if (setFocus) {
+                ImGui::SetKeyboardFocusHere();
+            }
+            ImGui::InputText("##TestInput", buffer, sizeof(buffer));
+        }
+        ImGui::End();
+
+        editor.endFrame(*nullCmd);
+        nullCmd->end();
+    };
+
+    // Frame 1: Queue focus request on the input widget
+    platform::InputSnapshot s0{};
+    tickFrame(s0, true);
+
+    // Frame 2: Widget processes NavActivation and becomes ActiveId
+    platform::InputSnapshot sActivate{};
+    tickFrame(sActivate, false);
+    TEST_CHECK(editor.wantCaptureKeyboard());
+
+    // Frame 3: Type ASCII characters "hikari"
+    platform::InputSnapshot s1{};
+    s1.addTextInput("hikari");
+    tickFrame(s1);
+    TEST_CHECK(editor.wantTextInput());
+    TEST_CHECK(std::string_view(buffer) == "hikari");
+
+    // Frame 4: Type uppercase characters " ENGINE"
+    platform::InputSnapshot s2{};
+    s2.addTextInput(" ENGINE");
+    tickFrame(s2);
+    TEST_CHECK(std::string_view(buffer) == "hikari ENGINE");
+
+    // Frame 5: Type numbers and punctuation " 2026!"
+    platform::InputSnapshot s3{};
+    s3.addTextInput(" 2026!");
+    tickFrame(s3);
+    TEST_CHECK(std::string_view(buffer) == "hikari ENGINE 2026!");
+
+    // Frame 6: Test Ctrl+A (Select All) and Backspace (Delete) to clear buffer
+    platform::InputSnapshot sSelectAll{};
+    sSelectAll.addKeyEvent(platform::KeyCode::LeftCtrl, true);
+    sSelectAll.addKeyEvent(platform::KeyCode::A, true);
+    tickFrame(sSelectAll);
+
+    platform::InputSnapshot sSelectAllUp{};
+    sSelectAllUp.addKeyEvent(platform::KeyCode::A, false);
+    sSelectAllUp.addKeyEvent(platform::KeyCode::LeftCtrl, false);
+    tickFrame(sSelectAllUp);
+
+    platform::InputSnapshot sClear{};
+    sClear.addKeyEvent(platform::KeyCode::Backspace, true);
+    tickFrame(sClear);
+    platform::InputSnapshot sClearUp{};
+    sClearUp.addKeyEvent(platform::KeyCode::Backspace, false);
+    tickFrame(sClearUp);
+    TEST_CHECK(buffer[0] == '\0');
+
+    // Frame 7: UTF-8 text input
+    platform::InputSnapshot sUtf{};
+    sUtf.addTextInput("Hikari-光");
+    tickFrame(sUtf);
+    TEST_CHECK(std::string_view(buffer) == "Hikari-光");
+
+    // Frame 8: Backspace key removes character '光' (multi-byte UTF-8 character)
+    platform::InputSnapshot sBksp{};
+    sBksp.addKeyEvent(platform::KeyCode::Backspace, true);
+    tickFrame(sBksp);
+    platform::InputSnapshot sBkspUp{};
+    sBkspUp.addKeyEvent(platform::KeyCode::Backspace, false);
+    tickFrame(sBkspUp);
+    TEST_CHECK(std::string_view(buffer) == "Hikari-");
+
+    // Frame 9: Test Ctrl+A (Select All), Ctrl+C (Copy), Backspace (Delete), Ctrl+V (Paste)
+    platform::InputSnapshot sSelectAll2{};
+    sSelectAll2.addKeyEvent(platform::KeyCode::LeftCtrl, true);
+    sSelectAll2.addKeyEvent(platform::KeyCode::A, true);
+    tickFrame(sSelectAll2);
+
+    platform::InputSnapshot sSelectAll2Up{};
+    sSelectAll2Up.addKeyEvent(platform::KeyCode::A, false);
+    sSelectAll2Up.addKeyEvent(platform::KeyCode::LeftCtrl, false);
+    tickFrame(sSelectAll2Up);
+
+    platform::InputSnapshot sCopy{};
+    sCopy.addKeyEvent(platform::KeyCode::LeftCtrl, true);
+    sCopy.addKeyEvent(platform::KeyCode::C, true);
+    tickFrame(sCopy);
+
+    platform::InputSnapshot sCopyUp{};
+    sCopyUp.addKeyEvent(platform::KeyCode::C, false);
+    sCopyUp.addKeyEvent(platform::KeyCode::LeftCtrl, false);
+    tickFrame(sCopyUp);
+
+    platform::InputSnapshot sDelete2{};
+    sDelete2.addKeyEvent(platform::KeyCode::Backspace, true);
+    tickFrame(sDelete2);
+    platform::InputSnapshot sDelete2Up{};
+    sDelete2Up.addKeyEvent(platform::KeyCode::Backspace, false);
+    tickFrame(sDelete2Up);
+    TEST_CHECK(buffer[0] == '\0');
+
+    platform::InputSnapshot sPaste{};
+    sPaste.addKeyEvent(platform::KeyCode::LeftCtrl, true);
+    sPaste.addKeyEvent(platform::KeyCode::V, true);
+    tickFrame(sPaste);
+
+    platform::InputSnapshot sPasteUp{};
+    sPasteUp.addKeyEvent(platform::KeyCode::V, false);
+    sPasteUp.addKeyEvent(platform::KeyCode::LeftCtrl, false);
+    tickFrame(sPasteUp);
+    TEST_CHECK(std::string_view(buffer) == "Hikari-");
+
+    // Frame 10: Focus loss and regain
+    platform::InputSnapshot sFocusLost{};
+    sFocusLost.isWindowFocused = false;
+    sFocusLost.focusChanged = true;
+    tickFrame(sFocusLost);
+
+    platform::InputSnapshot sFocusRegained{};
+    sFocusRegained.isWindowFocused = true;
+    sFocusRegained.focusChanged = true;
+    tickFrame(sFocusRegained);
+
+    // Frame 11: Verify typing after focus restoration
+    platform::InputSnapshot sResume{};
+    sResume.addTextInput("Engine");
+    tickFrame(sResume);
+    TEST_CHECK(std::string_view(buffer) == "Hikari-Engine");
+
+    editor.shutdown();
+    std::cout << "[PASS] testEditorTextInputAndKeyboardSuite\n";
+}
+
+static void testEditorPanelsKeyboardIntegration() {
+    auto devRes = rhi::createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto nullDevice = std::move(devRes.value());
+
+    auto cmdRes = nullDevice->createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto nullCmd = std::move(cmdRes.value());
+
+    world::World world;
+    auto modeA = std::make_unique<DummyEditorMode>("ModeA");
+    auto modeB = std::make_unique<DummyEditorMode>("ModeB");
+    framework::Conductor conductor(world, std::move(modeA), std::move(modeB));
+    TEST_CHECK(conductor.initialize().hasValue());
+
+    EditorEngine editor;
+    TEST_CHECK(editor.initialize(*nullDevice));
+    editor.bindWorld(&world);
+    editor.bindConductor(&conductor);
+
+    auto ent = world.createEntity("TargetEntity");
+    editor.getSelectionModel().select(ent);
+
+    auto tickFrame = [&](const platform::InputSnapshot& input,
+                         const char* focusWindow = "Scene Hierarchy") {
+        editor.processInput(input);
+        nullCmd->begin();
+        editor.beginFrame(Duration::fromMilliseconds(16));
+        if (focusWindow != nullptr) {
+            ImGui::SetWindowFocus(focusWindow);
+        }
+        editor.drawPanels();
+        editor.endFrame(*nullCmd);
+        nullCmd->end();
+    };
+
+    // 1. Initial frame
+    platform::InputSnapshot s0{};
+    tickFrame(s0);
+
+    // 2. Duplicate entity shortcut: Ctrl+D
+    platform::InputSnapshot sDup{};
+    sDup.addKeyEvent(platform::KeyCode::LeftCtrl, true);
+    sDup.addKeyEvent(platform::KeyCode::D, true);
+    tickFrame(sDup);
+    TEST_CHECK(world.getAllEntities().size() >= 2);
+
+    // 3. Delete shortcut: Delete
+    auto dupEnt = editor.getSelectionModel().getPrimarySelected();
+    TEST_CHECK(dupEnt.isValid());
+    platform::InputSnapshot sDel{};
+    sDel.addKeyEvent(platform::KeyCode::Delete, true);
+    tickFrame(sDel);
+    TEST_CHECK(!world.isAlive(dupEnt));
+
+    // 4. Content browser search & folder rename integration
+    auto* cbPanel = static_cast<ContentBrowserPanel*>(
+        editor.getWorkspaceManager().findPanel("content_browser"));
+    TEST_CHECK(cbPanel != nullptr);
+    auto& controller = cbPanel->getController();
+
+    // Create temporary test directory
+    std::filesystem::path testRoot = "test-assets/cb_keyboard_test";
+    std::filesystem::create_directories(testRoot);
+    controller.setRootDirectory(testRoot);
+
+    auto fRes = controller.createFolder("OriginalFolder");
+    TEST_CHECK(fRes.hasValue());
+
+    auto rRes = controller.renameItem(testRoot / "OriginalFolder", "RenamedFolder");
+    TEST_CHECK(rRes.hasValue());
+    TEST_CHECK(std::filesystem::exists(testRoot / "RenamedFolder"));
+    TEST_CHECK(!std::filesystem::exists(testRoot / "OriginalFolder"));
+
+    // Clean up test dir
+    std::filesystem::remove_all(testRoot);
+
+    editor.shutdown();
+    std::cout << "[PASS] testEditorPanelsKeyboardIntegration\n";
+}
+
 int main() {
     std::cout << "Running Editor subsystem unit tests...\n";
     const std::filesystem::path candidates[] = {"assets/models", "../../../assets/models",
@@ -2906,6 +3147,10 @@ int main() {
     testUnifiedTransformComponentInEditor();
     testHierarchyDuplicationFullComponentPreservation();
     testEditorSpawnPathsConsistentTransformInitialization();
+
+    // Editor Keyboard, Text Input, and Modal Navigation Tests
+    testEditorTextInputAndKeyboardSuite();
+    testEditorPanelsKeyboardIntegration();
 
     std::cout << "All Editor subsystem tests PASSED!\n";
     return 0;
