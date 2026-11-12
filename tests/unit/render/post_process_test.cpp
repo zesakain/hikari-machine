@@ -14,6 +14,7 @@
 #include "core/math.h"
 #include "physics/physics_components.h"
 #include "render/asset_manager.h"
+#include "render/gltf_scene_importer.h"
 #include "render/light_components.h"
 #include "render/lighting_data.h"
 #include "render/mesh.h"
@@ -109,6 +110,10 @@ static inline float linearToSrgbCpu(float x) noexcept {
     return (x <= 0.0031308F) ? (12.92F * x) : ((1.055F * std::pow(x, 1.0F / 2.4F)) - 0.055F);
 }
 
+static constexpr float toRadians(float deg) noexcept {
+    return deg * (3.14159265358979323846F / 180.0F);
+}
+
 static inline float extractThresholdCpu(float brightness, float thresh, float knee) noexcept {
     float soft = brightness - thresh + knee;
     soft = std::clamp(soft, 0.0F, 2.0F * knee);
@@ -116,6 +121,25 @@ static inline float extractThresholdCpu(float brightness, float thresh, float kn
     float contribution = std::max(soft, brightness - thresh);
     contribution /= std::max(brightness, 1e-4F);
     return std::clamp(contribution, 0.0F, 1.0F);
+}
+
+static bool savePpm(const std::string& path, const uint8_t* pixels, uint32_t width,
+                    uint32_t height) {
+    std::filesystem::path p(path);
+    if (p.has_parent_path()) {
+        std::filesystem::create_directories(p.parent_path());
+    }
+    std::ofstream file(path, std::ios::binary);
+    if (!file.is_open()) {
+        return false;
+    }
+    file << "P6\n" << width << " " << height << "\n255\n";
+    for (size_t i = 0; i < static_cast<size_t>(width * height * 4); i += 4) {
+        file.put(static_cast<char>(pixels[i + 0]));
+        file.put(static_cast<char>(pixels[i + 1]));
+        file.put(static_cast<char>(pixels[i + 2]));
+    }
+    return true;
 }
 
 // -----------------------------------------------------------------------------
@@ -273,7 +297,7 @@ static int testSceneRendererHdrLifecycle() {
 static int testVulkanPostProcessRendering() {
     std::cout << "[Test 4] Verifying Vulkan GPU HDR rendering, bloom, and tone mapping passes...\n";
 
-    VulkanDeviceDesc devDesc{.windowHandle = nullptr, .enableValidation = false};
+    VulkanDeviceDesc devDesc{.windowHandle = nullptr, .enableValidation = true};
     auto devRes = createVulkanDevice(devDesc);
     if (!devRes.hasValue()) {
         std::cout << "  Vulkan device unavailable on this host; skipping Vulkan GPU test.\n";
@@ -298,18 +322,24 @@ static int testVulkanPostProcessRendering() {
     renderer.setPostProcessSettings(pp);
 
     world::World world;
+    physics::registerPhysicsComponents(world);
     AssetManager assetManager;
 
-    // Create a point light with intense emissive highlight to verify HDR and bloom
-    flecs::world& ecs = world.getRawWorld();
-    auto lightEnt = ecs.entity("HighIntensityLight");
-    PointLightComponent ptComp{};
-    ptComp.enabled = true;
-    ptComp.position = Vec3(0.0F, 0.0F, 1.0F);
-    ptComp.color = Vec3(1.0F, 1.0F, 1.0F);
-    ptComp.intensity = 10.0F; // High intensity HDR radiance
-    ptComp.range = 10.0F;
-    lightEnt.set<PointLightComponent>(ptComp);
+    const std::string helmetPath = "test-assets/DamagedHelmet.glb";
+    if (std::filesystem::exists(helmetPath)) {
+        auto importRes = GltfSceneImporter::importScene(helmetPath, world, &assetManager);
+        TEST_CHECK(importRes.success);
+    } else {
+        flecs::world& ecs = world.getRawWorld();
+        auto lightEnt = ecs.entity("HighIntensityLight");
+        PointLightComponent ptComp{};
+        ptComp.enabled = true;
+        ptComp.position = Vec3(0.0F, 0.0F, 1.0F);
+        ptComp.color = Vec3(1.0F, 1.0F, 1.0F);
+        ptComp.intensity = 10.0F;
+        ptComp.range = 10.0F;
+        lightEnt.set<PointLightComponent>(ptComp);
+    }
 
     // Readback buffer
     const uint64_t byteSize = width * height * 4;
@@ -327,44 +357,116 @@ static int testVulkanPostProcessRendering() {
     TEST_CHECK(cmdRes.hasValue());
     auto cmd = std::move(cmdRes.value());
 
-    // Render Scene into HDR target + execute post-processing into colorTarget
-    cmd->begin();
-    Mat4 viewProj = Mat4::lookAt(Vec3(0, 0, 5), Vec3(0, 0, 0), Vec3(0, 1, 0));
-    renderer.renderScene(world, assetManager, *device, *cmd, viewProj);
-    renderer.renderPostProcess(*cmd);
-    cmd->copyTextureToBuffer(renderer.getColorTarget(), rbHandle);
-    cmd->end();
+    Mat4 view =
+        Mat4::lookAt(Vec3(0.0F, 0.0F, 2.5F), Vec3(0.0F, 0.0F, 0.0F), Vec3(0.0F, 1.0F, 0.0F));
+    Mat4 proj = Mat4::perspective(toRadians(60.0F), 1.0F, 0.1F, 100.0F);
+    Mat4 viewProj = proj * view;
 
-    TEST_CHECK(device->submit(cmd.get()).hasValue());
-    device->waitIdle();
+    auto capture = [&](const std::string& name, const PostProcessSettings& settings,
+                       std::vector<uint8_t>& outPx) -> int {
+        renderer.setPostProcessSettings(settings);
+        cmd->begin();
+        renderer.renderScene(world, assetManager, *device, *cmd, viewProj);
+        renderer.renderPostProcess(*cmd);
+        cmd->copyTextureToBuffer(renderer.getColorTarget(), rbHandle);
+        cmd->end();
 
-    std::vector<uint8_t> pixels(byteSize, 0);
-    TEST_CHECK(device->readBuffer(rbHandle, 0, pixels.data(), byteSize).hasValue());
-    device->destroyBuffer(rbHandle);
+        TEST_CHECK(device->submit(cmd.get()).hasValue());
+        device->waitIdle();
 
-    // Verify non-zero rendered framebuffer
-    bool hasNonZero = false;
-    for (uint8_t byte : pixels) {
-        if (byte > 0) {
-            hasNonZero = true;
-            break;
+        outPx.assign(byteSize, 0);
+        auto readRes = device->readBuffer(rbHandle, 0, outPx.data(), byteSize);
+        TEST_CHECK(readRes.hasValue());
+        uint64_t total = 0;
+        for (uint8_t b : outPx) {
+            total += b;
         }
+        std::cout << "  Capture " << name << ": total=" << total << ", sample[0..3]=("
+                  << static_cast<int>(outPx[0]) << "," << static_cast<int>(outPx[1]) << ","
+                  << static_cast<int>(outPx[2]) << "," << static_cast<int>(outPx[3]) << ")\n";
+        savePpm("test-assets/" + name + ".ppm", outPx.data(), width, height);
+        return 0;
+    };
+
+    // 1. Base scene with ACES tone mapping (normal exposure = 1.0)
+    PostProcessSettings sAcesNormal{
+        .enabled = true,
+        .exposure = 1.0F,
+        .toneMapOp = ToneMapOperator::AcesFitted,
+        .bloomEnabled = true,
+        .bloomThreshold = 0.5F,
+        .bloomKnee = 0.5F,
+        .bloomIntensity = 0.05F,
+        .bloomFilterRadius = 1.0F,
+    };
+    std::vector<uint8_t> pxAcesNorm;
+    TEST_CHECK(capture("postprocess_aces_normal", sAcesNormal, pxAcesNorm) == 0);
+
+    // 2. Increased exposure (2.5)
+    PostProcessSettings sAcesHigh = sAcesNormal;
+    sAcesHigh.exposure = 2.5F;
+    std::vector<uint8_t> pxAcesHigh;
+    TEST_CHECK(capture("postprocess_aces_high_exposure", sAcesHigh, pxAcesHigh) == 0);
+
+    // 3. Decreased exposure (0.3)
+    PostProcessSettings sAcesLow = sAcesNormal;
+    sAcesLow.exposure = 0.3F;
+    std::vector<uint8_t> pxAcesLow;
+    TEST_CHECK(capture("postprocess_aces_low_exposure", sAcesLow, pxAcesLow) == 0);
+
+    // Verify brightness relationship: high > normal > low
+    uint64_t sumHigh = 0;
+    uint64_t sumNorm = 0;
+    uint64_t sumLow = 0;
+    for (size_t i = 0; i < byteSize; i += 4) {
+        sumHigh += static_cast<uint64_t>(pxAcesHigh[i] + pxAcesHigh[i + 1] + pxAcesHigh[i + 2]);
+        sumNorm += static_cast<uint64_t>(pxAcesNorm[i] + pxAcesNorm[i + 1] + pxAcesNorm[i + 2]);
+        sumLow += static_cast<uint64_t>(pxAcesLow[i] + pxAcesLow[i + 1] + pxAcesLow[i + 2]);
     }
-    TEST_CHECK(hasNonZero);
+    std::cout << "  Exposure sums: high=" << sumHigh << ", norm=" << sumNorm << ", low=" << sumLow
+              << std::endl;
+    TEST_CHECK(sumHigh > sumNorm);
+    TEST_CHECK(sumNorm > sumLow);
 
-    // Test live operator switching without recreate
-    pp.toneMapOp = ToneMapOperator::FilmicReinhard;
-    renderer.setPostProcessSettings(pp);
-    TEST_CHECK(renderer.getPostProcessSettings().toneMapOp == ToneMapOperator::FilmicReinhard);
+    // 4. Bloom enabled vs disabled
+    PostProcessSettings sBloomOff = sAcesNormal;
+    sBloomOff.bloomEnabled = false;
+    std::vector<uint8_t> pxBloomOff;
+    TEST_CHECK(capture("postprocess_bloom_disabled", sBloomOff, pxBloomOff) == 0);
 
-    pp.toneMapOp = ToneMapOperator::Neutral;
-    renderer.setPostProcessSettings(pp);
-    TEST_CHECK(renderer.getPostProcessSettings().toneMapOp == ToneMapOperator::Neutral);
+    PostProcessSettings sBloomOn = sAcesNormal;
+    sBloomOn.bloomEnabled = true;
+    sBloomOn.bloomThreshold = 0.2F;
+    sBloomOn.bloomIntensity = 0.20F;
+    std::vector<uint8_t> pxBloomOn;
+    TEST_CHECK(capture("postprocess_bloom_enabled", sBloomOn, pxBloomOn) == 0);
 
-    pp.toneMapOp = ToneMapOperator::Bypass;
-    renderer.setPostProcessSettings(pp);
-    TEST_CHECK(renderer.getPostProcessSettings().toneMapOp == ToneMapOperator::Bypass);
+    uint64_t sumBloomOn = 0;
+    uint64_t sumBloomOff = 0;
+    for (size_t i = 0; i < byteSize; i += 4) {
+        sumBloomOn += static_cast<uint64_t>(pxBloomOn[i] + pxBloomOn[i + 1] + pxBloomOn[i + 2]);
+        sumBloomOff += static_cast<uint64_t>(pxBloomOff[i] + pxBloomOff[i + 1] + pxBloomOff[i + 2]);
+    }
+    TEST_CHECK(sumBloomOn >= sumBloomOff);
 
+    // 5. Operator comparisons (Reinhard, Neutral, Bypass)
+    PostProcessSettings sReinhard = sAcesNormal;
+    sReinhard.toneMapOp = ToneMapOperator::FilmicReinhard;
+    sReinhard.bloomEnabled = false;
+    std::vector<uint8_t> pxDummy;
+    TEST_CHECK(capture("postprocess_reinhard", sReinhard, pxDummy) == 0);
+
+    PostProcessSettings sNeutral = sAcesNormal;
+    sNeutral.toneMapOp = ToneMapOperator::Neutral;
+    sNeutral.bloomEnabled = false;
+    TEST_CHECK(capture("postprocess_neutral", sNeutral, pxDummy) == 0);
+
+    PostProcessSettings sBypass = sAcesNormal;
+    sBypass.toneMapOp = ToneMapOperator::Bypass;
+    sBypass.bloomEnabled = false;
+    TEST_CHECK(capture("postprocess_bypass", sBypass, pxDummy) == 0);
+
+    device->destroyBuffer(rbHandle);
     renderer.shutdown();
     std::cout << "  Vulkan GPU post-processing execution verified successfully.\n";
     return 0;
