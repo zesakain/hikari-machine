@@ -111,6 +111,15 @@ static int testPlatformAndWindowLifecycle() {
     window->setShouldClose(true);
     TEST_CHECK(window->shouldClose());
 
+    // Verify text input control APIs
+    window->startTextInput();
+    TEST_CHECK(window->isTextInputActive());
+    window->setTextInputArea(10, 20, 100, 30);
+    window->stopTextInput();
+    TEST_CHECK(!window->isTextInputActive());
+    window->startTextInput();
+    TEST_CHECK(window->isTextInputActive());
+
     platform->pollEvents();
     const auto& curr = platform->getCurrentInput();
     const auto& prev = platform->getPreviousInput();
@@ -123,11 +132,62 @@ static int testPlatformAndWindowLifecycle() {
     return 0;
 }
 
+static int testInputSnapshotEventsAndTextInput() {
+    InputSnapshot s{};
+    TEST_CHECK(s.keyEventCount == 0);
+    TEST_CHECK(s.textInputLength == 0);
+    TEST_CHECK(s.textInput[0] == '\0');
+    TEST_CHECK(s.isWindowFocused);
+    TEST_CHECK(!s.focusChanged);
+
+    s.addKeyEvent(KeyCode::Return, true, false);
+    TEST_CHECK(s.keyEventCount == 1);
+    TEST_CHECK(s.keyEvents[0].code == KeyCode::Return);
+    TEST_CHECK(s.keyEvents[0].down);
+    TEST_CHECK(!s.keyEvents[0].repeat);
+    TEST_CHECK(s.isKeyDown(KeyCode::Return));
+
+    // Key repeat
+    s.addKeyEvent(KeyCode::Return, true, true);
+    TEST_CHECK(s.keyEventCount == 2);
+    TEST_CHECK(s.keyEvents[1].repeat);
+
+    // Key release
+    s.addKeyEvent(KeyCode::Return, false, false);
+    TEST_CHECK(s.keyEventCount == 3);
+    TEST_CHECK(!s.keyEvents[2].down);
+    TEST_CHECK(!s.isKeyDown(KeyCode::Return));
+
+    // Text input
+    s.addTextInput("Hello ");
+    s.addTextInput("World!");
+    TEST_CHECK(s.textInputLength == 12);
+    TEST_CHECK(std::string_view(s.textInput.data()) == "Hello World!");
+
+    // Focus state change
+    s.isWindowFocused = false;
+    s.focusChanged = true;
+    TEST_CHECK(!s.isWindowFocused);
+    TEST_CHECK(s.focusChanged);
+
+    // Reset clears transient events
+    s.reset();
+    TEST_CHECK(s.keyEventCount == 0);
+    TEST_CHECK(s.textInputLength == 0);
+    TEST_CHECK(s.textInput[0] == '\0');
+    TEST_CHECK(!s.focusChanged);
+
+    return 0;
+}
+
 int main() {
     if (testInputSnapshotKeyboard() != 0) {
         return 1;
     }
     if (testInputSnapshotMouseAndGamepad() != 0) {
+        return 1;
+    }
+    if (testInputSnapshotEventsAndTextInput() != 0) {
         return 1;
     }
     if (testPlatformAndWindowLifecycle() != 0) {

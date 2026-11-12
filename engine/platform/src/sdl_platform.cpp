@@ -71,6 +71,10 @@ void SdlPlatform::pollEvents() {
     currentInput_.mouseDeltaY = 0.0F;
     currentInput_.wheelDeltaX = 0.0F;
     currentInput_.wheelDeltaY = 0.0F;
+    currentInput_.keyEventCount = 0;
+    currentInput_.textInput.fill('\0');
+    currentInput_.textInputLength = 0;
+    currentInput_.focusChanged = false;
 
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
@@ -93,10 +97,22 @@ void SdlPlatform::pollEvents() {
             }
             break;
         }
+        case SDL_EVENT_WINDOW_FOCUS_GAINED: {
+            currentInput_.isWindowFocused = true;
+            currentInput_.focusChanged = true;
+            break;
+        }
+        case SDL_EVENT_WINDOW_FOCUS_LOST: {
+            currentInput_.isWindowFocused = false;
+            currentInput_.focusChanged = true;
+            currentInput_.keys.reset();
+            break;
+        }
         case SDL_EVENT_KEY_DOWN: {
             const auto sc = static_cast<size_t>(event.key.scancode);
             if (sc < static_cast<size_t>(KeyCode::Count)) {
                 currentInput_.keys.set(sc, true);
+                currentInput_.addKeyEvent(static_cast<KeyCode>(sc), true, event.key.repeat);
             }
             break;
         }
@@ -104,6 +120,13 @@ void SdlPlatform::pollEvents() {
             const auto sc = static_cast<size_t>(event.key.scancode);
             if (sc < static_cast<size_t>(KeyCode::Count)) {
                 currentInput_.keys.set(sc, false);
+                currentInput_.addKeyEvent(static_cast<KeyCode>(sc), false, false);
+            }
+            break;
+        }
+        case SDL_EVENT_TEXT_INPUT: {
+            if (event.text.text != nullptr) {
+                currentInput_.addTextInput(event.text.text);
             }
             break;
         }

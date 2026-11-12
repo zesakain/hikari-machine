@@ -82,6 +82,22 @@ public:
 
     /// Returns non-owning native window handle (e.g. SDL_Window* or OS handle).
     [[nodiscard]] virtual void* getNativeHandle() const noexcept = 0;
+
+    /// Activates OS text input events (e.g. for IME composition and character generation).
+    virtual void startTextInput() = 0;
+
+    /// Deactivates OS text input events.
+    virtual void stopTextInput() = 0;
+
+    /// Returns true if text input events are currently active for this window.
+    [[nodiscard]] virtual bool isTextInputActive() const noexcept = 0;
+
+    /// Sets the client area rectangle for IME composition candidate display.
+    /// @param x Client X coordinate in pixels.
+    /// @param y Client Y coordinate in pixels.
+    /// @param width Width in pixels.
+    /// @param height Height in pixels.
+    virtual void setTextInputArea(int32_t x, int32_t y, int32_t width, int32_t height) = 0;
 };
 
 } // namespace eng::platform

@@ -21,6 +21,8 @@ SdlWindow::SdlWindow(SDL_Window* window, uint32_t width, uint32_t height) noexce
     if (props != 0) {
         SDL_SetPointerProperty(props, kWindowPtrProp, this);
     }
+    // Enable OS text input events by default so text characters and IME events are delivered
+    SDL_StartTextInput(window_);
 }
 
 SdlWindow::~SdlWindow() noexcept {
@@ -103,6 +105,37 @@ void SdlWindow::setSize(uint32_t width, uint32_t height) {
 
 void* SdlWindow::getNativeHandle() const noexcept {
     return static_cast<void*>(window_);
+}
+
+void SdlWindow::startTextInput() {
+    if (window_ != nullptr) {
+        SDL_StartTextInput(window_);
+    }
+}
+
+void SdlWindow::stopTextInput() {
+    if (window_ != nullptr) {
+        SDL_StopTextInput(window_);
+    }
+}
+
+bool SdlWindow::isTextInputActive() const noexcept {
+    if (window_ == nullptr) {
+        return false;
+    }
+    return SDL_TextInputActive(window_);
+}
+
+void SdlWindow::setTextInputArea(int32_t x, int32_t y, int32_t width, int32_t height) {
+    if (window_ != nullptr) {
+        SDL_Rect rect{
+            .x = x,
+            .y = y,
+            .w = width,
+            .h = height,
+        };
+        SDL_SetTextInputArea(window_, &rect, 0);
+    }
 }
 
 } // namespace eng::platform

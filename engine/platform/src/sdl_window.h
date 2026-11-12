@@ -48,6 +48,10 @@ public:
     void setTitle(std::string_view title) override;
     void setSize(uint32_t width, uint32_t height) override;
     [[nodiscard]] void* getNativeHandle() const noexcept override;
+    void startTextInput() override;
+    void stopTextInput() override;
+    [[nodiscard]] bool isTextInputActive() const noexcept override;
+    void setTextInputArea(int32_t x, int32_t y, int32_t width, int32_t height) override;
 
 private:
     SDL_Window* window_{nullptr};

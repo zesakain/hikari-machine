@@ -22,14 +22,30 @@
 #include "core/assert.h"
 #include "platform/input_types.h"
 
+#include <algorithm>
 #include <array>
 #include <bitset>
 #include <cstdint>
+#include <string_view>
 
 namespace eng::platform {
 
 /// Maximum number of simultaneously supported gamepads.
 inline constexpr uint32_t kMaxGamepads = 4;
+
+/// Maximum number of discrete key events recorded per frame.
+inline constexpr size_t kMaxKeyEventsPerFrame = 32;
+
+/// Maximum number of UTF-8 characters/bytes accumulated from text input events per frame.
+inline constexpr size_t kMaxTextInputBytes = 64;
+
+/// @struct KeyEvent
+/// @brief Discrete key press, release, or repeat event recorded during the frame.
+struct KeyEvent {
+    KeyCode code{KeyCode::Unknown};
+    bool down{false};
+    bool repeat{false};
+};
 
 /// @struct GamepadState
 /// @brief Digital buttons and analog axes state for a single connected controller.
@@ -50,6 +66,14 @@ struct InputSnapshot {
     /// Keyboard key states.
     std::bitset<static_cast<size_t>(KeyCode::Count)> keys;
 
+    /// Discrete key events that occurred during this frame.
+    std::array<KeyEvent, kMaxKeyEventsPerFrame> keyEvents{};
+    uint32_t keyEventCount{0};
+
+    /// Null-terminated UTF-8 characters typed during this frame.
+    std::array<char, kMaxTextInputBytes> textInput{};
+    uint32_t textInputLength{0};
+
     /// Mouse button states.
     std::bitset<static_cast<size_t>(MouseButton::Count)> mouseButtons;
 
@@ -68,9 +92,19 @@ struct InputSnapshot {
     /// Gamepad peripheral states.
     std::array<GamepadState, kMaxGamepads> gamepads;
 
+    /// Whether the main window currently holds OS input/keyboard focus.
+    bool isWindowFocused{true};
+
+    /// Whether window focus state changed in this frame.
+    bool focusChanged{false};
+
     /// Resets all inputs to default unpressed states.
     void reset() noexcept {
         keys.reset();
+        keyEvents.fill(KeyEvent{});
+        keyEventCount = 0;
+        textInput.fill('\0');
+        textInputLength = 0;
         mouseButtons.reset();
         mouseX = 0.0F;
         mouseY = 0.0F;
@@ -78,11 +112,37 @@ struct InputSnapshot {
         mouseDeltaY = 0.0F;
         wheelDeltaX = 0.0F;
         wheelDeltaY = 0.0F;
+        focusChanged = false;
         for (auto& pad : gamepads) {
             pad.connected = false;
             pad.buttons.reset();
             pad.axes.fill(0.0F);
         }
+    }
+
+    /// Appends a discrete key event to the per-frame event buffer.
+    void addKeyEvent(KeyCode code, bool down, bool repeat = false) noexcept {
+        if (keyEventCount < kMaxKeyEventsPerFrame) {
+            keyEvents[keyEventCount++] = KeyEvent{.code = code, .down = down, .repeat = repeat};
+        }
+        const auto idx = static_cast<size_t>(code);
+        if (idx < keys.size()) {
+            keys.set(idx, down);
+        }
+    }
+
+    /// Appends UTF-8 text to the per-frame text input buffer.
+    void addTextInput(std::string_view text) noexcept {
+        if (text.empty() || textInputLength >= kMaxTextInputBytes - 1) {
+            return;
+        }
+        const size_t available = (kMaxTextInputBytes - 1) - textInputLength;
+        const size_t toCopy = std::min(text.size(), available);
+        for (size_t i = 0; i < toCopy; ++i) {
+            textInput[textInputLength + i] = text[i];
+        }
+        textInputLength += static_cast<uint32_t>(toCopy);
+        textInput[textInputLength] = '\0';
     }
 
     /// Checks if a key is currently held down.
@@ -164,5 +224,7 @@ struct InputSnapshot {
         return (idx < gamepads[gamepadIndex].axes.size()) ? gamepads[gamepadIndex].axes[idx] : 0.0F;
     }
 };
+
+static_assert(sizeof(InputSnapshot) <= 512, "InputSnapshot must fit in 512 bytes for hot path");
 
 } // namespace eng::platform
