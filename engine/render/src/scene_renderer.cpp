@@ -1771,6 +1771,7 @@ void SceneRenderer::renderPostProcess(rhi::RhiCommandList& cmdList) {
         cmdList.beginRenderPass(passInfo);
         cmdList.setViewport(0.0F, 0.0F, static_cast<float>(width_), static_cast<float>(height_));
         cmdList.setScissor(0, 0, width_, height_);
+        cmdList.bindPipeline(toneMappingPipeline_);
 
         const std::array<rhi::DescriptorSetHandle, 1> tmSets = {toneMappingSet_};
         cmdList.bindDescriptorSets(toneMappingPipelineLayout_, 0, tmSets);
