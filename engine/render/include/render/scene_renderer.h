@@ -46,9 +46,13 @@ namespace eng::render {
 /// @struct RenderStats
 /// @brief Telemetry metrics collected during scene rendering.
 struct RenderStats {
-    uint32_t drawCalls{0};
-    uint32_t triangles{0};
-    uint32_t meshesRendered{0};
+    uint32_t drawCalls{0};        ///< Main forward PBR draw calls
+    uint32_t shadowDrawCalls{0};  ///< Directional shadow depth draw calls
+    uint32_t triangles{0};        ///< Triangles rasterized in main PBR pass
+    uint32_t shadowTriangles{0};  ///< Triangles rasterized in shadow pass
+    uint32_t vertices{0};         ///< Vertices evaluated in main PBR pass
+    uint32_t meshesRendered{0};   ///< Mesh entities evaluated and rendered
+    uint32_t culledPrimitives{0}; ///< Mesh primitives culled or skipped
 };
 
 /// @struct GpuPassTimings
@@ -145,6 +149,11 @@ public:
     ///
     /// @param device The active RHI device owning query pool resources.
     void updateGpuTimings(rhi::RhiDevice& device);
+
+    /// Returns the telemetry metrics collected during the most recent scene rendering pass.
+    [[nodiscard]] const RenderStats& getLastRenderStats() const noexcept {
+        return lastRenderStats_;
+    }
 
     /// Returns the latest measured GPU execution durations for all rendering passes.
     [[nodiscard]] const GpuPassTimings& getGpuPassTimings() const noexcept {
@@ -266,6 +275,7 @@ private:
     uint32_t shadowResolution_{2048};
     rhi::TextureFormat colorFormat_{rhi::TextureFormat::RGBA8_UNORM};
     rhi::TextureFormat depthFormat_{rhi::TextureFormat::D32_FLOAT};
+    RenderStats lastRenderStats_{};
     GpuPassTimings gpuPassTimings_{};
     uint32_t frameSlotIndex_{0};
 };

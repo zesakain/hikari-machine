@@ -1038,6 +1038,7 @@ RenderStats SceneRenderer::renderScene(world::World& world, AssetManager& assetM
         auto shadowMeshQuery = ecs.query<const MeshComponent>();
         shadowMeshQuery.each([&](flecs::entity e, const MeshComponent& meshComp) {
             if (!meshComp.visible || !meshComp.castShadows) {
+                stats.culledPrimitives++;
                 return;
             }
             AssetId meshId = meshComp.meshAsset;
@@ -1046,10 +1047,12 @@ RenderStats SceneRenderer::renderScene(world::World& world, AssetManager& assetM
                 meshId = assetManager.findAssetByPath(meshComp.assetPath);
             }
             if (!meshId.isValid() || !assetManager.isLoaded(meshId)) {
+                stats.culledPrimitives++;
                 return;
             }
             GpuMesh* gpuMesh = assetManager.getGpuMesh(meshId);
             if (gpuMesh == nullptr || !gpuMesh->isValid()) {
+                stats.culledPrimitives++;
                 return;
             }
 
@@ -1086,15 +1089,23 @@ RenderStats SceneRenderer::renderScene(world::World& world, AssetManager& assetM
                 if (meshComp.submeshIndex < submeshes.size()) {
                     const auto& sub = submeshes[meshComp.submeshIndex];
                     cmdList.drawIndexed(sub.indexCount, 1, sub.firstIndex, sub.vertexOffset, 0);
+                    stats.shadowDrawCalls++;
+                    stats.shadowTriangles += sub.indexCount / 3;
                 } else if (submeshes.empty()) {
                     cmdList.drawIndexed(gpuMesh->getIndexCount(), 1, 0, 0, 0);
+                    stats.shadowDrawCalls++;
+                    stats.shadowTriangles += gpuMesh->getIndexCount() / 3;
                 } else {
                     for (const auto& sub : submeshes) {
                         cmdList.drawIndexed(sub.indexCount, 1, sub.firstIndex, sub.vertexOffset, 0);
+                        stats.shadowDrawCalls++;
+                        stats.shadowTriangles += sub.indexCount / 3;
                     }
                 }
             } else if (gpuMesh->getVertexCount() > 0) {
                 cmdList.draw(gpuMesh->getVertexCount(), 1, 0, 0);
+                stats.shadowDrawCalls++;
+                stats.shadowTriangles += gpuMesh->getVertexCount() / 3;
             }
         });
 
@@ -1141,6 +1152,7 @@ RenderStats SceneRenderer::renderScene(world::World& world, AssetManager& assetM
     auto query = ecs.query<const MeshComponent>();
     query.each([&](flecs::entity e, const MeshComponent& meshComp) {
         if (!meshComp.visible) {
+            stats.culledPrimitives++;
             return;
         }
 
@@ -1156,6 +1168,7 @@ RenderStats SceneRenderer::renderScene(world::World& world, AssetManager& assetM
         }
 
         if (!meshId.isValid() || !assetManager.isLoaded(meshId)) {
+            stats.culledPrimitives++;
             return;
         }
 
@@ -1168,6 +1181,7 @@ RenderStats SceneRenderer::renderScene(world::World& world, AssetManager& assetM
         }
 
         if (gpuMesh == nullptr || !gpuMesh->isValid()) {
+            stats.culledPrimitives++;
             return;
         }
 
@@ -1236,17 +1250,20 @@ RenderStats SceneRenderer::renderScene(world::World& world, AssetManager& assetM
                 cmdList.drawIndexed(sub.indexCount, 1, sub.firstIndex, sub.vertexOffset, 0);
                 stats.drawCalls++;
                 stats.triangles += sub.indexCount / 3;
+                stats.vertices += sub.indexCount;
             } else if (submeshes.empty()) {
                 bindMaterial(0);
                 cmdList.drawIndexed(gpuMesh->getIndexCount(), 1, 0, 0, 0);
                 stats.drawCalls++;
                 stats.triangles += gpuMesh->getIndexCount() / 3;
+                stats.vertices += gpuMesh->getVertexCount();
             } else {
                 for (const auto& sub : submeshes) {
                     bindMaterial(sub.materialIndex);
                     cmdList.drawIndexed(sub.indexCount, 1, sub.firstIndex, sub.vertexOffset, 0);
                     stats.drawCalls++;
                     stats.triangles += sub.indexCount / 3;
+                    stats.vertices += sub.indexCount;
                 }
             }
         } else if (gpuMesh->getVertexCount() > 0) {
@@ -1254,6 +1271,7 @@ RenderStats SceneRenderer::renderScene(world::World& world, AssetManager& assetM
             cmdList.draw(gpuMesh->getVertexCount(), 1, 0, 0);
             stats.drawCalls++;
             stats.triangles += gpuMesh->getVertexCount() / 3;
+            stats.vertices += gpuMesh->getVertexCount();
         }
 
         stats.meshesRendered++;
@@ -1269,6 +1287,7 @@ RenderStats SceneRenderer::renderScene(world::World& world, AssetManager& assetM
         }
     }
 
+    lastRenderStats_ = stats;
     return stats;
 }
 
