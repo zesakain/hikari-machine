@@ -236,6 +236,10 @@ if(HIKARI_BUILD_EDITOR)
     target_link_libraries(script_editor_test PRIVATE hikari::editor_lib hikari::engine_framework hikari::engine_world hikari::engine_rhi)
     add_test(NAME script_editor_test COMMAND script_editor_test)
 
+    add_executable(editor_preferences_test unit/editor/editor_preferences_test.cpp)
+    target_link_libraries(editor_preferences_test PRIVATE hikari::editor_lib hikari::engine_framework hikari::engine_world hikari::engine_rhi)
+    add_test(NAME editor_preferences_test COMMAND editor_preferences_test)
+
     add_executable(capture_editor_telemetry ${CMAKE_SOURCE_DIR}/tools/capture_editor_telemetry.cpp)
     target_link_libraries(capture_editor_telemetry PRIVATE hikari::editor_lib hikari::engine_framework hikari::engine_render hikari::engine_physics hikari::engine_world hikari::engine_rhi imgui_static)
     target_include_directories(capture_editor_telemetry PRIVATE ${imgui_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/editor/src)
@@ -247,6 +251,10 @@ if(HIKARI_BUILD_EDITOR)
     add_executable(benchmark_scalability ${CMAKE_SOURCE_DIR}/tools/benchmark_scalability.cpp)
     target_link_libraries(benchmark_scalability PRIVATE hikari::editor_lib hikari::engine_framework hikari::engine_render hikari::engine_physics hikari::engine_world hikari::engine_rhi imgui_static)
     target_include_directories(benchmark_scalability PRIVATE ${imgui_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/editor/src)
+
+    add_executable(verify_editor_settings ${CMAKE_SOURCE_DIR}/tools/verify_editor_settings.cpp)
+    target_link_libraries(verify_editor_settings PRIVATE hikari::editor_lib hikari::engine_framework hikari::engine_render hikari::engine_physics hikari::engine_world hikari::engine_rhi imgui_static)
+    target_include_directories(verify_editor_settings PRIVATE ${imgui_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/editor/src)
 endif()
 
 

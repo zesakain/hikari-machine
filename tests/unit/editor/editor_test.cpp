@@ -212,6 +212,12 @@ static void testPanelManagerAndRegistry() {
     auto* contentBrowser = wm.findPanel("content_browser");
     TEST_CHECK(contentBrowser != nullptr);
 
+    auto* settings = wm.findPanel("settings");
+    TEST_CHECK(settings != nullptr);
+    TEST_CHECK(settings->getId() == "settings");
+    TEST_CHECK(settings->getDisplayName() == "Settings");
+    TEST_CHECK(!settings->isOpen());
+
     // Test non-existent panel
     TEST_CHECK(wm.findPanel("non_existent_panel") == nullptr);
 
