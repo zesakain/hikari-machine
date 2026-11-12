@@ -104,6 +104,13 @@ target_link_libraries(scene_test PRIVATE hikari::engine_framework)
 target_compile_definitions(scene_test PRIVATE HIKARI_SAMPLE_SCENE_PATH="${CMAKE_SOURCE_DIR}/assets/scenes/sample.hikari")
 add_test(NAME scene_test COMMAND scene_test)
 
+# Benchmark scene generator and capture tools
+add_executable(generate_benchmark_scenes ${CMAKE_SOURCE_DIR}/tools/generate_benchmark_scenes.cpp)
+target_link_libraries(generate_benchmark_scenes PRIVATE hikari::engine_framework hikari::engine_render)
+
+add_executable(capture_benchmark_scenes ${CMAKE_SOURCE_DIR}/tools/capture_benchmark_scenes.cpp)
+target_link_libraries(capture_benchmark_scenes PRIVATE hikari::engine_framework hikari::engine_render hikari::engine_rhi hikari::engine_world)
+
 add_executable(runtime_session_test unit/framework/runtime_session_test.cpp)
 target_link_libraries(runtime_session_test PRIVATE hikari::engine_framework)
 add_test(NAME runtime_session_test COMMAND runtime_session_test)

@@ -1,0 +1,267 @@
+{
+  "formatVersion": 1,
+  "metadata": {
+    "name": "Flight Helmet Benchmark",
+    "generator": "Hikari Engine 10G Benchmark Certification",
+    "timestamp": 20261112
+  },
+  "entities": [
+    {
+      "id": 1,
+      "name": "Hose_low",
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/flight_helmet/FlightHelmet.gltf#mesh_0",
+          "submeshIndex": 0,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 2,
+      "name": "RubberWood_low",
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/flight_helmet/FlightHelmet.gltf#mesh_1",
+          "submeshIndex": 0,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 3,
+      "name": "GlassPlastic_low",
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/flight_helmet/FlightHelmet.gltf#mesh_2",
+          "submeshIndex": 0,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 4,
+      "name": "MetalParts_low",
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/flight_helmet/FlightHelmet.gltf#mesh_3",
+          "submeshIndex": 0,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 5,
+      "name": "LeatherParts_low",
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/flight_helmet/FlightHelmet.gltf#mesh_4",
+          "submeshIndex": 0,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 6,
+      "name": "Lenses_low",
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/flight_helmet/FlightHelmet.gltf#mesh_5",
+          "submeshIndex": 0,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 7,
+      "name": "KeyLight",
+      "components": {
+        "DirectionalLight": {
+          "direction": [
+            0.303046,
+            0.808122,
+            0.505076
+          ],
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "intensity": 3,
+          "castShadows": true,
+          "shadowBias": 0.0015,
+          "enabled": true
+        }
+      }
+    },
+    {
+      "id": 8,
+      "name": "DefaultBenchmarkCamera",
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0.35,
+            0.85
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Camera": {
+          "fovDegrees": 60,
+          "nearPlane": 0.05,
+          "farPlane": 500,
+          "isPrimary": true
+        }
+      }
+    }
+  ],
+  "settings": {
+    "postProcess": {
+      "enabled": true,
+      "exposure": 1,
+      "toneMapOp": "ACES",
+      "bloomEnabled": true,
+      "bloomThreshold": 1,
+      "bloomKnee": 0.5,
+      "reinhardWhitePoint": 4,
+      "bloomIntensity": 0.04,
+      "bloomFilterRadius": 1
+    },
+    "camera": {
+      "position": [
+        0,
+        0.35,
+        0.85
+      ],
+      "target": [
+        0,
+        0.2,
+        0
+      ]
+    }
+  }
+}

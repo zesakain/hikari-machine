@@ -1,0 +1,3304 @@
+{
+  "formatVersion": 1,
+  "metadata": {
+    "name": "Sponza Benchmark",
+    "generator": "Hikari Engine 10G Benchmark Certification",
+    "timestamp": 20261112
+  },
+  "entities": [
+    {
+      "id": 1,
+      "name": "Node_0",
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            0.008,
+            0.008,
+            0.008
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "name": "Node_0_Primitive_0",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 0,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 3,
+      "name": "Node_0_Primitive_1",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 1,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 4,
+      "name": "Node_0_Primitive_2",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 2,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 5,
+      "name": "Node_0_Primitive_3",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 3,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 6,
+      "name": "Node_0_Primitive_4",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 4,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 7,
+      "name": "Node_0_Primitive_5",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 5,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 8,
+      "name": "Node_0_Primitive_6",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 6,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 9,
+      "name": "Node_0_Primitive_7",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 7,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 10,
+      "name": "Node_0_Primitive_8",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 8,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 11,
+      "name": "Node_0_Primitive_9",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 9,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 12,
+      "name": "Node_0_Primitive_10",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 10,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 13,
+      "name": "Node_0_Primitive_11",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 11,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 14,
+      "name": "Node_0_Primitive_12",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 12,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 15,
+      "name": "Node_0_Primitive_13",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 13,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 16,
+      "name": "Node_0_Primitive_14",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 14,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 17,
+      "name": "Node_0_Primitive_15",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 15,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 18,
+      "name": "Node_0_Primitive_16",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 16,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 19,
+      "name": "Node_0_Primitive_17",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 17,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 20,
+      "name": "Node_0_Primitive_18",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 18,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 21,
+      "name": "Node_0_Primitive_19",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 19,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 22,
+      "name": "Node_0_Primitive_20",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 20,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 23,
+      "name": "Node_0_Primitive_21",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 21,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 24,
+      "name": "Node_0_Primitive_22",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 22,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 25,
+      "name": "Node_0_Primitive_23",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 23,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 26,
+      "name": "Node_0_Primitive_24",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 24,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 27,
+      "name": "Node_0_Primitive_25",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 25,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 28,
+      "name": "Node_0_Primitive_26",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 26,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 29,
+      "name": "Node_0_Primitive_27",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 27,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 30,
+      "name": "Node_0_Primitive_28",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 28,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 31,
+      "name": "Node_0_Primitive_29",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 29,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 32,
+      "name": "Node_0_Primitive_30",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 30,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 33,
+      "name": "Node_0_Primitive_31",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 31,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 34,
+      "name": "Node_0_Primitive_32",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 32,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 35,
+      "name": "Node_0_Primitive_33",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 33,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 36,
+      "name": "Node_0_Primitive_34",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 34,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 37,
+      "name": "Node_0_Primitive_35",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 35,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 38,
+      "name": "Node_0_Primitive_36",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 36,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 39,
+      "name": "Node_0_Primitive_37",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 37,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 40,
+      "name": "Node_0_Primitive_38",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 38,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 41,
+      "name": "Node_0_Primitive_39",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 39,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 42,
+      "name": "Node_0_Primitive_40",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 40,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 43,
+      "name": "Node_0_Primitive_41",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 41,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 44,
+      "name": "Node_0_Primitive_42",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 42,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 45,
+      "name": "Node_0_Primitive_43",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 43,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 46,
+      "name": "Node_0_Primitive_44",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 44,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 47,
+      "name": "Node_0_Primitive_45",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 45,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 48,
+      "name": "Node_0_Primitive_46",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 46,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 49,
+      "name": "Node_0_Primitive_47",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 47,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 50,
+      "name": "Node_0_Primitive_48",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 48,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 51,
+      "name": "Node_0_Primitive_49",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 49,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 52,
+      "name": "Node_0_Primitive_50",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 50,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 53,
+      "name": "Node_0_Primitive_51",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 51,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 54,
+      "name": "Node_0_Primitive_52",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 52,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 55,
+      "name": "Node_0_Primitive_53",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 53,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 56,
+      "name": "Node_0_Primitive_54",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 54,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 57,
+      "name": "Node_0_Primitive_55",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 55,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 58,
+      "name": "Node_0_Primitive_56",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 56,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 59,
+      "name": "Node_0_Primitive_57",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 57,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 60,
+      "name": "Node_0_Primitive_58",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 58,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 61,
+      "name": "Node_0_Primitive_59",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 59,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 62,
+      "name": "Node_0_Primitive_60",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 60,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 63,
+      "name": "Node_0_Primitive_61",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 61,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 64,
+      "name": "Node_0_Primitive_62",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 62,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 65,
+      "name": "Node_0_Primitive_63",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 63,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 66,
+      "name": "Node_0_Primitive_64",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 64,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 67,
+      "name": "Node_0_Primitive_65",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 65,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 68,
+      "name": "Node_0_Primitive_66",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 66,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 69,
+      "name": "Node_0_Primitive_67",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 67,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 70,
+      "name": "Node_0_Primitive_68",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 68,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 71,
+      "name": "Node_0_Primitive_69",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 69,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 72,
+      "name": "Node_0_Primitive_70",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 70,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 73,
+      "name": "Node_0_Primitive_71",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 71,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 74,
+      "name": "Node_0_Primitive_72",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 72,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 75,
+      "name": "Node_0_Primitive_73",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 73,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 76,
+      "name": "Node_0_Primitive_74",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 74,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 77,
+      "name": "Node_0_Primitive_75",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 75,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 78,
+      "name": "Node_0_Primitive_76",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 76,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 79,
+      "name": "Node_0_Primitive_77",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 77,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 80,
+      "name": "Node_0_Primitive_78",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 78,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 81,
+      "name": "Node_0_Primitive_79",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 79,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 82,
+      "name": "Node_0_Primitive_80",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 80,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 83,
+      "name": "Node_0_Primitive_81",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 81,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 84,
+      "name": "Node_0_Primitive_82",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 82,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 85,
+      "name": "Node_0_Primitive_83",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 83,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 86,
+      "name": "Node_0_Primitive_84",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 84,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 87,
+      "name": "Node_0_Primitive_85",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 85,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 88,
+      "name": "Node_0_Primitive_86",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 86,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 89,
+      "name": "Node_0_Primitive_87",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 87,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 90,
+      "name": "Node_0_Primitive_88",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 88,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 91,
+      "name": "Node_0_Primitive_89",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 89,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 92,
+      "name": "Node_0_Primitive_90",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 90,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 93,
+      "name": "Node_0_Primitive_91",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 91,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 94,
+      "name": "Node_0_Primitive_92",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 92,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 95,
+      "name": "Node_0_Primitive_93",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 93,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 96,
+      "name": "Node_0_Primitive_94",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 94,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 97,
+      "name": "Node_0_Primitive_95",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 95,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 98,
+      "name": "Node_0_Primitive_96",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 96,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 99,
+      "name": "Node_0_Primitive_97",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 97,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 100,
+      "name": "Node_0_Primitive_98",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 98,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 101,
+      "name": "Node_0_Primitive_99",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 99,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 102,
+      "name": "Node_0_Primitive_100",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 100,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 103,
+      "name": "Node_0_Primitive_101",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 101,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 104,
+      "name": "Node_0_Primitive_102",
+      "parent": 1,
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/benchmark/sponza/Sponza.gltf#mesh_0",
+          "submeshIndex": 102,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 105,
+      "name": "Sunlight",
+      "components": {
+        "DirectionalLight": {
+          "direction": [
+            0.405616,
+            0.861934,
+            0.304212
+          ],
+          "color": [
+            1,
+            0.96,
+            0.9
+          ],
+          "intensity": 3.5,
+          "castShadows": true,
+          "shadowBias": 0.0025,
+          "enabled": true
+        }
+      }
+    },
+    {
+      "id": 106,
+      "name": "DefaultBenchmarkCamera",
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            2,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Camera": {
+          "fovDegrees": 65,
+          "nearPlane": 0.1,
+          "farPlane": 2000,
+          "isPrimary": true
+        }
+      }
+    }
+  ],
+  "settings": {
+    "postProcess": {
+      "enabled": true,
+      "exposure": 1,
+      "toneMapOp": "ACES",
+      "bloomEnabled": true,
+      "bloomThreshold": 1,
+      "bloomKnee": 0.5,
+      "reinhardWhitePoint": 4,
+      "bloomIntensity": 0.04,
+      "bloomFilterRadius": 1
+    },
+    "camera": {
+      "position": [
+        0,
+        2,
+        0
+      ],
+      "target": [
+        0,
+        2,
+        -6
+      ]
+    }
+  }
+}

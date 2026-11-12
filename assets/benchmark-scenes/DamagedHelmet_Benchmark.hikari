@@ -1,0 +1,117 @@
+{
+  "formatVersion": 1,
+  "metadata": {
+    "name": "Damaged Helmet Benchmark",
+    "generator": "Hikari Engine 10G Benchmark Certification",
+    "timestamp": 20261112
+  },
+  "entities": [
+    {
+      "id": 1,
+      "name": "node_damagedHelmet_-6514",
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0.707107,
+            0,
+            0,
+            0.707107
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Mesh": {
+          "assetPath": "test-assets/DamagedHelmet.glb#mesh_0",
+          "submeshIndex": 0,
+          "visible": true,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": 2,
+      "name": "Sunlight",
+      "components": {
+        "DirectionalLight": {
+          "direction": [
+            0.421637,
+            0.737865,
+            0.527046
+          ],
+          "color": [
+            1,
+            0.98,
+            0.95
+          ],
+          "intensity": 3.5,
+          "castShadows": true,
+          "shadowBias": 0.002,
+          "enabled": true
+        }
+      }
+    },
+    {
+      "id": 3,
+      "name": "DefaultBenchmarkCamera",
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            2.5
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Camera": {
+          "fovDegrees": 60,
+          "nearPlane": 0.05,
+          "farPlane": 500,
+          "isPrimary": true
+        }
+      }
+    }
+  ],
+  "settings": {
+    "postProcess": {
+      "enabled": true,
+      "exposure": 1,
+      "toneMapOp": "ACES",
+      "bloomEnabled": true,
+      "bloomThreshold": 1,
+      "bloomKnee": 0.5,
+      "reinhardWhitePoint": 4,
+      "bloomIntensity": 0.04,
+      "bloomFilterRadius": 1
+    },
+    "camera": {
+      "position": [
+        0,
+        0,
+        2.5
+      ],
+      "target": [
+        0,
+        0,
+        0
+      ]
+    }
+  }
+}
