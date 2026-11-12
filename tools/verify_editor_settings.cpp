@@ -165,6 +165,9 @@ int main(int argc, char** argv) {
     std::cout << "\n>>> Capturing SettingsPanel: User Preferences (General) <<<\n";
     renderAndCapture(editor::SettingsCategory::General, "settings_user_general.ppm");
 
+    std::cout << "\n>>> Capturing SettingsPanel: User Preferences (Appearance & Theme) <<<\n";
+    renderAndCapture(editor::SettingsCategory::Appearance, "settings_user_appearance.ppm");
+
     std::cout << "\n>>> Capturing SettingsPanel: User Preferences (Scripting IDE) <<<\n";
     renderAndCapture(editor::SettingsCategory::Scripting, "settings_user_scripting.ppm");
 
