@@ -176,6 +176,12 @@ target_link_libraries(lighting_render_test PRIVATE hikari::engine_render hikari:
 add_test(NAME lighting_render_test COMMAND lighting_render_test)
 set_tests_properties(lighting_render_test PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
+# HDR, Tone Mapping & Post-Processing Verification Tests (Milestone 10F)
+add_executable(post_process_test unit/render/post_process_test.cpp)
+target_link_libraries(post_process_test PRIVATE hikari::engine_render hikari::engine_rhi hikari::engine_framework hikari::engine_physics hikari::engine_world)
+add_test(NAME post_process_test COMMAND post_process_test)
+set_tests_properties(post_process_test PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
 # Physics Unit Tests
 add_executable(physics_test unit/physics/physics_test.cpp)
 target_link_libraries(physics_test PRIVATE hikari::engine_physics)
