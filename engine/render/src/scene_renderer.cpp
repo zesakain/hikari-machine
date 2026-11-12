@@ -89,7 +89,9 @@ SceneRenderer::SceneRenderer(SceneRenderer&& other) noexcept
       bloomDownPipeline_(other.bloomDownPipeline_), bloomUpPipeline_(other.bloomUpPipeline_),
       toneMappingPipeline_(other.toneMappingPipeline_), hdrPipeline_(other.hdrPipeline_),
       width_(other.width_), height_(other.height_), shadowResolution_(other.shadowResolution_),
-      colorFormat_(other.colorFormat_), depthFormat_(other.depthFormat_) {
+      colorFormat_(other.colorFormat_), depthFormat_(other.depthFormat_),
+      settings_(other.settings_), wireframePipeline_(other.wireframePipeline_),
+      wireframeLdrPipeline_(other.wireframeLdrPipeline_) {
     for (size_t i = 0; i < kBloomPyramidLevels; ++i) {
         bloomDownTarget_[i] = other.bloomDownTarget_[i];
         bloomDownSets_[i] = other.bloomDownSets_[i];
@@ -137,6 +139,8 @@ SceneRenderer::SceneRenderer(SceneRenderer&& other) noexcept
     other.bloomUpPipeline_ = {};
     other.toneMappingPipeline_ = {};
     other.hdrPipeline_ = {};
+    other.wireframePipeline_ = {};
+    other.wireframeLdrPipeline_ = {};
     other.width_ = 0;
     other.height_ = 0;
     other.shadowResolution_ = 2048;
@@ -195,6 +199,9 @@ SceneRenderer& SceneRenderer::operator=(SceneRenderer&& other) noexcept {
         bloomUpPipeline_ = other.bloomUpPipeline_;
         toneMappingPipeline_ = other.toneMappingPipeline_;
         hdrPipeline_ = other.hdrPipeline_;
+        settings_ = other.settings_;
+        wireframePipeline_ = other.wireframePipeline_;
+        wireframeLdrPipeline_ = other.wireframeLdrPipeline_;
 
         width_ = other.width_;
         height_ = other.height_;
@@ -236,6 +243,8 @@ SceneRenderer& SceneRenderer::operator=(SceneRenderer&& other) noexcept {
         other.bloomUpPipeline_ = {};
         other.toneMappingPipeline_ = {};
         other.hdrPipeline_ = {};
+        other.wireframePipeline_ = {};
+        other.wireframeLdrPipeline_ = {};
         other.width_ = 0;
         other.height_ = 0;
         other.shadowResolution_ = 2048;
@@ -535,6 +544,26 @@ Result<void> SceneRenderer::init(rhi::RhiDevice& device, uint32_t width, uint32_
         hdrPipeline_ = pipeline_;
     }
 
+    // Optional wireframe rasterization pipelines (requires fillModeNonSolid GPU feature)
+    if (device_->getCaps().features.fillModeNonSolid) {
+        auto wireDesc = pipeDesc;
+        wireDesc.rasterization.polygonMode = rhi::PolygonMode::Line;
+        wireDesc.colorAttachmentFormats = {hdrFormat_};
+        wireDesc.debugName = "MeshHdrWireframePipeline";
+        auto wireRes = device_->createGraphicsPipeline(wireDesc);
+        if (wireRes.hasValue()) {
+            wireframePipeline_ = wireRes.value();
+        }
+        if (hdrFormat_ != colorFormat_) {
+            wireDesc.colorAttachmentFormats = {colorFormat_};
+            wireDesc.debugName = "MeshLdrWireframePipeline";
+            auto wireLdrRes = device_->createGraphicsPipeline(wireDesc);
+            if (wireLdrRes.hasValue()) {
+                wireframeLdrPipeline_ = wireLdrRes.value();
+            }
+        }
+    }
+
     // 7. Compile Shadow Depth Vertex Shader and create Shadow Pipeline
     rhi::ShaderDesc shadowVertDesc{
         .stage = rhi::ShaderStageFlags::Vertex,
@@ -649,6 +678,9 @@ Result<void> SceneRenderer::init(rhi::RhiDevice& device, uint32_t width, uint32_
         return ppTargetsRes.error();
     }
 
+    settings_ = GraphicsSettings::createPreset(GraphicsQualityPreset::High);
+    settings_ = settings_.validateAgainstCaps(device_->getCaps());
+
     return Result<void>::success();
 }
 
@@ -723,6 +755,15 @@ void SceneRenderer::shutdown() {
             device_->destroyGraphicsPipeline(hdrPipeline_);
         }
         hdrPipeline_ = {};
+
+        if (wireframePipeline_.isValid()) {
+            device_->destroyGraphicsPipeline(wireframePipeline_);
+            wireframePipeline_ = {};
+        }
+        if (wireframeLdrPipeline_.isValid()) {
+            device_->destroyGraphicsPipeline(wireframeLdrPipeline_);
+            wireframeLdrPipeline_ = {};
+        }
 
         if (shadowPipeline_.isValid()) {
             device_->destroyGraphicsPipeline(shadowPipeline_);
@@ -865,6 +906,73 @@ Result<void> SceneRenderer::resize(uint32_t width, uint32_t height) {
     return Result<void>::success();
 }
 
+Result<void> SceneRenderer::applyGraphicsSettings(const GraphicsSettings& newSettings) {
+    if (device_ == nullptr) {
+        settings_ = newSettings;
+        return Result<void>::success();
+    }
+
+    // 1. Validate & clamp against hardware capabilities
+    GraphicsSettings validated = newSettings.validateAgainstCaps(device_->getCaps());
+
+    // 2. Classify change severity
+    [[maybe_unused]] auto severity = settings_.computeChangeSeverity(validated);
+
+    // 3. Shadow resolution changes require recreating shadow depth target and updating descriptors
+    if (validated.shadows.resolution != shadowResolution_) {
+        device_->waitIdle();
+        shadowResolution_ = validated.shadows.resolution;
+
+        if (shadowDepthTarget_.isValid()) {
+            device_->destroyTexture(shadowDepthTarget_);
+            shadowDepthTarget_ = {};
+        }
+
+        rhi::TextureDesc shadowDesc{
+            .type = rhi::TextureType::Texture2D,
+            .format = rhi::TextureFormat::D32_FLOAT,
+            .width = shadowResolution_,
+            .height = shadowResolution_,
+            .depth = 1,
+            .mipLevels = 1,
+            .arrayLayers = 1,
+            .usage =
+                rhi::TextureUsageFlags::DepthStencilAttachment | rhi::TextureUsageFlags::Sampled,
+            .debugName = "ShadowDepthTarget",
+        };
+        auto shadowRes = device_->createTexture(shadowDesc);
+        if (!shadowRes.hasValue()) {
+            return shadowRes.error();
+        }
+        shadowDepthTarget_ = shadowRes.value();
+
+        if (sceneDescriptorSet_.isValid() && shadowSampler_.isValid()) {
+            std::array<rhi::DescriptorWrite, 1> shadowWrite{
+                rhi::DescriptorWrite::makeCombinedImageSampler(1, shadowDepthTarget_,
+                                                               shadowSampler_),
+            };
+            std::ignore = device_->updateDescriptorSet(sceneDescriptorSet_, shadowWrite);
+        }
+    }
+
+    // 4. Synchronize post-processing runtime controls
+    postProcessSettings_.enabled = validated.postProcess.enabled;
+    postProcessSettings_.bloomEnabled = validated.postProcess.bloomEnabled;
+    postProcessSettings_.bloomIntensity = validated.postProcess.bloomIntensity;
+    postProcessSettings_.bloomThreshold = validated.postProcess.bloomThreshold;
+    postProcessSettings_.bloomKnee = validated.postProcess.bloomKnee;
+    postProcessSettings_.bloomFilterRadius = validated.postProcess.bloomFilterRadius;
+    postProcessSettings_.reinhardWhitePoint = validated.postProcess.reinhardWhitePoint;
+    postProcessSettings_.exposure = validated.postProcess.exposure;
+    postProcessSettings_.toneMapOp = validated.postProcess.toneMapOp;
+
+    // 5. Hardware VSync toggle
+    device_->setVsync(validated.performance.vsync);
+
+    settings_ = validated;
+    return Result<void>::success();
+}
+
 RenderStats SceneRenderer::renderScene(world::World& world, AssetManager& assetManager,
                                        rhi::RhiDevice& device, rhi::RhiCommandList& cmdList,
                                        const Mat4& viewProjection) {
@@ -899,33 +1007,46 @@ RenderStats SceneRenderer::renderScene(world::World& world, AssetManager& assetM
     }
 
     bool hasDirLight = false;
-    auto dirQuery = ecs.query<const DirectionalLightComponent>();
-    dirQuery.each([&](flecs::entity e, const DirectionalLightComponent& dirComp) {
-        static_cast<void>(e);
-        if (!dirComp.enabled || hasDirLight) {
-            return;
-        }
-        hasDirLight = true;
-        Vec3 dir = dirComp.direction;
-        if (dir.lengthSq() > 1e-6F) {
-            dir = dir.normalized();
-        } else {
-            dir = Vec3(0.5F, 0.8F, 0.5F).normalized();
-        }
-        lightingData.dirLight.directionAndCastShadow =
-            Vec4(dir.x, dir.y, dir.z, dirComp.castShadows ? 1.0F : 0.0F);
-        lightingData.dirLight.colorAndIntensity =
-            Vec4(dirComp.color.x, dirComp.color.y, dirComp.color.z, dirComp.intensity);
-        lightingData.ambientColorAndShadowBias.w = dirComp.shadowBias;
-        lightingData.dirLightActive = 1;
-    });
+    if (settings_.lighting.directLighting) {
+        auto dirQuery = ecs.query<const DirectionalLightComponent>();
+        dirQuery.each([&](flecs::entity e, const DirectionalLightComponent& dirComp) {
+            static_cast<void>(e);
+            if (!dirComp.enabled || hasDirLight) {
+                return;
+            }
+            hasDirLight = true;
+            Vec3 dir = dirComp.direction;
+            if (dir.lengthSq() > 1e-6F) {
+                dir = dir.normalized();
+            } else {
+                dir = Vec3(0.5F, 0.8F, 0.5F).normalized();
+            }
+            lightingData.dirLight.directionAndCastShadow =
+                Vec4(dir.x, dir.y, dir.z, dirComp.castShadows ? 1.0F : 0.0F);
+            lightingData.dirLight.colorAndIntensity =
+                Vec4(dirComp.color.x, dirComp.color.y, dirComp.color.z, dirComp.intensity);
+            lightingData.ambientColorAndShadowBias.w = dirComp.shadowBias;
+            lightingData.dirLightActive = 1;
+        });
 
-    if (!hasDirLight) {
-        // Default sunlight baseline preserving Milestone 10D behavior
-        Vec3 dir = Vec3(0.5F, 0.8F, 0.5F).normalized();
-        lightingData.dirLight.directionAndCastShadow = Vec4(dir.x, dir.y, dir.z, 0.0F);
-        lightingData.dirLight.colorAndIntensity = Vec4(1.0F, 1.0F, 1.0F, 2.5F);
-        lightingData.dirLightActive = 1;
+        if (!hasDirLight) {
+            // Default sunlight baseline preserving Milestone 10D behavior
+            Vec3 dir = Vec3(0.5F, 0.8F, 0.5F).normalized();
+            lightingData.dirLight.directionAndCastShadow = Vec4(dir.x, dir.y, dir.z, 0.0F);
+            lightingData.dirLight.colorAndIntensity = Vec4(1.0F, 1.0F, 1.0F, 2.5F);
+            lightingData.dirLightActive = 1;
+        }
+    } else {
+        lightingData.dirLightActive = 0;
+        lightingData.dirLight.directionAndCastShadow = Vec4(0.0F, 1.0F, 0.0F, 0.0F);
+        lightingData.dirLight.colorAndIntensity = Vec4(0.0F, 0.0F, 0.0F, 0.0F);
+    }
+
+    if (!settings_.shadows.enabled) {
+        lightingData.dirLight.directionAndCastShadow.w = 0.0F;
+    } else {
+        lightingData.ambientColorAndShadowBias.w =
+            lightingData.ambientColorAndShadowBias.w * (settings_.shadows.depthBias / 0.002F);
     }
 
     // Point lights
@@ -1002,7 +1123,10 @@ RenderStats SceneRenderer::renderScene(world::World& world, AssetManager& assetM
     Vec3 lightPos = target + dir * 25.0F;
     Vec3 up = std::abs(dir.y) > 0.99F ? Vec3::unitZ() : Vec3::unitY();
     Mat4 lightView = Mat4::lookAt(lightPos, target, up);
-    Mat4 lightProj = Mat4::orthographic(-15.0F, 15.0F, -15.0F, 15.0F, 0.1F, 60.0F);
+    float orthoSize = std::clamp(settings_.shadows.distance * 0.15F, 5.0F, 50.0F);
+    float farPlane = std::max(20.0F, settings_.shadows.distance);
+    Mat4 lightProj =
+        Mat4::orthographic(-orthoSize, orthoSize, -orthoSize, orthoSize, 0.1F, farPlane);
     Mat4 lightSpaceMatrix = lightProj * lightView;
     lightingData.lightSpaceMatrix = lightSpaceMatrix;
 
@@ -1013,7 +1137,8 @@ RenderStats SceneRenderer::renderScene(world::World& world, AssetManager& assetM
     }
 
     // 2. DIRECTIONAL SHADOW PASS
-    const bool doShadowPass = (lightingData.dirLight.directionAndCastShadow.w > 0.5F) &&
+    const bool doShadowPass = settings_.shadows.enabled &&
+                              (lightingData.dirLight.directionAndCastShadow.w > 0.5F) &&
                               shadowDepthTarget_.isValid() && shadowPipeline_.isValid();
     if (doShadowPass) {
         if (hasTimestamps) {
@@ -1119,8 +1244,18 @@ RenderStats SceneRenderer::renderScene(world::World& world, AssetManager& assetM
     const bool managePass = colorTarget_.isValid();
     const bool useHdr = postProcessSettings_.enabled && hdrTarget_.isValid();
     const rhi::TextureHandle sceneColorTarget = useHdr ? hdrTarget_ : colorTarget_;
-    const rhi::PipelineHandle scenePipeline =
+    rhi::PipelineHandle scenePipeline =
         (useHdr && hdrPipeline_.isValid()) ? hdrPipeline_ : pipeline_;
+
+    if (settings_.debug.viewMode == DebugViewMode::Wireframe) {
+        if (useHdr && wireframePipeline_.isValid()) {
+            scenePipeline = wireframePipeline_;
+        } else if (!useHdr && wireframeLdrPipeline_.isValid()) {
+            scenePipeline = wireframeLdrPipeline_;
+        } else if (wireframePipeline_.isValid()) {
+            scenePipeline = wireframePipeline_;
+        }
+    }
 
     if (managePass) {
         if (hasTimestamps) {

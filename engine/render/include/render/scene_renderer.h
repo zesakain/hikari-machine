@@ -27,6 +27,7 @@
 #include "core/math.h"
 #include "core/result.h"
 #include "render/asset_manager.h"
+#include "render/graphics_settings.h"
 #include "render/light_components.h"
 #include "render/lighting_data.h"
 #include "render/mesh_component.h"
@@ -179,6 +180,12 @@ public:
         return postProcessSettings_.enabled && !isHdrActive();
     }
 
+    /// Returns the central graphics and scalability configuration.
+    [[nodiscard]] const GraphicsSettings& getGraphicsSettings() const noexcept { return settings_; }
+
+    /// Validates and applies a modified graphics configuration across renderer subsystems.
+    [[nodiscard]] Result<void> applyGraphicsSettings(const GraphicsSettings& settings);
+
     [[nodiscard]] const PostProcessSettings& getPostProcessSettings() const noexcept {
         return postProcessSettings_;
     }
@@ -275,6 +282,9 @@ private:
     uint32_t shadowResolution_{2048};
     rhi::TextureFormat colorFormat_{rhi::TextureFormat::RGBA8_UNORM};
     rhi::TextureFormat depthFormat_{rhi::TextureFormat::D32_FLOAT};
+    GraphicsSettings settings_{};
+    rhi::PipelineHandle wireframePipeline_{};
+    rhi::PipelineHandle wireframeLdrPipeline_{};
     RenderStats lastRenderStats_{};
     GpuPassTimings gpuPassTimings_{};
     uint32_t frameSlotIndex_{0};
