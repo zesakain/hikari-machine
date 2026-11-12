@@ -29,6 +29,7 @@ Result<void> Conductor::initialize(ActiveSlot initialSlot) {
     world_.setSystemGroupActive(world::SystemGroup::Continuous, true);
     world_.setSystemGroupActive(world::SystemGroup::StateA, activeSlot_ == ActiveSlot::SlotA);
     world_.setSystemGroupActive(world::SystemGroup::StateB, activeSlot_ == ActiveSlot::SlotB);
+    world_.setSystemGroupActive(world::SystemGroup::Transition, false);
 
     auto enterRes = getActiveMode().enter(world_);
     if (!enterRes.hasValue()) {
@@ -60,6 +61,7 @@ void Conductor::update(Duration realDelta) {
             actionClock_.setTimeScale(currentScale);
         } else {
             actionClock_.setTimeScale(1.0F);
+            world_.setSystemGroupActive(world::SystemGroup::Transition, false);
             state_ = ConductorState::Active;
             ENG_LOG_FORMAT(LogLevel::Info, "Conductor",
                            "Transition curve complete: %.*s is now in steady Active state",
@@ -273,6 +275,7 @@ Result<void> Conductor::executeTransition() {
     activeSlot_ = toSlot;
     world_.setSystemGroupActive(world::SystemGroup::StateA, activeSlot_ == ActiveSlot::SlotA);
     world_.setSystemGroupActive(world::SystemGroup::StateB, activeSlot_ == ActiveSlot::SlotB);
+    world_.setSystemGroupActive(world::SystemGroup::Transition, true);
 
     ENG_LOG_FORMAT(LogLevel::Info, "Conductor", "Target state entry: %.*s (Active Role)",
                    static_cast<int>(toName.size()), toName.data());
@@ -294,26 +297,57 @@ Result<void> Conductor::executeTransition() {
 }
 
 void Conductor::cancelTransition() {
-    if (state_ == ConductorState::Preparing || state_ == ConductorState::Prepared) {
+    if (state_ == ConductorState::Preparing || state_ == ConductorState::Prepared ||
+        state_ == ConductorState::Transitioning) {
         ENG_LOG_FORMAT(
             LogLevel::Info, "Conductor", "Transition cancelled; reverting to active state %.*s",
             static_cast<int>(getActiveMode().getName().size()), getActiveMode().getName().data());
         getStandbyMode().cancelPrepare();
         pendingRequest_ = {};
+        world_.setSystemGroupActive(world::SystemGroup::Transition, false);
+        actionClock_.setTimeScale(1.0F);
         state_ = ConductorState::Active;
     }
 }
 
 void Conductor::shutdown() {
-    if (state_ == ConductorState::Preparing || state_ == ConductorState::Prepared) {
+    if (state_ == ConductorState::Preparing || state_ == ConductorState::Prepared ||
+        state_ == ConductorState::Transitioning) {
         getStandbyMode().cancelPrepare();
         pendingRequest_ = {};
+        world_.setSystemGroupActive(world::SystemGroup::Transition, false);
     }
     if (state_ != ConductorState::Uninitialized && state_ != ConductorState::Terminated) {
         auto exitRes = getActiveMode().exit(world_);
         (void)exitRes;
     }
     state_ = ConductorState::Terminated;
+}
+
+const StateContext& Conductor::getStateContext(ActiveSlot slot) const noexcept {
+    return (slot == ActiveSlot::SlotA) ? slotAContext_ : slotBContext_;
+}
+
+StateContext& Conductor::getStateContext(ActiveSlot slot) noexcept {
+    return (slot == ActiveSlot::SlotA) ? slotAContext_ : slotBContext_;
+}
+
+const StateContext& Conductor::getActiveStateContext() const noexcept {
+    return getStateContext(activeSlot_);
+}
+
+StateContext& Conductor::getActiveStateContext() noexcept {
+    return getStateContext(activeSlot_);
+}
+
+const StateContext& Conductor::getStandbyStateContext() const noexcept {
+    return getStateContext((activeSlot_ == ActiveSlot::SlotA) ? ActiveSlot::SlotB
+                                                              : ActiveSlot::SlotA);
+}
+
+StateContext& Conductor::getStandbyStateContext() noexcept {
+    return getStateContext((activeSlot_ == ActiveSlot::SlotA) ? ActiveSlot::SlotB
+                                                              : ActiveSlot::SlotA);
 }
 
 Mode& Conductor::getActiveMode() noexcept {

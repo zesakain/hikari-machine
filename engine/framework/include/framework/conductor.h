@@ -22,6 +22,7 @@
 #include "core/time.h"
 #include "framework/conductor_types.h"
 #include "framework/mode.h"
+#include "framework/state_context.h"
 #include "world/world.h"
 
 #include <memory>
@@ -197,11 +198,32 @@ public:
     /// Returns count of rejected/rolled-back transitions.
     [[nodiscard]] uint32_t getFailedTransitionsCount() const noexcept { return failedTransitions_; }
 
+    /// Returns a const reference to the StateContext for a given slot.
+    [[nodiscard]] const StateContext& getStateContext(ActiveSlot slot) const noexcept;
+
+    /// Returns a mutable reference to the StateContext for a given slot.
+    [[nodiscard]] StateContext& getStateContext(ActiveSlot slot) noexcept;
+
+    /// Returns a const reference to the active StateContext.
+    [[nodiscard]] const StateContext& getActiveStateContext() const noexcept;
+
+    /// Returns a mutable reference to the active StateContext.
+    [[nodiscard]] StateContext& getActiveStateContext() noexcept;
+
+    /// Returns a const reference to the standby StateContext.
+    [[nodiscard]] const StateContext& getStandbyStateContext() const noexcept;
+
+    /// Returns a mutable reference to the standby StateContext.
+    [[nodiscard]] StateContext& getStandbyStateContext() noexcept;
+
 private:
     world::World& world_;
     std::unique_ptr<Mode> modeA_;
     std::unique_ptr<Mode> modeB_;
     ConductorConfig config_{};
+
+    StateContext slotAContext_{};
+    StateContext slotBContext_{};
 
     ConductorState state_{ConductorState::Uninitialized};
     ActiveSlot activeSlot_{ActiveSlot::SlotA};

@@ -102,6 +102,14 @@ struct RuntimeSession::Impl {
                 Error{ErrorCode::InvalidArgument, "Cannot start simulation: Edit World is null"});
         }
 
+        if (!config.isolateWorld) {
+            editWorld->setSystemGroupActive(world::SystemGroup::Continuous, true);
+            state = SimulationState::Playing;
+            ENG_LOG_INFO("RuntimeSession",
+                         "Runtime simulation started directly on Shared World (non-isolated)");
+            return Result<void>::success();
+        }
+
         // 1. Stage edit world state in memory (zero disk I/O)
         auto serRes = SceneSerializer::serializeToString(*editWorld);
         if (!serRes.hasValue()) {
@@ -263,10 +271,15 @@ end
     Result<void> stop() {
         if (state == SimulationState::Playing || state == SimulationState::Paused) {
             state = SimulationState::Stopped;
-            teardownRuntime();
+            if (config.isolateWorld) {
+                teardownRuntime();
+                ENG_LOG_INFO("RuntimeSession",
+                             "Simulation stopped; Runtime World destroyed; returned to Edit Mode");
+            } else {
+                ENG_LOG_INFO("RuntimeSession",
+                             "Simulation stopped on Shared World; returned to Edit Mode");
+            }
             state = SimulationState::Edit;
-            ENG_LOG_INFO("RuntimeSession",
-                         "Simulation stopped; Runtime World destroyed; returned to Edit Mode");
             return Result<void>::success();
         }
 
@@ -279,9 +292,13 @@ end
         if (state == SimulationState::Playing) {
             if (runtimeConductor) {
                 runtimeConductor->update(delta);
+            } else if (editConductor) {
+                editConductor->update(delta);
             }
             if (runtimeWorld) {
                 runtimeWorld->progress(static_cast<float>(delta.toSeconds()));
+            } else if (editWorld) {
+                editWorld->progress(static_cast<float>(delta.toSeconds()));
             }
         }
     }
@@ -320,27 +337,35 @@ const world::World* RuntimeSession::getRuntimeWorld() const noexcept {
 }
 
 world::World* RuntimeSession::getActiveWorld() noexcept {
-    return (impl_->state == SimulationState::Playing || impl_->state == SimulationState::Paused)
-               ? impl_->runtimeWorld.get()
-               : impl_->editWorld;
+    if ((impl_->state == SimulationState::Playing || impl_->state == SimulationState::Paused) &&
+        impl_->runtimeWorld) {
+        return impl_->runtimeWorld.get();
+    }
+    return impl_->editWorld;
 }
 
 const world::World* RuntimeSession::getActiveWorld() const noexcept {
-    return (impl_->state == SimulationState::Playing || impl_->state == SimulationState::Paused)
-               ? impl_->runtimeWorld.get()
-               : impl_->editWorld;
+    if ((impl_->state == SimulationState::Playing || impl_->state == SimulationState::Paused) &&
+        impl_->runtimeWorld) {
+        return impl_->runtimeWorld.get();
+    }
+    return impl_->editWorld;
 }
 
 Conductor* RuntimeSession::getActiveConductor() noexcept {
-    return (impl_->state == SimulationState::Playing || impl_->state == SimulationState::Paused)
-               ? impl_->runtimeConductor.get()
-               : impl_->editConductor;
+    if ((impl_->state == SimulationState::Playing || impl_->state == SimulationState::Paused) &&
+        impl_->runtimeConductor) {
+        return impl_->runtimeConductor.get();
+    }
+    return impl_->editConductor;
 }
 
 const Conductor* RuntimeSession::getActiveConductor() const noexcept {
-    return (impl_->state == SimulationState::Playing || impl_->state == SimulationState::Paused)
-               ? impl_->runtimeConductor.get()
-               : impl_->editConductor;
+    if ((impl_->state == SimulationState::Playing || impl_->state == SimulationState::Paused) &&
+        impl_->runtimeConductor) {
+        return impl_->runtimeConductor.get();
+    }
+    return impl_->editConductor;
 }
 
 SimulationState RuntimeSession::getSimulationState() const noexcept {

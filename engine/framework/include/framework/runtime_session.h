@@ -1,20 +1,28 @@
 /// @file runtime_session.h
-/// @brief Lifecycle manager for isolated runtime simulation sessions.
+/// @brief Editor Play-in-Editor (PIE) simulation preview session coordinator.
 ///
 /// Purpose:
-/// Coordinates execution between the authoritative Edit World and an isolated Runtime World.
+/// Coordinates simulation preview sessions between the authoring Edit World and an optional
+/// isolated Runtime World for the Editor.
 /// Manages the Play -> Pause -> Resume -> Stop state machine, in-memory scene staging,
 /// runtime physics/script/conductor setup, and clean resource destruction upon stop.
 ///
+/// Architectural Scope & Disambiguation:
+/// RuntimeSession is an Editor authoring workflow tool designed to prevent scene editing
+/// state corruption during interactive testing. It is NOT the engine's core Two-State Conductor.
+/// The core gameplay execution architecture is governed by Conductor over a single shared World,
+/// where transitions between State A and State B never duplicate, clone, or recreate the World.
+///
 /// Guarantees:
-/// - Absolute isolation: modifications during simulation (physics stepping, entity additions,
-///   script executions, component edits) NEVER mutate the authoring Edit World.
-/// - Atomic teardown: upon Stop, the Runtime World is cleanly destroyed, and the editor
+/// - Absolute editor isolation (when isolateWorld is true): modifications during simulation
+///   (physics stepping, entity additions, script executions, component edits) NEVER mutate the authoring Edit World.
+/// - Atomic teardown: upon Stop, the isolated Runtime World is cleanly destroyed, and the editor
 ///   returns to the exact Edit World state as before Play.
 ///
 /// Ownership and Lifetime:
 /// Owned by EditorEngine or application runner. Holds a non-owning pointer to the Edit World.
-/// Owns the Runtime World, runtime PhysicsWorld, runtime ScriptEngine, and runtime Conductor.
+/// When isolateWorld is true, owns the isolated Runtime World, runtime PhysicsWorld, runtime ScriptEngine,
+/// and runtime Conductor.
 ///
 /// Thread-safety:
 /// Main thread only.
@@ -69,6 +77,11 @@ struct RuntimeSessionConfig {
 
     /// Physics world configuration for the runtime simulation.
     physics::PhysicsWorldSettings physicsSettings{};
+
+    /// If true (default), stages the edit world in memory and executes simulation in an isolated
+    /// runtime world, guaranteeing that editor authoring state is never corrupted upon Stop.
+    /// If false, executes simulation directly on the authoritative edit world.
+    bool isolateWorld{true};
 };
 
 /// @class RuntimeSession
