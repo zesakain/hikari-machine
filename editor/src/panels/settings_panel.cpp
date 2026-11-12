@@ -319,21 +319,24 @@ void SettingsPanel::drawGeneralTab(EditorContext& /*ctx*/) {
     helpMarker("Maximum number of undoable scene operations stored in memory.");
 }
 
-void SettingsPanel::drawAppearanceTab(EditorContext& /*ctx*/) {
+void SettingsPanel::drawAppearanceTab(EditorContext& ctx) {
     ImGui::TextUnformatted("Appearance & Themes");
     ImGui::TextDisabled("Visual theme, typography, and scaling preferences.");
     ImGui::Separator();
     ImGui::Spacing();
 
-    const char* themes[] = {"Dark Studio", "Charcoal Slate", "High Contrast Dark"};
-    int currentTheme = 0;
-    if (pendingPrefs_.appearance.themeName == "Charcoal Slate")
-        currentTheme = 1;
-    else if (pendingPrefs_.appearance.themeName == "High Contrast Dark")
-        currentTheme = 2;
+    const char* themes[] = {"Hikari Dark", "Hikari Midnight", "Hikari Light"};
+    ThemeType currentThemeType = getActiveThemeType();
+    int currentTheme = static_cast<int>(currentThemeType);
 
     if (ImGui::Combo("Editor Theme", &currentTheme, themes, 3)) {
-        pendingPrefs_.appearance.themeName = themes[currentTheme];
+        ThemeType selectedType = static_cast<ThemeType>(currentTheme);
+        applyEditorTheme(selectedType);
+        pendingPrefs_.appearance.themeName = getThemeName(selectedType);
+        if (ctx.editorEngine != nullptr) {
+            ctx.editorEngine->getEditorPreferences().appearance.themeName =
+                pendingPrefs_.appearance.themeName;
+        }
     }
 
     ImGui::SliderFloat("UI Scale Factor", &pendingPrefs_.appearance.uiScaleFactor, 0.75F, 2.0F,
@@ -758,6 +761,11 @@ void SettingsPanel::drawFooter(EditorContext& ctx) {
         ImGui::SameLine();
         if (ImGui::Button("Reset Defaults", ImVec2(130.0F, 30.0F))) {
             pendingPrefs_.resetToDefaults();
+            applyEditorTheme(ThemeType::Dark);
+            if (ctx.editorEngine != nullptr) {
+                ctx.editorEngine->getEditorPreferences().appearance.themeName =
+                    pendingPrefs_.appearance.themeName;
+            }
             std::snprintf(customExecBuffer_, sizeof(customExecBuffer_), "%s",
                           pendingPrefs_.scripting.customExecutablePath.c_str());
             std::snprintf(argsTemplateBuffer_, sizeof(argsTemplateBuffer_), "%s",

@@ -5,6 +5,7 @@
 
 #include "core/log.h"
 #include "editor/editor_camera.h"
+#include "editor/editor_engine.h"
 #include "editor/editor_theme.h"
 #include "editor/hierarchy_panel.h"
 #include "editor/selection_model.h"
@@ -562,14 +563,26 @@ struct WorkspaceManager::Impl {
                     auto currentTheme = getActiveThemeType();
                     if (ImGui::MenuItem("Hikari Dark", nullptr, currentTheme == ThemeType::Dark)) {
                         applyEditorTheme(ThemeType::Dark);
+                        if (ctx.editorEngine != nullptr) {
+                            ctx.editorEngine->getEditorPreferences().appearance.themeName =
+                                "Hikari Dark";
+                        }
                     }
                     if (ImGui::MenuItem("Hikari Midnight", nullptr,
                                         currentTheme == ThemeType::Midnight)) {
                         applyEditorTheme(ThemeType::Midnight);
+                        if (ctx.editorEngine != nullptr) {
+                            ctx.editorEngine->getEditorPreferences().appearance.themeName =
+                                "Hikari Midnight";
+                        }
                     }
                     if (ImGui::MenuItem("Hikari Light", nullptr,
                                         currentTheme == ThemeType::Light)) {
                         applyEditorTheme(ThemeType::Light);
+                        if (ctx.editorEngine != nullptr) {
+                            ctx.editorEngine->getEditorPreferences().appearance.themeName =
+                                "Hikari Light";
+                        }
                     }
                     ImGui::EndMenu();
                 }
