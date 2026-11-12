@@ -195,6 +195,12 @@ target_link_libraries(sponza_benchmark_test PRIVATE hikari::engine_render hikari
 add_test(NAME sponza_benchmark_test COMMAND sponza_benchmark_test)
 set_tests_properties(sponza_benchmark_test PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
+# Graphics Settings & Scalability Verification Tests (Milestone 11B)
+add_executable(graphics_settings_test unit/render/graphics_settings_test.cpp)
+target_link_libraries(graphics_settings_test PRIVATE hikari::engine_render hikari::engine_rhi hikari::engine_core)
+add_test(NAME graphics_settings_test COMMAND graphics_settings_test)
+set_tests_properties(graphics_settings_test PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
 # Physics Unit Tests
 add_executable(physics_test unit/physics/physics_test.cpp)
 target_link_libraries(physics_test PRIVATE hikari::engine_physics)
