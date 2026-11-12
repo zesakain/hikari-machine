@@ -566,6 +566,14 @@ const FrameTelemetryTracker& EditorEngine::getTelemetryTracker() const noexcept 
     return impl_->telemetryTracker;
 }
 
+const render::GpuPassTimings& EditorEngine::getGpuPassTimings() const noexcept {
+    if (impl_ != nullptr) {
+        return impl_->sceneRenderer.getGpuPassTimings();
+    }
+    static const render::GpuPassTimings kEmpty{};
+    return kEmpty;
+}
+
 void EditorEngine::beginFrame(Duration dt, uint32_t width, uint32_t height) {
     if (!impl_->initialized) {
         return;
@@ -692,6 +700,7 @@ void EditorEngine::renderScene(rhi::RhiCommandList& cmdList) {
     if (impl_->sceneRenderer.isPostProcessingEnabled()) {
         impl_->sceneRenderer.renderPostProcess(cmdList);
     }
+    impl_->sceneRenderer.updateGpuTimings(*impl_->rhiDevice);
 }
 
 void EditorEngine::endFrame(rhi::RhiCommandList& cmdList) {

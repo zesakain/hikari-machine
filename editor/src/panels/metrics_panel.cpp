@@ -8,6 +8,7 @@
 #include "editor/editor_theme.h"
 #include "editor/ui_helpers.h"
 #include "imgui_utils.h"
+#include "render/scene_renderer.h"
 #include "rhi/rhi_device.h"
 #include "world/world.h"
 
@@ -234,6 +235,36 @@ void MetricsPanel::draw(EditorContext& ctx) {
                 ImGui::Text("%llu", static_cast<unsigned long long>(ctx.executedPasses));
                 ImGui::NextColumn();
 
+                if (ctx.sceneRenderer != nullptr) {
+                    const auto& passTimings = ctx.sceneRenderer->getGpuPassTimings();
+                    if (passTimings.valid) {
+                        ImGui::TextDisabled("  - Shadow Pass (GPU)");
+                        ImGui::NextColumn();
+                        ImGui::Text("%.2f ms", static_cast<double>(passTimings.shadowPassMs));
+                        ImGui::NextColumn();
+
+                        ImGui::TextDisabled("  - Main PBR Pass (GPU)");
+                        ImGui::NextColumn();
+                        ImGui::Text("%.2f ms", static_cast<double>(passTimings.mainPbrPassMs));
+                        ImGui::NextColumn();
+
+                        ImGui::TextDisabled("  - Bloom Downsample (GPU)");
+                        ImGui::NextColumn();
+                        ImGui::Text("%.2f ms", static_cast<double>(passTimings.bloomDownsampleMs));
+                        ImGui::NextColumn();
+
+                        ImGui::TextDisabled("  - Bloom Upsample (GPU)");
+                        ImGui::NextColumn();
+                        ImGui::Text("%.2f ms", static_cast<double>(passTimings.bloomUpsampleMs));
+                        ImGui::NextColumn();
+
+                        ImGui::TextDisabled("  - Tone Mapping (GPU)");
+                        ImGui::NextColumn();
+                        ImGui::Text("%.2f ms", static_cast<double>(passTimings.toneMappingMs));
+                        ImGui::NextColumn();
+                    }
+                }
+
                 ImGui::Columns(1);
                 ImGui::EndTabItem();
             }
@@ -283,8 +314,39 @@ void MetricsPanel::draw(EditorContext& ctx) {
 
                 ImGui::TextDisabled("GPU Timestamp Queries");
                 ImGui::NextColumn();
-                ImGui::TextDisabled("Disabled / Unsupported (RHI Tier 0 baseline)");
+                if (ctx.rhiDevice != nullptr &&
+                    ctx.rhiDevice->getCaps().features.timestampQueries) {
+                    ImGui::TextColored(
+                        ImVec4(0.06F, 0.73F, 0.51F, 1.0F), "Enabled (Period: %.1f ns, %u bits)",
+                        static_cast<double>(ctx.rhiDevice->getCaps().limits.timestampPeriod),
+                        ctx.rhiDevice->getCaps().limits.timestampValidBits);
+                } else {
+                    ImGui::TextDisabled("Disabled / Unsupported");
+                }
                 ImGui::NextColumn();
+
+                if (ctx.rhiDevice != nullptr) {
+                    const auto qStats = ctx.rhiDevice->getQueueTimingStats();
+                    ImGui::TextDisabled("vkQueueSubmit Time");
+                    ImGui::NextColumn();
+                    ImGui::Text("%.2f ms", static_cast<double>(qStats.submitTimeMs));
+                    ImGui::NextColumn();
+
+                    ImGui::TextDisabled("vkWaitForFences Wait");
+                    ImGui::NextColumn();
+                    ImGui::Text("%.2f ms", static_cast<double>(qStats.fenceWaitTimeMs));
+                    ImGui::NextColumn();
+
+                    ImGui::TextDisabled("vkAcquireNextImage Time");
+                    ImGui::NextColumn();
+                    ImGui::Text("%.2f ms", static_cast<double>(qStats.acquireTimeMs));
+                    ImGui::NextColumn();
+
+                    ImGui::TextDisabled("vkQueuePresent Time");
+                    ImGui::NextColumn();
+                    ImGui::Text("%.2f ms", static_cast<double>(qStats.presentTimeMs));
+                    ImGui::NextColumn();
+                }
 
                 ImGui::TextDisabled("Surface Format");
                 ImGui::NextColumn();

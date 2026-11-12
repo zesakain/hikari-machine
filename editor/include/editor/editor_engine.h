@@ -51,6 +51,7 @@ class RuntimeSession;
 namespace eng::render {
 class AssetManager;
 class SceneRenderer;
+struct GpuPassTimings;
 } // namespace eng::render
 
 namespace eng::editor {
@@ -105,6 +106,9 @@ public:
 
     /// Returns the live frame telemetry tracker.
     [[nodiscard]] const FrameTelemetryTracker& getTelemetryTracker() const noexcept;
+
+    /// Returns the latest measured GPU pass execution timings.
+    [[nodiscard]] const render::GpuPassTimings& getGpuPassTimings() const noexcept;
 
     /// Starts a new ImGui frame with the given delta time and physical window dimensions.
     void beginFrame(Duration dt, uint32_t width = 0, uint32_t height = 0);

@@ -15,6 +15,7 @@
 #include "render/light_components.h"
 #include "render/mesh_component.h"
 #include "render/render_graph.h"
+#include "render/scene_renderer.h"
 #include "rhi/command_list.h"
 #include "rhi/rhi_device.h"
 #include "script/script_components.h"
@@ -405,7 +406,13 @@ body {
             uiSystem.processInput(input, prevInput);
 #if defined(HIKARI_BUILD_EDITOR)
             if (editorEngine.isInitialized()) {
-                editorEngine.recordFrameTelemetry(frameDuration, lastCpuDuration);
+                std::optional<Duration> gpuDur = std::nullopt;
+                const auto& gpuTimings = editorEngine.getGpuPassTimings();
+                if (gpuTimings.valid) {
+                    gpuDur = Duration::fromMicroseconds(
+                        static_cast<int64_t>(gpuTimings.totalSceneMs * 1000.0F));
+                }
+                editorEngine.recordFrameTelemetry(frameDuration, lastCpuDuration, gpuDur);
                 editorEngine.processInput(input);
                 editorEngine.beginFrame(frameDuration, currentWidth, currentHeight);
                 editorEngine.drawPanels();
@@ -472,11 +479,13 @@ body {
             mainCmd->endRenderPass();
             mainCmd->end();
 
-            // 5. Submit recorded commands to GPU queue
-            (void)rhiDevice->submit(mainCmd.get());
-
+            // Measure CPU frame recording duration (excluding queue submit, fence wait, and
+            // present)
             const Timestamp cpuEndTimestamp = Timestamp::now();
             lastCpuDuration = cpuEndTimestamp - cpuStartTimestamp;
+
+            // 5. Submit recorded commands to GPU queue
+            (void)rhiDevice->submit(mainCmd.get());
 
             // 6. Present rendered swapchain image to display
             if (window) {
