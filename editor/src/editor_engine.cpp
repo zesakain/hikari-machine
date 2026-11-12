@@ -695,8 +695,14 @@ void EditorEngine::renderScene(rhi::RhiCommandList& cmdList) {
     }
     world::updateHierarchyTransforms(*targetWorld);
 
-    (void)impl_->sceneRenderer.renderScene(*targetWorld, impl_->assetManager, *impl_->rhiDevice,
-                                           cmdList, impl_->viewportCameraViewProj);
+    const render::RenderStats stats =
+        impl_->sceneRenderer.renderScene(*targetWorld, impl_->assetManager, *impl_->rhiDevice,
+                                         cmdList, impl_->viewportCameraViewProj);
+    impl_->context.lastSceneDrawCalls = stats.drawCalls;
+    impl_->context.lastSceneShadowDrawCalls = stats.shadowDrawCalls;
+    impl_->context.lastSceneTriangles = stats.triangles;
+    impl_->context.lastSceneVertices = stats.vertices;
+
     if (impl_->sceneRenderer.isPostProcessingEnabled()) {
         impl_->sceneRenderer.renderPostProcess(cmdList);
     }
@@ -893,6 +899,10 @@ void EditorEngine::resetWorkspaceLayout() noexcept {
 
 uint32_t EditorEngine::lastDrawCallCount() const noexcept {
     return impl_->context.lastDrawCalls;
+}
+
+const render::RenderStats& EditorEngine::lastSceneRenderStats() const noexcept {
+    return impl_->sceneRenderer.getLastRenderStats();
 }
 
 uint32_t EditorEngine::lastVertexCount() const noexcept {

@@ -99,6 +99,10 @@ struct EditorContext {
     uint32_t lastDrawCalls{0};
     uint32_t lastVertices{0};
     uint32_t lastIndices{0};
+    uint32_t lastSceneDrawCalls{0};
+    uint32_t lastSceneShadowDrawCalls{0};
+    uint32_t lastSceneTriangles{0};
+    uint32_t lastSceneVertices{0};
     uint64_t executedPasses{0};
 
     bool isSceneDirty{false};

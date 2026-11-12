@@ -93,8 +93,16 @@ void MetricsPanel::draw(EditorContext& ctx) {
         ImGui::Columns(2, nullptr, false);
 
         beginCard("KpiDrawCalls", 0.0F, 48.0F);
-        ImGui::TextDisabled("Draw Calls");
-        ImGui::TextColored(toImVec4(theme.textPrimary), "%u calls", ctx.lastDrawCalls);
+        ImGui::TextDisabled("Draw Calls (Scene / UI)");
+        const uint32_t totalSceneCalls = ctx.lastSceneDrawCalls + ctx.lastSceneShadowDrawCalls;
+        ImGui::TextColored(toImVec4(theme.textPrimary), "%u / %u", totalSceneCalls,
+                           ctx.lastDrawCalls);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("3D Scene PBR: %u calls (%u tris)\nDirectional Shadow: %u "
+                              "calls\nDear ImGui UI: %u calls (%u verts)",
+                              ctx.lastSceneDrawCalls, ctx.lastSceneTriangles,
+                              ctx.lastSceneShadowDrawCalls, ctx.lastDrawCalls, ctx.lastVertices);
+        }
         endCard();
         ImGui::NextColumn();
 

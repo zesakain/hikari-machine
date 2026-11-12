@@ -52,6 +52,7 @@ namespace eng::render {
 class AssetManager;
 class SceneRenderer;
 struct GpuPassTimings;
+struct RenderStats;
 } // namespace eng::render
 
 namespace eng::editor {
@@ -206,6 +207,9 @@ public:
 
     /// Returns the total number of ImGui draw calls recorded in the last frame.
     [[nodiscard]] uint32_t lastDrawCallCount() const noexcept;
+
+    /// Returns the telemetry metrics collected during the most recent 3D scene render pass.
+    [[nodiscard]] const render::RenderStats& lastSceneRenderStats() const noexcept;
 
     /// Returns the total number of ImGui vertices rendered in the last frame.
     [[nodiscard]] uint32_t lastVertexCount() const noexcept;
