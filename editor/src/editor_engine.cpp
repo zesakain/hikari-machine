@@ -22,6 +22,7 @@
 #include "rhi/command_list.h"
 #include "rhi/rhi_device.h"
 #include "rhi/sampler.h"
+#include "world/hierarchy_systems.h"
 
 #include <SDL3/SDL.h>
 #include <algorithm>
@@ -588,6 +589,7 @@ void EditorEngine::beginFrame(Duration dt, uint32_t width, uint32_t height) {
 
     // Validate and synchronize entity selection with active World
     if (impl_->context.world != nullptr) {
+        world::updateHierarchyTransforms(*impl_->context.world);
         impl_->selectionModel.validate(*impl_->context.world);
     }
     impl_->context.selectedEntityId = impl_->selectionModel.getPrimarySelected().id;
@@ -616,6 +618,10 @@ void EditorEngine::drawPanels() {
     impl_->workspaceManager.drawWorkspace(impl_->context);
     impl_->viewportCameraViewProj = impl_->context.viewportCameraViewProj;
 
+    if (impl_->context.world != nullptr) {
+        world::updateHierarchyTransforms(*impl_->context.world);
+    }
+
     if (impl_->config.showDemoWindow) {
         ImGui::ShowDemoWindow(&impl_->config.showDemoWindow);
     }
@@ -640,6 +646,7 @@ void EditorEngine::renderScene(rhi::RhiCommandList& cmdList) {
     if (targetWorld == nullptr) {
         return;
     }
+    world::updateHierarchyTransforms(*targetWorld);
 
     (void)impl_->sceneRenderer.renderScene(*targetWorld, impl_->assetManager, *impl_->rhiDevice,
                                            cmdList, impl_->viewportCameraViewProj);
@@ -767,6 +774,9 @@ void EditorEngine::bindWorld(world::World* world) noexcept {
         impl_->context.world = impl_->runtimeSession->getActiveWorld();
     } else {
         impl_->context.world = world;
+    }
+    if (impl_->context.world != nullptr) {
+        world::updateHierarchyTransforms(*impl_->context.world);
     }
 }
 
