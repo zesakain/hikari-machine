@@ -53,6 +53,7 @@ public:
     void destroyTexture(TextureHandle handle) override;
     [[nodiscard]] bool isTextureFormatSupported(TextureFormat format,
                                                 TextureUsageFlags usage) const noexcept override;
+    [[nodiscard]] bool isTextureFormatFilterable(TextureFormat format) const noexcept override;
 
     [[nodiscard]] Result<SamplerHandle> createSampler(const SamplerDesc& desc) override;
     void destroySampler(SamplerHandle handle) override;

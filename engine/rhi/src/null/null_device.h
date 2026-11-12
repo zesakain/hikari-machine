@@ -112,6 +112,9 @@ public:
         (void)usage;
         return format != TextureFormat::Undefined;
     }
+    [[nodiscard]] bool isTextureFormatFilterable(TextureFormat format) const noexcept override {
+        return format != TextureFormat::Undefined;
+    }
 
     [[nodiscard]] Result<SamplerHandle> createSampler(const SamplerDesc& desc) override;
     void destroySampler(SamplerHandle handle) override;

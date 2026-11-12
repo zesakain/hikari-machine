@@ -653,6 +653,17 @@ bool VulkanDevice::isTextureFormatSupported(TextureFormat format,
     return true;
 }
 
+bool VulkanDevice::isTextureFormatFilterable(TextureFormat format) const noexcept {
+    VkFormat vkFmt = toVkFormat(format);
+    if (vkFmt == VK_FORMAT_UNDEFINED || physicalDevice_ == nullptr) {
+        return false;
+    }
+
+    VkFormatProperties props{};
+    vkGetPhysicalDeviceFormatProperties(physicalDevice_->handle(), vkFmt, &props);
+    return (props.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT) != 0;
+}
+
 Result<SamplerHandle> VulkanDevice::createSampler(const SamplerDesc& desc) {
     const bool enableAniso =
         desc.anisotropyEnable && physicalDevice_->getCaps().features.samplerAnisotropy;

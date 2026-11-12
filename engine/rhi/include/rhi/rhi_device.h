@@ -123,6 +123,15 @@ public:
         return format != TextureFormat::Undefined;
     }
 
+    /// Queries whether a given texture format supports linear sampler filtering.
+    ///
+    /// @param format Texture format to inspect.
+    /// @return True if hardware supports linear sampler filtering on the format; false otherwise.
+    [[nodiscard]] virtual bool isTextureFormatFilterable(TextureFormat format) const noexcept {
+        (void)format;
+        return format != TextureFormat::Undefined;
+    }
+
     /// Creates a texture sampler state.
     ///
     /// @param desc Filtering and coordinate wrapping configuration.
