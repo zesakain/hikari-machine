@@ -32,6 +32,7 @@
 #include "render/lighting_data.h"
 #include "render/mesh_component.h"
 #include "render/post_process_types.h"
+#include "render/render_graph.h"
 #include "rhi/command_list.h"
 #include "rhi/pipeline.h"
 #include "rhi/rhi_device.h"
@@ -191,11 +192,17 @@ public:
     }
     void setPostProcessSettings(const PostProcessSettings& settings) noexcept {
         postProcessSettings_ = settings;
+        buildPostProcessGraph();
+        buildRenderGraph();
     }
     [[nodiscard]] bool isPostProcessingEnabled() const noexcept {
         return postProcessSettings_.enabled;
     }
-    void setPostProcessingEnabled(bool enabled) noexcept { postProcessSettings_.enabled = enabled; }
+    void setPostProcessingEnabled(bool enabled) noexcept {
+        postProcessSettings_.enabled = enabled;
+        buildPostProcessGraph();
+        buildRenderGraph();
+    }
 
     [[nodiscard]] rhi::PipelineHandle getPipeline() const noexcept { return pipeline_; }
     [[nodiscard]] rhi::PipelineLayoutHandle getPipelineLayout() const noexcept {
@@ -228,11 +235,27 @@ public:
         return device_ != nullptr && pipeline_.isValid();
     }
 
+    /// Returns the live scene DAG render graph.
+    [[nodiscard]] const RenderGraph& getRenderGraph() const noexcept { return renderGraph_; }
+
+    /// Returns the live post-processing DAG render graph.
+    [[nodiscard]] const RenderGraph& getPostProcessRenderGraph() const noexcept {
+        return postProcessGraph_;
+    }
+
 private:
     [[nodiscard]] Result<void> initPostProcessResources();
     [[nodiscard]] Result<void> createPostProcessTargets(uint32_t width, uint32_t height);
     void destroyPostProcessTargets();
     void updatePostProcessDescriptors();
+
+    void buildRenderGraph();
+    void buildPostProcessGraph();
+    void recordShadowPass(rhi::RhiCommandList& cmdList);
+    void recordMainPbrPass(rhi::RhiCommandList& cmdList);
+    void recordBloomDownsamplePass(rhi::RhiCommandList& cmdList, size_t level);
+    void recordBloomUpsamplePass(rhi::RhiCommandList& cmdList, size_t step, size_t targetLevel);
+    void recordToneMappingPass(rhi::RhiCommandList& cmdList);
 
     rhi::RhiDevice* device_{nullptr};
     rhi::TextureHandle colorTarget_{};
@@ -288,6 +311,17 @@ private:
     RenderStats lastRenderStats_{};
     GpuPassTimings gpuPassTimings_{};
     uint32_t frameSlotIndex_{0};
+
+    // Live RenderGraph DAGs and per-frame recording state
+    RenderGraph renderGraph_{};
+    RenderGraph postProcessGraph_{};
+    rhi::RhiDevice* currentDevice_{nullptr};
+    world::World* currentWorld_{nullptr};
+    AssetManager* currentAssetManager_{nullptr};
+    Mat4 currentViewProj_{Mat4::identity()};
+    Mat4 currentLightSpaceMatrix_{Mat4::identity()};
+    uint32_t currentBaseQuery_{0};
+    bool currentHasTimestamps_{false};
 };
 
 } // namespace eng::render

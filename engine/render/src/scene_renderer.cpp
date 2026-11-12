@@ -4,6 +4,7 @@
 #include "render/scene_renderer.h"
 
 #include "core/assert.h"
+#include "core/log.h"
 #include "physics/physics_components.h"
 #include "render/gpu_material.h"
 #include "render/mesh_shader_spirv.h"
@@ -91,7 +92,9 @@ SceneRenderer::SceneRenderer(SceneRenderer&& other) noexcept
       width_(other.width_), height_(other.height_), shadowResolution_(other.shadowResolution_),
       colorFormat_(other.colorFormat_), depthFormat_(other.depthFormat_),
       settings_(other.settings_), wireframePipeline_(other.wireframePipeline_),
-      wireframeLdrPipeline_(other.wireframeLdrPipeline_) {
+      wireframeLdrPipeline_(other.wireframeLdrPipeline_),
+      renderGraph_(std::move(other.renderGraph_)),
+      postProcessGraph_(std::move(other.postProcessGraph_)) {
     for (size_t i = 0; i < kBloomPyramidLevels; ++i) {
         bloomDownTarget_[i] = other.bloomDownTarget_[i];
         bloomDownSets_[i] = other.bloomDownSets_[i];
@@ -202,6 +205,8 @@ SceneRenderer& SceneRenderer::operator=(SceneRenderer&& other) noexcept {
         settings_ = other.settings_;
         wireframePipeline_ = other.wireframePipeline_;
         wireframeLdrPipeline_ = other.wireframeLdrPipeline_;
+        renderGraph_ = std::move(other.renderGraph_);
+        postProcessGraph_ = std::move(other.postProcessGraph_);
 
         width_ = other.width_;
         height_ = other.height_;
@@ -681,6 +686,9 @@ Result<void> SceneRenderer::init(rhi::RhiDevice& device, uint32_t width, uint32_
     settings_ = GraphicsSettings::createPreset(GraphicsQualityPreset::High);
     settings_ = settings_.validateAgainstCaps(device_->getCaps());
 
+    buildRenderGraph();
+    buildPostProcessGraph();
+
     return Result<void>::success();
 }
 
@@ -828,6 +836,11 @@ void SceneRenderer::shutdown() {
         }
         device_ = nullptr;
     }
+    renderGraph_.reset();
+    postProcessGraph_.reset();
+    currentWorld_ = nullptr;
+    currentAssetManager_ = nullptr;
+    currentDevice_ = nullptr;
     width_ = 0;
     height_ = 0;
 }
@@ -903,6 +916,9 @@ Result<void> SceneRenderer::resize(uint32_t width, uint32_t height) {
         return ppRes.error();
     }
 
+    buildRenderGraph();
+    buildPostProcessGraph();
+
     return Result<void>::success();
 }
 
@@ -970,20 +986,377 @@ Result<void> SceneRenderer::applyGraphicsSettings(const GraphicsSettings& newSet
     device_->setVsync(validated.performance.vsync);
 
     settings_ = validated;
+    buildRenderGraph();
+    buildPostProcessGraph();
     return Result<void>::success();
+}
+
+void SceneRenderer::buildRenderGraph() {
+    renderGraph_.reset();
+
+    const bool useHdr = postProcessSettings_.enabled && hdrTarget_.isValid();
+    const rhi::TextureHandle sceneColorTarget = useHdr ? hdrTarget_ : colorTarget_;
+
+    GraphTextureId colorId{};
+    if (sceneColorTarget.isValid()) {
+        colorId = renderGraph_.importTexture("SceneColorTarget", sceneColorTarget);
+    }
+    GraphTextureId depthId{};
+    if (depthTarget_.isValid()) {
+        depthId = renderGraph_.importTexture("DepthTarget", depthTarget_);
+    }
+
+    const bool hasShadowPass =
+        settings_.shadows.enabled && shadowDepthTarget_.isValid() && shadowPipeline_.isValid();
+    GraphTextureId shadowId{};
+    if (hasShadowPass) {
+        shadowId = renderGraph_.importTexture("ShadowDepthTarget", shadowDepthTarget_);
+    }
+
+    GraphBufferId lightBufId{};
+    if (lightingUniformBuffer_.isValid()) {
+        lightBufId = renderGraph_.importBuffer("LightingBuffer", lightingUniformBuffer_);
+    }
+
+    // 1. Directional Shadow Pass
+    if (hasShadowPass) {
+        renderGraph_.addPass(
+            "DirectionalShadowPass",
+            [shadowId](RenderPassBuilder& builder) {
+                builder.writeTexture(shadowId, rhi::TextureUsageFlags::DepthStencilAttachment);
+            },
+            [this](rhi::RhiCommandList& cmdList) { recordShadowPass(cmdList); });
+    }
+
+    // 2. Main PBR Scene Pass
+    renderGraph_.addPass(
+        "MainPbrPass",
+        [hasShadowPass, shadowId, lightBufId, colorId, depthId](RenderPassBuilder& builder) {
+            if (hasShadowPass && shadowId.isValid()) {
+                builder.readTexture(shadowId, rhi::TextureUsageFlags::Sampled);
+            }
+            if (lightBufId.isValid()) {
+                builder.readBuffer(lightBufId, rhi::BufferUsageFlags::Uniform);
+            }
+            if (colorId.isValid()) {
+                builder.writeTexture(colorId, rhi::TextureUsageFlags::ColorAttachment);
+            }
+            if (depthId.isValid()) {
+                builder.writeTexture(depthId, rhi::TextureUsageFlags::DepthStencilAttachment);
+            }
+        },
+        [this](rhi::RhiCommandList& cmdList) { recordMainPbrPass(cmdList); });
+
+    auto compileRes = renderGraph_.compile();
+    if (!compileRes.hasValue()) {
+        ENG_LOG_ERROR("SceneRenderer", "Failed to compile SceneRenderer RenderGraph");
+    }
+}
+
+void SceneRenderer::recordShadowPass(rhi::RhiCommandList& cmdList) {
+    if (currentWorld_ == nullptr || currentAssetManager_ == nullptr ||
+        !shadowDepthTarget_.isValid() || !shadowPipeline_.isValid()) {
+        return;
+    }
+
+    if (currentHasTimestamps_) {
+        cmdList.writeTimestamp(currentBaseQuery_ + 2, rhi::GpuTimestampStage::TopOfPipe);
+    }
+    rhi::RenderPassBeginInfo shadowPassInfo{
+        .colorTarget = {},
+        .depthTarget = shadowDepthTarget_,
+        .clearColor = {0.0F, 0.0F, 0.0F, 1.0F},
+        .clearDepth = 1.0F,
+        .clearTarget = false,
+        .clearDepthTarget = true,
+        .renderWidth = shadowResolution_,
+        .renderHeight = shadowResolution_,
+    };
+    cmdList.beginRenderPass(shadowPassInfo);
+    cmdList.setViewport(0.0F, 0.0F, static_cast<float>(shadowResolution_),
+                        static_cast<float>(shadowResolution_));
+    cmdList.setScissor(0, 0, shadowResolution_, shadowResolution_);
+    cmdList.bindPipeline(shadowPipeline_);
+
+    auto& ecs = currentWorld_->getRawWorld();
+    auto shadowMeshQuery = ecs.query<const MeshComponent>();
+    shadowMeshQuery.each([&](flecs::entity e, const MeshComponent& meshComp) {
+        if (!meshComp.visible || !meshComp.castShadows) {
+            lastRenderStats_.culledPrimitives++;
+            return;
+        }
+        AssetId meshId = meshComp.meshAsset;
+        if ((!meshId.isValid() || !currentAssetManager_->isLoaded(meshId)) &&
+            !meshComp.assetPath.empty()) {
+            meshId = currentAssetManager_->findAssetByPath(meshComp.assetPath);
+        }
+        if (!meshId.isValid() || !currentAssetManager_->isLoaded(meshId)) {
+            lastRenderStats_.culledPrimitives++;
+            return;
+        }
+        GpuMesh* gpuMesh = currentAssetManager_->getGpuMesh(meshId);
+        if (gpuMesh == nullptr || !gpuMesh->isValid()) {
+            lastRenderStats_.culledPrimitives++;
+            return;
+        }
+
+        Mat4 model = Mat4::identity();
+        if (e.has<world::WorldTransformComponent>()) {
+            const auto* wt = e.get<world::WorldTransformComponent>();
+            if (wt != nullptr) {
+                model = wt->worldMatrix;
+            }
+        } else if (e.has<world::TransformComponent>()) {
+            const auto* tc = e.get<world::TransformComponent>();
+            if (tc != nullptr) {
+                model = tc->transform.toMatrix();
+            }
+        } else if (e.has<physics::PhysicsTransformComponent>()) {
+            const auto* tc = e.get<physics::PhysicsTransformComponent>();
+            if (tc != nullptr) {
+                model = tc->transform.toMatrix();
+            }
+        }
+
+        if (shadowPipelineLayout_.isValid()) {
+            alignas(16) float pushData[32];
+            std::memcpy(&pushData[0], currentLightSpaceMatrix_.m, 64);
+            std::memcpy(&pushData[16], model.m, 64);
+            cmdList.pushConstants(shadowPipelineLayout_, rhi::ShaderStageFlags::Vertex, 0,
+                                  sizeof(pushData), pushData);
+        }
+
+        cmdList.bindVertexBuffer(0, gpuMesh->getVertexBuffer(), 0);
+        if (gpuMesh->getIndexBuffer().isValid() && gpuMesh->getIndexCount() > 0) {
+            cmdList.bindIndexBuffer(gpuMesh->getIndexBuffer(), 0, true);
+            const auto& submeshes = gpuMesh->getSubmeshes();
+            if (meshComp.submeshIndex < submeshes.size()) {
+                const auto& sub = submeshes[meshComp.submeshIndex];
+                cmdList.drawIndexed(sub.indexCount, 1, sub.firstIndex, sub.vertexOffset, 0);
+                lastRenderStats_.shadowDrawCalls++;
+                lastRenderStats_.shadowTriangles += sub.indexCount / 3;
+            } else if (submeshes.empty()) {
+                cmdList.drawIndexed(gpuMesh->getIndexCount(), 1, 0, 0, 0);
+                lastRenderStats_.shadowDrawCalls++;
+                lastRenderStats_.shadowTriangles += gpuMesh->getIndexCount() / 3;
+            } else {
+                for (const auto& sub : submeshes) {
+                    cmdList.drawIndexed(sub.indexCount, 1, sub.firstIndex, sub.vertexOffset, 0);
+                    lastRenderStats_.shadowDrawCalls++;
+                    lastRenderStats_.shadowTriangles += sub.indexCount / 3;
+                }
+            }
+        } else if (gpuMesh->getVertexCount() > 0) {
+            cmdList.draw(gpuMesh->getVertexCount(), 1, 0, 0);
+            lastRenderStats_.shadowDrawCalls++;
+            lastRenderStats_.shadowTriangles += gpuMesh->getVertexCount() / 3;
+        }
+    });
+
+    cmdList.endRenderPass();
+    if (currentHasTimestamps_) {
+        cmdList.writeTimestamp(currentBaseQuery_ + 3, rhi::GpuTimestampStage::BottomOfPipe);
+    }
+}
+
+void SceneRenderer::recordMainPbrPass(rhi::RhiCommandList& cmdList) {
+    if (currentWorld_ == nullptr || currentAssetManager_ == nullptr) {
+        return;
+    }
+    const bool managePass = colorTarget_.isValid();
+
+    const bool useHdr = postProcessSettings_.enabled && hdrTarget_.isValid();
+    const rhi::TextureHandle sceneColorTarget = useHdr ? hdrTarget_ : colorTarget_;
+    rhi::PipelineHandle scenePipeline =
+        (useHdr && hdrPipeline_.isValid()) ? hdrPipeline_ : pipeline_;
+
+    if (settings_.debug.viewMode == DebugViewMode::Wireframe) {
+        if (useHdr && wireframePipeline_.isValid()) {
+            scenePipeline = wireframePipeline_;
+        } else if (!useHdr && wireframeLdrPipeline_.isValid()) {
+            scenePipeline = wireframeLdrPipeline_;
+        } else if (wireframePipeline_.isValid()) {
+            scenePipeline = wireframePipeline_;
+        }
+    }
+
+    if (managePass) {
+        if (currentHasTimestamps_) {
+            cmdList.writeTimestamp(currentBaseQuery_ + 4, rhi::GpuTimestampStage::TopOfPipe);
+        }
+        rhi::RenderPassBeginInfo passInfo{
+            .colorTarget = sceneColorTarget,
+            .depthTarget = depthTarget_,
+            .clearColor = {0.08F, 0.12F, 0.20F, 1.0F},
+            .clearDepth = 1.0F,
+            .clearTarget = true,
+            .clearDepthTarget = true,
+        };
+        cmdList.beginRenderPass(passInfo);
+        cmdList.setViewport(0.0F, 0.0F, static_cast<float>(width_), static_cast<float>(height_));
+        cmdList.setScissor(0, 0, width_, height_);
+    }
+
+    if (scenePipeline.isValid()) {
+        cmdList.bindPipeline(scenePipeline);
+    }
+
+    // Bind Set 1: Scene Lighting & Shadow Map once for the main pass
+    if (pipelineLayout_.isValid() && sceneDescriptorSet_.isValid()) {
+        const std::array<rhi::DescriptorSetHandle, 1> sceneSets = {sceneDescriptorSet_};
+        cmdList.bindDescriptorSets(pipelineLayout_, 1, sceneSets);
+    }
+
+    auto& ecs = currentWorld_->getRawWorld();
+    auto query = ecs.query<const MeshComponent>();
+    query.each([&](flecs::entity e, const MeshComponent& meshComp) {
+        if (!meshComp.visible) {
+            lastRenderStats_.culledPrimitives++;
+            return;
+        }
+
+        AssetId meshId = meshComp.meshAsset;
+        if ((!meshId.isValid() || !currentAssetManager_->isLoaded(meshId)) &&
+            !meshComp.assetPath.empty()) {
+            meshId = currentAssetManager_->findAssetByPath(meshComp.assetPath);
+            if (!meshId.isValid() || !currentAssetManager_->isLoaded(meshId)) {
+                auto loadRes = currentAssetManager_->loadMesh(meshComp.assetPath);
+                if (loadRes.hasValue()) {
+                    meshId = loadRes.value();
+                }
+            }
+        }
+
+        if (!meshId.isValid() || !currentAssetManager_->isLoaded(meshId)) {
+            lastRenderStats_.culledPrimitives++;
+            return;
+        }
+
+        GpuMesh* gpuMesh = currentAssetManager_->getGpuMesh(meshId);
+        if (gpuMesh == nullptr) {
+            auto uploadRes = currentAssetManager_->uploadMesh(meshId, *currentDevice_);
+            if (uploadRes.hasValue()) {
+                gpuMesh = uploadRes.value();
+            }
+        }
+
+        if (gpuMesh == nullptr || !gpuMesh->isValid()) {
+            lastRenderStats_.culledPrimitives++;
+            return;
+        }
+
+        Mat4 model = Mat4::identity();
+        if (e.has<world::WorldTransformComponent>()) {
+            const auto* wt = e.get<world::WorldTransformComponent>();
+            if (wt != nullptr) {
+                model = wt->worldMatrix;
+            }
+        } else if (e.has<world::TransformComponent>()) {
+            const auto* tc = e.get<world::TransformComponent>();
+            if (tc != nullptr) {
+                model = tc->transform.toMatrix();
+            }
+        } else if (e.has<physics::PhysicsTransformComponent>()) {
+            const auto* tc = e.get<physics::PhysicsTransformComponent>();
+            if (tc != nullptr) {
+                model = tc->transform.toMatrix();
+            }
+        }
+
+        // Pack 128-byte push constants (64B viewProj + 64B model)
+        if (pipelineLayout_.isValid()) {
+            alignas(16) float pushData[32];
+            std::memcpy(&pushData[0], currentViewProj_.m, 64);
+            std::memcpy(&pushData[16], model.m, 64);
+            cmdList.pushConstants(pipelineLayout_, rhi::ShaderStageFlags::Vertex, 0,
+                                  sizeof(pushData), pushData);
+        }
+
+        // Bind vertex buffer
+        cmdList.bindVertexBuffer(0, gpuMesh->getVertexBuffer(), 0);
+
+        auto bindMaterial = [&](uint32_t matIndex) {
+            if (pipelineLayout_.isValid() && materialDescriptorSetLayout_.isValid()) {
+                GpuMaterial* mat = currentAssetManager_->getGpuMaterial(meshId, matIndex);
+                if (mat == nullptr) {
+                    auto upMat = currentAssetManager_->uploadMaterial(
+                        meshId, matIndex, *currentDevice_, materialDescriptorSetLayout_);
+                    if (upMat.hasValue()) {
+                        mat = upMat.value();
+                    } else {
+                        auto defMat = currentAssetManager_->getOrCreateDefaultMaterial(
+                            *currentDevice_, materialDescriptorSetLayout_);
+                        if (defMat.hasValue()) {
+                            mat = defMat.value();
+                        }
+                    }
+                }
+                if (mat != nullptr && mat->isValid()) {
+                    const std::array<rhi::DescriptorSetHandle, 1> sets = {mat->getDescriptorSet()};
+                    cmdList.bindDescriptorSets(pipelineLayout_, 0, sets);
+                }
+            }
+        };
+
+        // Bind index buffer if present
+        if (gpuMesh->getIndexBuffer().isValid() && gpuMesh->getIndexCount() > 0) {
+            cmdList.bindIndexBuffer(gpuMesh->getIndexBuffer(), 0, true);
+
+            const auto& submeshes = gpuMesh->getSubmeshes();
+            if (meshComp.submeshIndex < submeshes.size()) {
+                const auto& sub = submeshes[meshComp.submeshIndex];
+                bindMaterial(sub.materialIndex);
+                cmdList.drawIndexed(sub.indexCount, 1, sub.firstIndex, sub.vertexOffset, 0);
+                lastRenderStats_.drawCalls++;
+                lastRenderStats_.triangles += sub.indexCount / 3;
+                lastRenderStats_.vertices += sub.indexCount;
+            } else if (submeshes.empty()) {
+                bindMaterial(0);
+                cmdList.drawIndexed(gpuMesh->getIndexCount(), 1, 0, 0, 0);
+                lastRenderStats_.drawCalls++;
+                lastRenderStats_.triangles += gpuMesh->getIndexCount() / 3;
+                lastRenderStats_.vertices += gpuMesh->getVertexCount();
+            } else {
+                for (const auto& sub : submeshes) {
+                    bindMaterial(sub.materialIndex);
+                    cmdList.drawIndexed(sub.indexCount, 1, sub.firstIndex, sub.vertexOffset, 0);
+                    lastRenderStats_.drawCalls++;
+                    lastRenderStats_.triangles += sub.indexCount / 3;
+                    lastRenderStats_.vertices += sub.indexCount;
+                }
+            }
+        } else if (gpuMesh->getVertexCount() > 0) {
+            bindMaterial(0);
+            cmdList.draw(gpuMesh->getVertexCount(), 1, 0, 0);
+            lastRenderStats_.drawCalls++;
+            lastRenderStats_.triangles += gpuMesh->getVertexCount() / 3;
+            lastRenderStats_.vertices += gpuMesh->getVertexCount();
+        }
+
+        lastRenderStats_.meshesRendered++;
+    });
+
+    if (managePass) {
+        cmdList.endRenderPass();
+        if (currentHasTimestamps_) {
+            cmdList.writeTimestamp(currentBaseQuery_ + 5, rhi::GpuTimestampStage::BottomOfPipe);
+            if (!postProcessSettings_.enabled) {
+                cmdList.writeTimestamp(currentBaseQuery_ + 1, rhi::GpuTimestampStage::BottomOfPipe);
+            }
+        }
+    }
 }
 
 RenderStats SceneRenderer::renderScene(world::World& world, AssetManager& assetManager,
                                        rhi::RhiDevice& device, rhi::RhiCommandList& cmdList,
                                        const Mat4& viewProjection) {
-    RenderStats stats{};
     auto& ecs = world.getRawWorld();
 
-    const bool hasTimestamps = device.getCaps().features.timestampQueries;
-    const uint32_t baseQuery = (frameSlotIndex_ % 2) * 16;
-    if (hasTimestamps) {
-        cmdList.resetQueryPool(baseQuery, 16);
-        cmdList.writeTimestamp(baseQuery + 0, rhi::GpuTimestampStage::TopOfPipe);
+    currentHasTimestamps_ = device.getCaps().features.timestampQueries;
+    currentBaseQuery_ = (frameSlotIndex_ % 2) * 16;
+    if (currentHasTimestamps_) {
+        cmdList.resetQueryPool(currentBaseQuery_, 16);
+        cmdList.writeTimestamp(currentBaseQuery_ + 0, rhi::GpuTimestampStage::TopOfPipe);
     }
 
     // 1. Gather Light Sources & Build GpuLightingData
@@ -1030,7 +1403,6 @@ RenderStats SceneRenderer::renderScene(world::World& world, AssetManager& assetM
         });
 
         if (!hasDirLight) {
-            // Default sunlight baseline preserving Milestone 10D behavior
             Vec3 dir = Vec3(0.5F, 0.8F, 0.5F).normalized();
             lightingData.dirLight.directionAndCastShadow = Vec4(dir.x, dir.y, dir.z, 0.0F);
             lightingData.dirLight.colorAndIntensity = Vec4(1.0F, 1.0F, 1.0F, 2.5F);
@@ -1131,299 +1503,32 @@ RenderStats SceneRenderer::renderScene(world::World& world, AssetManager& assetM
     lightingData.lightSpaceMatrix = lightSpaceMatrix;
 
     // Upload lighting data to GPU uniform buffer
-    if (lightingUniformBuffer_.isValid() && device_ != nullptr) {
+    if (lightingUniformBuffer_.isValid()) {
         std::ignore =
-            device_->writeBuffer(lightingUniformBuffer_, 0, &lightingData, sizeof(GpuLightingData));
+            device.writeBuffer(lightingUniformBuffer_, 0, &lightingData, sizeof(GpuLightingData));
     }
 
-    // 2. DIRECTIONAL SHADOW PASS
-    const bool doShadowPass = settings_.shadows.enabled &&
-                              (lightingData.dirLight.directionAndCastShadow.w > 0.5F) &&
-                              shadowDepthTarget_.isValid() && shadowPipeline_.isValid();
-    if (doShadowPass) {
-        if (hasTimestamps) {
-            cmdList.writeTimestamp(baseQuery + 2, rhi::GpuTimestampStage::TopOfPipe);
-        }
-        rhi::RenderPassBeginInfo shadowPassInfo{
-            .colorTarget = {},
-            .depthTarget = shadowDepthTarget_,
-            .clearColor = {0.0F, 0.0F, 0.0F, 1.0F},
-            .clearDepth = 1.0F,
-            .clearTarget = false,
-            .clearDepthTarget = true,
-            .renderWidth = shadowResolution_,
-            .renderHeight = shadowResolution_,
-        };
-        cmdList.beginRenderPass(shadowPassInfo);
-        cmdList.setViewport(0.0F, 0.0F, static_cast<float>(shadowResolution_),
-                            static_cast<float>(shadowResolution_));
-        cmdList.setScissor(0, 0, shadowResolution_, shadowResolution_);
-        cmdList.bindPipeline(shadowPipeline_);
+    currentWorld_ = &world;
+    currentAssetManager_ = &assetManager;
+    currentDevice_ = &device;
+    currentViewProj_ = viewProjection;
+    currentLightSpaceMatrix_ = lightSpaceMatrix;
+    lastRenderStats_ = RenderStats{};
 
-        auto shadowMeshQuery = ecs.query<const MeshComponent>();
-        shadowMeshQuery.each([&](flecs::entity e, const MeshComponent& meshComp) {
-            if (!meshComp.visible || !meshComp.castShadows) {
-                stats.culledPrimitives++;
-                return;
-            }
-            AssetId meshId = meshComp.meshAsset;
-            if ((!meshId.isValid() || !assetManager.isLoaded(meshId)) &&
-                !meshComp.assetPath.empty()) {
-                meshId = assetManager.findAssetByPath(meshComp.assetPath);
-            }
-            if (!meshId.isValid() || !assetManager.isLoaded(meshId)) {
-                stats.culledPrimitives++;
-                return;
-            }
-            GpuMesh* gpuMesh = assetManager.getGpuMesh(meshId);
-            if (gpuMesh == nullptr || !gpuMesh->isValid()) {
-                stats.culledPrimitives++;
-                return;
-            }
-
-            Mat4 model = Mat4::identity();
-            if (e.has<world::WorldTransformComponent>()) {
-                const auto* wt = e.get<world::WorldTransformComponent>();
-                if (wt != nullptr) {
-                    model = wt->worldMatrix;
-                }
-            } else if (e.has<world::TransformComponent>()) {
-                const auto* tc = e.get<world::TransformComponent>();
-                if (tc != nullptr) {
-                    model = tc->transform.toMatrix();
-                }
-            } else if (e.has<physics::PhysicsTransformComponent>()) {
-                const auto* tc = e.get<physics::PhysicsTransformComponent>();
-                if (tc != nullptr) {
-                    model = tc->transform.toMatrix();
-                }
-            }
-
-            if (shadowPipelineLayout_.isValid()) {
-                alignas(16) float pushData[32];
-                std::memcpy(&pushData[0], lightSpaceMatrix.m, 64);
-                std::memcpy(&pushData[16], model.m, 64);
-                cmdList.pushConstants(shadowPipelineLayout_, rhi::ShaderStageFlags::Vertex, 0,
-                                      sizeof(pushData), pushData);
-            }
-
-            cmdList.bindVertexBuffer(0, gpuMesh->getVertexBuffer(), 0);
-            if (gpuMesh->getIndexBuffer().isValid() && gpuMesh->getIndexCount() > 0) {
-                cmdList.bindIndexBuffer(gpuMesh->getIndexBuffer(), 0, true);
-                const auto& submeshes = gpuMesh->getSubmeshes();
-                if (meshComp.submeshIndex < submeshes.size()) {
-                    const auto& sub = submeshes[meshComp.submeshIndex];
-                    cmdList.drawIndexed(sub.indexCount, 1, sub.firstIndex, sub.vertexOffset, 0);
-                    stats.shadowDrawCalls++;
-                    stats.shadowTriangles += sub.indexCount / 3;
-                } else if (submeshes.empty()) {
-                    cmdList.drawIndexed(gpuMesh->getIndexCount(), 1, 0, 0, 0);
-                    stats.shadowDrawCalls++;
-                    stats.shadowTriangles += gpuMesh->getIndexCount() / 3;
-                } else {
-                    for (const auto& sub : submeshes) {
-                        cmdList.drawIndexed(sub.indexCount, 1, sub.firstIndex, sub.vertexOffset, 0);
-                        stats.shadowDrawCalls++;
-                        stats.shadowTriangles += sub.indexCount / 3;
-                    }
-                }
-            } else if (gpuMesh->getVertexCount() > 0) {
-                cmdList.draw(gpuMesh->getVertexCount(), 1, 0, 0);
-                stats.shadowDrawCalls++;
-                stats.shadowTriangles += gpuMesh->getVertexCount() / 3;
-            }
-        });
-
-        cmdList.endRenderPass();
-        if (hasTimestamps) {
-            cmdList.writeTimestamp(baseQuery + 3, rhi::GpuTimestampStage::BottomOfPipe);
+    if (!renderGraph_.isCompiled()) {
+        buildRenderGraph();
+    }
+    if (renderGraph_.isCompiled()) {
+        auto execRes = renderGraph_.execute(device, cmdList);
+        if (!execRes.hasValue()) {
+            ENG_LOG_ERROR("SceneRenderer", "RenderGraph execute failed");
         }
     }
 
-    // 3. MAIN PBR SCENE PASS
-    const bool managePass = colorTarget_.isValid();
-    const bool useHdr = postProcessSettings_.enabled && hdrTarget_.isValid();
-    const rhi::TextureHandle sceneColorTarget = useHdr ? hdrTarget_ : colorTarget_;
-    rhi::PipelineHandle scenePipeline =
-        (useHdr && hdrPipeline_.isValid()) ? hdrPipeline_ : pipeline_;
-
-    if (settings_.debug.viewMode == DebugViewMode::Wireframe) {
-        if (useHdr && wireframePipeline_.isValid()) {
-            scenePipeline = wireframePipeline_;
-        } else if (!useHdr && wireframeLdrPipeline_.isValid()) {
-            scenePipeline = wireframeLdrPipeline_;
-        } else if (wireframePipeline_.isValid()) {
-            scenePipeline = wireframePipeline_;
-        }
-    }
-
-    if (managePass) {
-        if (hasTimestamps) {
-            cmdList.writeTimestamp(baseQuery + 4, rhi::GpuTimestampStage::TopOfPipe);
-        }
-        rhi::RenderPassBeginInfo passInfo{
-            .colorTarget = sceneColorTarget,
-            .depthTarget = depthTarget_,
-            .clearColor = {0.08F, 0.12F, 0.20F, 1.0F},
-            .clearDepth = 1.0F,
-            .clearTarget = true,
-            .clearDepthTarget = true,
-        };
-        cmdList.beginRenderPass(passInfo);
-        cmdList.setViewport(0.0F, 0.0F, static_cast<float>(width_), static_cast<float>(height_));
-        cmdList.setScissor(0, 0, width_, height_);
-    }
-
-    if (scenePipeline.isValid()) {
-        cmdList.bindPipeline(scenePipeline);
-    }
-
-    // Bind Set 1: Scene Lighting & Shadow Map once for the main pass
-    if (pipelineLayout_.isValid() && sceneDescriptorSet_.isValid()) {
-        const std::array<rhi::DescriptorSetHandle, 1> sceneSets = {sceneDescriptorSet_};
-        cmdList.bindDescriptorSets(pipelineLayout_, 1, sceneSets);
-    }
-
-    auto query = ecs.query<const MeshComponent>();
-    query.each([&](flecs::entity e, const MeshComponent& meshComp) {
-        if (!meshComp.visible) {
-            stats.culledPrimitives++;
-            return;
-        }
-
-        AssetId meshId = meshComp.meshAsset;
-        if ((!meshId.isValid() || !assetManager.isLoaded(meshId)) && !meshComp.assetPath.empty()) {
-            meshId = assetManager.findAssetByPath(meshComp.assetPath);
-            if (!meshId.isValid() || !assetManager.isLoaded(meshId)) {
-                auto loadRes = assetManager.loadMesh(meshComp.assetPath);
-                if (loadRes.hasValue()) {
-                    meshId = loadRes.value();
-                }
-            }
-        }
-
-        if (!meshId.isValid() || !assetManager.isLoaded(meshId)) {
-            stats.culledPrimitives++;
-            return;
-        }
-
-        GpuMesh* gpuMesh = assetManager.getGpuMesh(meshId);
-        if (gpuMesh == nullptr) {
-            auto uploadRes = assetManager.uploadMesh(meshId, device);
-            if (uploadRes.hasValue()) {
-                gpuMesh = uploadRes.value();
-            }
-        }
-
-        if (gpuMesh == nullptr || !gpuMesh->isValid()) {
-            stats.culledPrimitives++;
-            return;
-        }
-
-        // Compute model matrix from entity transform.
-        Mat4 model = Mat4::identity();
-        if (e.has<world::WorldTransformComponent>()) {
-            const auto* wt = e.get<world::WorldTransformComponent>();
-            if (wt != nullptr) {
-                model = wt->worldMatrix;
-            }
-        } else if (e.has<world::TransformComponent>()) {
-            const auto* tc = e.get<world::TransformComponent>();
-            if (tc != nullptr) {
-                model = tc->transform.toMatrix();
-            }
-        } else if (e.has<physics::PhysicsTransformComponent>()) {
-            const auto* tc = e.get<physics::PhysicsTransformComponent>();
-            if (tc != nullptr) {
-                model = tc->transform.toMatrix();
-            }
-        }
-
-        // Pack 128-byte push constants (64B viewProj + 64B model)
-        if (pipelineLayout_.isValid()) {
-            alignas(16) float pushData[32];
-            std::memcpy(&pushData[0], viewProjection.m, 64);
-            std::memcpy(&pushData[16], model.m, 64);
-            cmdList.pushConstants(pipelineLayout_, rhi::ShaderStageFlags::Vertex, 0,
-                                  sizeof(pushData), pushData);
-        }
-
-        // Bind vertex buffer
-        cmdList.bindVertexBuffer(0, gpuMesh->getVertexBuffer(), 0);
-
-        auto bindMaterial = [&](uint32_t matIndex) {
-            if (pipelineLayout_.isValid() && materialDescriptorSetLayout_.isValid()) {
-                GpuMaterial* mat = assetManager.getGpuMaterial(meshId, matIndex);
-                if (mat == nullptr) {
-                    auto upMat = assetManager.uploadMaterial(meshId, matIndex, device,
-                                                             materialDescriptorSetLayout_);
-                    if (upMat.hasValue()) {
-                        mat = upMat.value();
-                    } else {
-                        auto defMat = assetManager.getOrCreateDefaultMaterial(
-                            device, materialDescriptorSetLayout_);
-                        if (defMat.hasValue()) {
-                            mat = defMat.value();
-                        }
-                    }
-                }
-                if (mat != nullptr && mat->isValid()) {
-                    const std::array<rhi::DescriptorSetHandle, 1> sets = {mat->getDescriptorSet()};
-                    cmdList.bindDescriptorSets(pipelineLayout_, 0, sets);
-                }
-            }
-        };
-
-        // Bind index buffer if present
-        if (gpuMesh->getIndexBuffer().isValid() && gpuMesh->getIndexCount() > 0) {
-            cmdList.bindIndexBuffer(gpuMesh->getIndexBuffer(), 0, true);
-
-            const auto& submeshes = gpuMesh->getSubmeshes();
-            if (meshComp.submeshIndex < submeshes.size()) {
-                const auto& sub = submeshes[meshComp.submeshIndex];
-                bindMaterial(sub.materialIndex);
-                cmdList.drawIndexed(sub.indexCount, 1, sub.firstIndex, sub.vertexOffset, 0);
-                stats.drawCalls++;
-                stats.triangles += sub.indexCount / 3;
-                stats.vertices += sub.indexCount;
-            } else if (submeshes.empty()) {
-                bindMaterial(0);
-                cmdList.drawIndexed(gpuMesh->getIndexCount(), 1, 0, 0, 0);
-                stats.drawCalls++;
-                stats.triangles += gpuMesh->getIndexCount() / 3;
-                stats.vertices += gpuMesh->getVertexCount();
-            } else {
-                for (const auto& sub : submeshes) {
-                    bindMaterial(sub.materialIndex);
-                    cmdList.drawIndexed(sub.indexCount, 1, sub.firstIndex, sub.vertexOffset, 0);
-                    stats.drawCalls++;
-                    stats.triangles += sub.indexCount / 3;
-                    stats.vertices += sub.indexCount;
-                }
-            }
-        } else if (gpuMesh->getVertexCount() > 0) {
-            bindMaterial(0);
-            cmdList.draw(gpuMesh->getVertexCount(), 1, 0, 0);
-            stats.drawCalls++;
-            stats.triangles += gpuMesh->getVertexCount() / 3;
-            stats.vertices += gpuMesh->getVertexCount();
-        }
-
-        stats.meshesRendered++;
-    });
-
-    if (managePass) {
-        cmdList.endRenderPass();
-        if (hasTimestamps) {
-            cmdList.writeTimestamp(baseQuery + 5, rhi::GpuTimestampStage::BottomOfPipe);
-            if (!postProcessSettings_.enabled) {
-                cmdList.writeTimestamp(baseQuery + 1, rhi::GpuTimestampStage::BottomOfPipe);
-            }
-        }
-    }
-
-    lastRenderStats_ = stats;
-    return stats;
+    currentWorld_ = nullptr;
+    currentAssetManager_ = nullptr;
+    currentDevice_ = nullptr;
+    return lastRenderStats_;
 }
 
 Result<void> SceneRenderer::initPostProcessResources() {
@@ -1858,143 +1963,229 @@ void SceneRenderer::destroyPostProcessTargets() {
     }
 }
 
+void SceneRenderer::buildPostProcessGraph() {
+    postProcessGraph_.reset();
+    if (device_ == nullptr || !postProcessSettings_.enabled || !hdrTarget_.isValid() ||
+        !colorTarget_.isValid()) {
+        return;
+    }
+
+    auto hdrId = postProcessGraph_.importTexture("HdrSceneTarget", hdrTarget_);
+    auto ldrId = postProcessGraph_.importTexture("DisplayColorTarget", colorTarget_);
+
+    GraphTextureId bloomDownIds[kBloomPyramidLevels]{};
+    GraphTextureId bloomUpIds[kBloomPyramidLevels - 1]{};
+
+    const bool hasBloom = postProcessSettings_.bloomEnabled && bloomDownPipeline_.isValid() &&
+                          bloomUpPipeline_.isValid();
+
+    if (hasBloom) {
+        for (size_t i = 0; i < kBloomPyramidLevels; ++i) {
+            if (bloomDownTarget_[i].isValid()) {
+                bloomDownIds[i] = postProcessGraph_.importTexture(
+                    "BloomDownTarget_" + std::to_string(i), bloomDownTarget_[i]);
+            }
+        }
+        for (size_t i = 0; i < kBloomPyramidLevels - 1; ++i) {
+            if (bloomUpTarget_[i].isValid()) {
+                bloomUpIds[i] = postProcessGraph_.importTexture(
+                    "BloomUpTarget_" + std::to_string(i), bloomUpTarget_[i]);
+            }
+        }
+
+        // Bloom Downsample Passes
+        for (size_t i = 0; i < kBloomPyramidLevels; ++i) {
+            auto srcId = (i == 0) ? hdrId : bloomDownIds[i - 1];
+            auto dstId = bloomDownIds[i];
+            postProcessGraph_.addPass(
+                "BloomDownsample_" + std::to_string(i),
+                [srcId, dstId](RenderPassBuilder& builder) {
+                    builder.readTexture(srcId, rhi::TextureUsageFlags::Sampled);
+                    builder.writeTexture(dstId, rhi::TextureUsageFlags::ColorAttachment);
+                },
+                [this, i](rhi::RhiCommandList& cmdList) { recordBloomDownsamplePass(cmdList, i); });
+        }
+
+        // Bloom Upsample Passes
+        for (size_t step = 0; step < kBloomPyramidLevels - 1; ++step) {
+            size_t targetLevel = (kBloomPyramidLevels - 2) - step;
+            auto srcHigherId =
+                (step == 0) ? bloomDownIds[kBloomPyramidLevels - 1] : bloomUpIds[targetLevel + 1];
+            auto srcLowerId = bloomDownIds[targetLevel];
+            auto dstId = bloomUpIds[targetLevel];
+            postProcessGraph_.addPass(
+                "BloomUpsample_" + std::to_string(step),
+                [srcHigherId, srcLowerId, dstId](RenderPassBuilder& builder) {
+                    builder.readTexture(srcHigherId, rhi::TextureUsageFlags::Sampled);
+                    builder.readTexture(srcLowerId, rhi::TextureUsageFlags::Sampled);
+                    builder.writeTexture(dstId, rhi::TextureUsageFlags::ColorAttachment);
+                },
+                [this, step, targetLevel](rhi::RhiCommandList& cmdList) {
+                    recordBloomUpsamplePass(cmdList, step, targetLevel);
+                });
+        }
+    }
+
+    // Tone Mapping Pass
+    if (toneMappingPipeline_.isValid()) {
+        postProcessGraph_.addPass(
+            "ToneMappingPass",
+            [hdrId, hasBloom, bloomUp0 = bloomUpIds[0], ldrId](RenderPassBuilder& builder) {
+                builder.readTexture(hdrId, rhi::TextureUsageFlags::Sampled);
+                if (hasBloom && bloomUp0.isValid()) {
+                    builder.readTexture(bloomUp0, rhi::TextureUsageFlags::Sampled);
+                }
+                builder.writeTexture(ldrId, rhi::TextureUsageFlags::ColorAttachment);
+            },
+            [this](rhi::RhiCommandList& cmdList) { recordToneMappingPass(cmdList); });
+    }
+
+    auto compileRes = postProcessGraph_.compile();
+    if (!compileRes.hasValue()) {
+        ENG_LOG_ERROR("SceneRenderer", "Failed to compile PostProcess RenderGraph");
+    }
+}
+
+void SceneRenderer::recordBloomDownsamplePass(rhi::RhiCommandList& cmdList, size_t i) {
+    if (i == 0 && currentHasTimestamps_) {
+        cmdList.writeTimestamp(currentBaseQuery_ + 6, rhi::GpuTimestampStage::TopOfPipe);
+    }
+    cmdList.bindPipeline(bloomDownPipeline_);
+    uint32_t dstW = std::max(1u, width_ >> (i + 1));
+    uint32_t dstH = std::max(1u, height_ >> (i + 1));
+    uint32_t srcW = (i == 0) ? width_ : std::max(1u, width_ >> i);
+    uint32_t srcH = (i == 0) ? height_ : std::max(1u, height_ >> i);
+
+    rhi::RenderPassBeginInfo passInfo{
+        .colorTarget = bloomDownTarget_[i],
+        .depthTarget = {},
+        .clearColor = {0.0F, 0.0F, 0.0F, 1.0F},
+        .clearDepth = 1.0F,
+        .clearTarget = true,
+        .clearDepthTarget = false,
+    };
+    cmdList.beginRenderPass(passInfo);
+    cmdList.setViewport(0.0F, 0.0F, static_cast<float>(dstW), static_cast<float>(dstH));
+    cmdList.setScissor(0, 0, dstW, dstH);
+
+    const std::array<rhi::DescriptorSetHandle, 1> downSets = {bloomDownSets_[i]};
+    cmdList.bindDescriptorSets(bloomDownPipelineLayout_, 0, downSets);
+
+    BloomDownsamplePushConstants pc{
+        .texelSize = Vec2(1.0F / static_cast<float>(srcW), 1.0F / static_cast<float>(srcH)),
+        .threshold = postProcessSettings_.bloomThreshold,
+        .knee = postProcessSettings_.bloomKnee,
+        .isFirstPass = (i == 0) ? 1 : 0,
+        .padding = {0.0F, 0.0F, 0.0F},
+    };
+    cmdList.pushConstants(bloomDownPipelineLayout_, rhi::ShaderStageFlags::Fragment, 0,
+                          sizeof(BloomDownsamplePushConstants), &pc);
+    cmdList.draw(3, 1, 0, 0);
+    cmdList.endRenderPass();
+
+    if (i == kBloomPyramidLevels - 1 && currentHasTimestamps_) {
+        cmdList.writeTimestamp(currentBaseQuery_ + 7, rhi::GpuTimestampStage::BottomOfPipe);
+    }
+}
+
+void SceneRenderer::recordBloomUpsamplePass(rhi::RhiCommandList& cmdList, size_t step,
+                                            size_t targetLevel) {
+    if (step == 0 && currentHasTimestamps_) {
+        cmdList.writeTimestamp(currentBaseQuery_ + 8, rhi::GpuTimestampStage::TopOfPipe);
+    }
+    cmdList.bindPipeline(bloomUpPipeline_);
+    uint32_t dstW = std::max(1u, width_ >> (targetLevel + 1));
+    uint32_t dstH = std::max(1u, height_ >> (targetLevel + 1));
+    uint32_t srcW = std::max(1u, width_ >> (targetLevel + 2));
+    uint32_t srcH = std::max(1u, height_ >> (targetLevel + 2));
+
+    rhi::RenderPassBeginInfo passInfo{
+        .colorTarget = bloomUpTarget_[targetLevel],
+        .depthTarget = {},
+        .clearColor = {0.0F, 0.0F, 0.0F, 1.0F},
+        .clearDepth = 1.0F,
+        .clearTarget = true,
+        .clearDepthTarget = false,
+    };
+    cmdList.beginRenderPass(passInfo);
+    cmdList.setViewport(0.0F, 0.0F, static_cast<float>(dstW), static_cast<float>(dstH));
+    cmdList.setScissor(0, 0, dstW, dstH);
+
+    const std::array<rhi::DescriptorSetHandle, 1> upSets = {bloomUpSets_[step]};
+    cmdList.bindDescriptorSets(bloomUpPipelineLayout_, 0, upSets);
+
+    BloomUpsamplePushConstants pc{
+        .texelSize = Vec2(1.0F / static_cast<float>(srcW), 1.0F / static_cast<float>(srcH)),
+        .filterRadius = postProcessSettings_.bloomFilterRadius,
+        .blendFactor = 1.0F,
+    };
+    cmdList.pushConstants(bloomUpPipelineLayout_, rhi::ShaderStageFlags::Fragment, 0,
+                          sizeof(BloomUpsamplePushConstants), &pc);
+    cmdList.draw(3, 1, 0, 0);
+    cmdList.endRenderPass();
+
+    if (step == kBloomPyramidLevels - 2 && currentHasTimestamps_) {
+        cmdList.writeTimestamp(currentBaseQuery_ + 9, rhi::GpuTimestampStage::BottomOfPipe);
+    }
+}
+
+void SceneRenderer::recordToneMappingPass(rhi::RhiCommandList& cmdList) {
+    if (currentHasTimestamps_) {
+        cmdList.writeTimestamp(currentBaseQuery_ + 10, rhi::GpuTimestampStage::TopOfPipe);
+    }
+    rhi::RenderPassBeginInfo passInfo{
+        .colorTarget = colorTarget_,
+        .depthTarget = {},
+        .clearColor = {0.0F, 0.0F, 0.0F, 1.0F},
+        .clearDepth = 1.0F,
+        .clearTarget = true,
+        .clearDepthTarget = false,
+    };
+    cmdList.beginRenderPass(passInfo);
+    cmdList.setViewport(0.0F, 0.0F, static_cast<float>(width_), static_cast<float>(height_));
+    cmdList.setScissor(0, 0, width_, height_);
+    cmdList.bindPipeline(toneMappingPipeline_);
+
+    const std::array<rhi::DescriptorSetHandle, 1> tmSets = {toneMappingSet_};
+    cmdList.bindDescriptorSets(toneMappingPipelineLayout_, 0, tmSets);
+
+    ToneMappingPushConstants pc{
+        .exposure = postProcessSettings_.exposure,
+        .toneMapOp = static_cast<int32_t>(postProcessSettings_.toneMapOp),
+        .bloomIntensity =
+            postProcessSettings_.bloomEnabled ? postProcessSettings_.bloomIntensity : 0.0F,
+        .bloomEnabled = postProcessSettings_.bloomEnabled ? 1 : 0,
+        .whitePoint = postProcessSettings_.reinhardWhitePoint,
+        .padding = {0.0F, 0.0F, 0.0F},
+    };
+    cmdList.pushConstants(toneMappingPipelineLayout_, rhi::ShaderStageFlags::Fragment, 0,
+                          sizeof(ToneMappingPushConstants), &pc);
+    cmdList.draw(3, 1, 0, 0);
+    cmdList.endRenderPass();
+
+    if (currentHasTimestamps_) {
+        cmdList.writeTimestamp(currentBaseQuery_ + 11, rhi::GpuTimestampStage::BottomOfPipe);
+        cmdList.writeTimestamp(currentBaseQuery_ + 1, rhi::GpuTimestampStage::BottomOfPipe);
+    }
+}
+
 void SceneRenderer::renderPostProcess(rhi::RhiCommandList& cmdList) {
     if (device_ == nullptr || !postProcessSettings_.enabled || !hdrTarget_.isValid() ||
         !colorTarget_.isValid()) {
         return;
     }
 
-    const bool hasTimestamps = device_->getCaps().features.timestampQueries;
-    const uint32_t baseQuery = (frameSlotIndex_ % 2) * 16;
+    currentHasTimestamps_ = device_->getCaps().features.timestampQueries;
+    currentBaseQuery_ = (frameSlotIndex_ % 2) * 16;
 
-    if (postProcessSettings_.bloomEnabled && bloomDownPipeline_.isValid() &&
-        bloomUpPipeline_.isValid()) {
-        if (hasTimestamps) {
-            cmdList.writeTimestamp(baseQuery + 6, rhi::GpuTimestampStage::TopOfPipe);
-        }
-        // 1. Bloom Downsample Pyramid
-        cmdList.bindPipeline(bloomDownPipeline_);
-        for (size_t i = 0; i < kBloomPyramidLevels; ++i) {
-            uint32_t dstW = std::max(1u, width_ >> (i + 1));
-            uint32_t dstH = std::max(1u, height_ >> (i + 1));
-            uint32_t srcW = (i == 0) ? width_ : std::max(1u, width_ >> i);
-            uint32_t srcH = (i == 0) ? height_ : std::max(1u, height_ >> i);
-
-            rhi::RenderPassBeginInfo passInfo{
-                .colorTarget = bloomDownTarget_[i],
-                .depthTarget = {},
-                .clearColor = {0.0F, 0.0F, 0.0F, 1.0F},
-                .clearDepth = 1.0F,
-                .clearTarget = true,
-                .clearDepthTarget = false,
-            };
-            cmdList.beginRenderPass(passInfo);
-            cmdList.setViewport(0.0F, 0.0F, static_cast<float>(dstW), static_cast<float>(dstH));
-            cmdList.setScissor(0, 0, dstW, dstH);
-
-            const std::array<rhi::DescriptorSetHandle, 1> downSets = {bloomDownSets_[i]};
-            cmdList.bindDescriptorSets(bloomDownPipelineLayout_, 0, downSets);
-
-            BloomDownsamplePushConstants pc{
-                .texelSize = Vec2(1.0F / static_cast<float>(srcW), 1.0F / static_cast<float>(srcH)),
-                .threshold = postProcessSettings_.bloomThreshold,
-                .knee = postProcessSettings_.bloomKnee,
-                .isFirstPass = (i == 0) ? 1 : 0,
-                .padding = {0.0F, 0.0F, 0.0F},
-            };
-            cmdList.pushConstants(bloomDownPipelineLayout_, rhi::ShaderStageFlags::Fragment, 0,
-                                  sizeof(BloomDownsamplePushConstants), &pc);
-            cmdList.draw(3, 1, 0, 0);
-            cmdList.endRenderPass();
-        }
-
-        if (hasTimestamps) {
-            cmdList.writeTimestamp(baseQuery + 7, rhi::GpuTimestampStage::BottomOfPipe);
-            cmdList.writeTimestamp(baseQuery + 8, rhi::GpuTimestampStage::TopOfPipe);
-        }
-
-        // 2. Bloom Upsample Pyramid
-        cmdList.bindPipeline(bloomUpPipeline_);
-        for (size_t step = 0; step < kBloomPyramidLevels - 1; ++step) {
-            size_t targetLevel = (kBloomPyramidLevels - 2) - step;
-            uint32_t dstW = std::max(1u, width_ >> (targetLevel + 1));
-            uint32_t dstH = std::max(1u, height_ >> (targetLevel + 1));
-            uint32_t srcW = std::max(1u, width_ >> (targetLevel + 2));
-            uint32_t srcH = std::max(1u, height_ >> (targetLevel + 2));
-
-            rhi::RenderPassBeginInfo passInfo{
-                .colorTarget = bloomUpTarget_[targetLevel],
-                .depthTarget = {},
-                .clearColor = {0.0F, 0.0F, 0.0F, 1.0F},
-                .clearDepth = 1.0F,
-                .clearTarget = true,
-                .clearDepthTarget = false,
-            };
-            cmdList.beginRenderPass(passInfo);
-            cmdList.setViewport(0.0F, 0.0F, static_cast<float>(dstW), static_cast<float>(dstH));
-            cmdList.setScissor(0, 0, dstW, dstH);
-
-            const std::array<rhi::DescriptorSetHandle, 1> upSets = {bloomUpSets_[step]};
-            cmdList.bindDescriptorSets(bloomUpPipelineLayout_, 0, upSets);
-
-            BloomUpsamplePushConstants pc{
-                .texelSize = Vec2(1.0F / static_cast<float>(srcW), 1.0F / static_cast<float>(srcH)),
-                .filterRadius = postProcessSettings_.bloomFilterRadius,
-                .blendFactor = 1.0F,
-            };
-            cmdList.pushConstants(bloomUpPipelineLayout_, rhi::ShaderStageFlags::Fragment, 0,
-                                  sizeof(BloomUpsamplePushConstants), &pc);
-            cmdList.draw(3, 1, 0, 0);
-            cmdList.endRenderPass();
-        }
-
-        if (hasTimestamps) {
-            cmdList.writeTimestamp(baseQuery + 9, rhi::GpuTimestampStage::BottomOfPipe);
-        }
+    if (!postProcessGraph_.isCompiled()) {
+        buildPostProcessGraph();
     }
-
-    // 3. Final Tone Mapping Pass
-    if (toneMappingPipeline_.isValid()) {
-        if (hasTimestamps) {
-            cmdList.writeTimestamp(baseQuery + 10, rhi::GpuTimestampStage::TopOfPipe);
+    if (postProcessGraph_.isCompiled()) {
+        auto execRes = postProcessGraph_.execute(*device_, cmdList);
+        if (!execRes.hasValue()) {
+            ENG_LOG_ERROR("SceneRenderer", "PostProcess RenderGraph execute failed");
         }
-        rhi::RenderPassBeginInfo passInfo{
-            .colorTarget = colorTarget_,
-            .depthTarget = {},
-            .clearColor = {0.0F, 0.0F, 0.0F, 1.0F},
-            .clearDepth = 1.0F,
-            .clearTarget = true,
-            .clearDepthTarget = false,
-        };
-        cmdList.beginRenderPass(passInfo);
-        cmdList.setViewport(0.0F, 0.0F, static_cast<float>(width_), static_cast<float>(height_));
-        cmdList.setScissor(0, 0, width_, height_);
-        cmdList.bindPipeline(toneMappingPipeline_);
-
-        const std::array<rhi::DescriptorSetHandle, 1> tmSets = {toneMappingSet_};
-        cmdList.bindDescriptorSets(toneMappingPipelineLayout_, 0, tmSets);
-
-        ToneMappingPushConstants pc{
-            .exposure = postProcessSettings_.exposure,
-            .toneMapOp = static_cast<int32_t>(postProcessSettings_.toneMapOp),
-            .bloomIntensity =
-                postProcessSettings_.bloomEnabled ? postProcessSettings_.bloomIntensity : 0.0F,
-            .bloomEnabled = postProcessSettings_.bloomEnabled ? 1 : 0,
-            .whitePoint = postProcessSettings_.reinhardWhitePoint,
-            .padding = {0.0F, 0.0F, 0.0F},
-        };
-        cmdList.pushConstants(toneMappingPipelineLayout_, rhi::ShaderStageFlags::Fragment, 0,
-                              sizeof(ToneMappingPushConstants), &pc);
-        cmdList.draw(3, 1, 0, 0);
-        cmdList.endRenderPass();
-
-        if (hasTimestamps) {
-            cmdList.writeTimestamp(baseQuery + 11, rhi::GpuTimestampStage::BottomOfPipe);
-        }
-    }
-
-    if (hasTimestamps) {
-        cmdList.writeTimestamp(baseQuery + 1, rhi::GpuTimestampStage::BottomOfPipe);
     }
 }
 

@@ -1,8 +1,11 @@
 /// @file render_graph_test.cpp
 /// @brief Unit tests for Render Graph DAG compilation, cycle detection, and headless execution.
 
+#include "render/asset_manager.h"
 #include "render/render_graph.h"
+#include "render/scene_renderer.h"
 #include "rhi/rhi_device.h"
+#include "world/world.h"
 
 #include <algorithm>
 #include <iostream>
@@ -287,6 +290,63 @@ static int testGraphExecutionWithNullDevice() {
     return 0;
 }
 
+static int testSceneRendererRenderGraphIntegration() {
+    auto devRes = createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto device = std::move(devRes.value());
+
+    SceneRenderer renderer;
+    auto initRes = renderer.init(*device, 640, 480);
+    TEST_CHECK(initRes.hasValue());
+
+    // 1. Verify Scene RenderGraph compilation & pass count
+    const auto& sceneGraph = renderer.getRenderGraph();
+    TEST_CHECK(sceneGraph.isCompiled());
+    TEST_CHECK(sceneGraph.getPassCount() == 2); // DirectionalShadowPass, MainPbrPass
+
+    const auto& sceneOrder = sceneGraph.getExecutionOrder();
+    TEST_CHECK(sceneOrder.size() == 2);
+    // Index 0 should be DirectionalShadowPass, Index 1 MainPbrPass
+    TEST_CHECK(sceneOrder[0] == 0);
+    TEST_CHECK(sceneOrder[1] == 1);
+
+    // 2. Verify PostProcess RenderGraph compilation & pass count when enabled
+    renderer.setPostProcessingEnabled(true);
+    const auto& ppGraph = renderer.getPostProcessRenderGraph();
+    TEST_CHECK(ppGraph.isCompiled());
+    TEST_CHECK(ppGraph.getPassCount() == 8); // 4 downsample + 3 upsample + 1 tone mapping
+
+    // 3. Test dynamically disabling shadow pass alters RenderGraph structure
+    GraphicsSettings settings = renderer.getGraphicsSettings();
+    settings.shadows.enabled = false;
+    auto applyRes = renderer.applyGraphicsSettings(settings);
+    TEST_CHECK(applyRes.hasValue());
+
+    TEST_CHECK(renderer.getRenderGraph().isCompiled());
+    TEST_CHECK(renderer.getRenderGraph().getPassCount() == 1); // MainPbrPass only
+
+    // 4. Test headless execution through RenderGraph
+    world::World world;
+    registerRenderComponents(world);
+    AssetManager assetMgr;
+
+    auto cmdRes = device->createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto cmd = std::move(cmdRes.value());
+
+    cmd->begin();
+    RenderStats stats = renderer.renderScene(world, assetMgr, *device, *cmd);
+    renderer.renderPostProcess(*cmd);
+    cmd->end();
+
+    TEST_CHECK(stats.drawCalls == 0);
+    TEST_CHECK(stats.meshesRendered == 0);
+
+    renderer.shutdown();
+    std::cout << "SceneRenderer live RenderGraph integration verified!\n";
+    return 0;
+}
+
 int main() {
     if (testLinearOrdering() != 0) {
         return 1;
@@ -301,6 +361,9 @@ int main() {
         return 1;
     }
     if (testGraphExecutionWithNullDevice() != 0) {
+        return 1;
+    }
+    if (testSceneRendererRenderGraphIntegration() != 0) {
         return 1;
     }
     std::cout << "All Render Graph unit tests passed successfully.\n";
