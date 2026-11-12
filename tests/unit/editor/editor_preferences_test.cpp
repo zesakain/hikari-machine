@@ -3,6 +3,7 @@
 
 #include "editor/editor_preferences.h"
 #include "editor/editor_preferences_serializer.h"
+#include "editor/editor_theme.h"
 #include "editor/external_editor_service.h"
 
 #include <chrono>
@@ -60,7 +61,7 @@ static void testPreferencesDefaultsAndClamping() {
     TEST_CHECK(prefs.general.openLastProjectOnStartup == true);
     TEST_CHECK(prefs.general.undoHistoryLimit == 100);
 
-    TEST_CHECK(prefs.appearance.themeName == "Dark Studio");
+    TEST_CHECK(prefs.appearance.themeName == "Hikari Dark");
     TEST_CHECK(prefs.appearance.uiScaleFactor == 1.0F);
 
     TEST_CHECK(prefs.workspace.restoreLayoutOnStartup == true);
@@ -248,12 +249,59 @@ static void testExternalEditorServiceLaunchAndHook() {
     std::cout << "[PASS] testExternalEditorServiceLaunchAndHook\n";
 }
 
+static void testThemeStateSynchronization() {
+    // 1. Theme name to enum mapping
+    TEST_CHECK(themeTypeFromName("Hikari Dark") == ThemeType::Dark);
+    TEST_CHECK(themeTypeFromName("Hikari Midnight") == ThemeType::Midnight);
+    TEST_CHECK(themeTypeFromName("Midnight") == ThemeType::Midnight);
+    TEST_CHECK(themeTypeFromName("Hikari Light") == ThemeType::Light);
+    TEST_CHECK(themeTypeFromName("Light") == ThemeType::Light);
+    TEST_CHECK(themeTypeFromName("Unknown Theme") == ThemeType::Dark);
+    TEST_CHECK(themeTypeFromName("") == ThemeType::Dark);
+
+    // 2. Enum to name mapping
+    TEST_CHECK(std::string_view(getThemeName(ThemeType::Dark)) == "Hikari Dark");
+    TEST_CHECK(std::string_view(getThemeName(ThemeType::Midnight)) == "Hikari Midnight");
+    TEST_CHECK(std::string_view(getThemeName(ThemeType::Light)) == "Hikari Light");
+
+    // 3. Theme application updates authoritative state
+    applyEditorTheme(ThemeType::Midnight);
+    TEST_CHECK(getActiveThemeType() == ThemeType::Midnight);
+    TEST_CHECK(std::string_view(getThemeName(getActiveThemeType())) == "Hikari Midnight");
+
+    applyEditorTheme(ThemeType::Light);
+    TEST_CHECK(getActiveThemeType() == ThemeType::Light);
+
+    applyEditorTheme(ThemeType::Dark);
+    TEST_CHECK(getActiveThemeType() == ThemeType::Dark);
+
+    // 4. Persistence round-trip
+    EditorPreferences prefs{};
+    prefs.appearance.themeName = "Hikari Midnight";
+    auto serializeRes = EditorPreferencesSerializer::serializeToString(prefs);
+    TEST_CHECK(serializeRes.hasValue());
+
+    auto deserializeRes = EditorPreferencesSerializer::deserializeFromString(serializeRes.value());
+    TEST_CHECK(deserializeRes.hasValue());
+    TEST_CHECK(deserializeRes.value().appearance.themeName == "Hikari Midnight");
+    TEST_CHECK(themeTypeFromName(deserializeRes.value().appearance.themeName) ==
+               ThemeType::Midnight);
+
+    // 5. Reset to defaults
+    prefs.resetToDefaults();
+    TEST_CHECK(prefs.appearance.themeName == "Hikari Dark");
+    TEST_CHECK(themeTypeFromName(prefs.appearance.themeName) == ThemeType::Dark);
+
+    std::cout << "[PASS] testThemeStateSynchronization\n";
+}
+
 int main() {
     testPreferencesDefaultsAndClamping();
     testSerializationToStringAndBack();
     testFileAtomicPersistenceAndFallback();
     testExternalEditorDetectionAndArguments();
     testExternalEditorServiceLaunchAndHook();
+    testThemeStateSynchronization();
     std::cout << "All editor preferences unit tests passed successfully!\n";
     return 0;
 }
