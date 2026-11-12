@@ -13,6 +13,7 @@ World::World() {
     groupActive_[static_cast<size_t>(SystemGroup::Continuous)] = true;
     groupActive_[static_cast<size_t>(SystemGroup::StateA)] = true;
     groupActive_[static_cast<size_t>(SystemGroup::StateB)] = false;
+    groupActive_[static_cast<size_t>(SystemGroup::Transition)] = false;
 
     ecs_.component<TransformComponent>("TransformComponent");
     ecs_.component<WorldTransformComponent>("WorldTransformComponent");

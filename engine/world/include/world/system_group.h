@@ -31,8 +31,11 @@ enum class SystemGroup : uint8_t {
     /// Systems active exclusively while State B is active.
     StateB = 2,
 
+    /// Systems active exclusively during slow-motion mode transitions.
+    Transition = 3,
+
     /// Total count of recognized system groups.
-    Count = 3
+    Count = 4
 };
 
 } // namespace eng::world
