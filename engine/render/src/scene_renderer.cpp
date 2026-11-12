@@ -9,10 +9,48 @@
 #include "render/mesh_shader_spirv.h"
 #include "world/components.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 
 namespace eng::render {
+
+namespace {
+
+struct BloomDownsamplePushConstants {
+    Vec2 texelSize;
+    float threshold;
+    float knee;
+    int32_t isFirstPass;
+    float padding[3];
+};
+
+struct BloomUpsamplePushConstants {
+    Vec2 texelSize;
+    float filterRadius;
+    float blendFactor;
+};
+
+struct ToneMappingPushConstants {
+    float exposure;
+    int32_t toneMapOp;
+    float bloomIntensity;
+    int32_t bloomEnabled;
+};
+
+rhi::TextureFormat selectHdrFormat(const rhi::RhiDevice& device) {
+    const auto requiredUsage =
+        rhi::TextureUsageFlags::ColorAttachment | rhi::TextureUsageFlags::Sampled;
+    if (device.isTextureFormatSupported(rhi::TextureFormat::RGBA16_FLOAT, requiredUsage)) {
+        return rhi::TextureFormat::RGBA16_FLOAT;
+    }
+    if (device.isTextureFormatSupported(rhi::TextureFormat::RGBA32_FLOAT, requiredUsage)) {
+        return rhi::TextureFormat::RGBA32_FLOAT;
+    }
+    return rhi::TextureFormat::RGBA8_UNORM;
+}
+
+} // namespace
 
 SceneRenderer::~SceneRenderer() {
     shutdown();
@@ -29,9 +67,38 @@ SceneRenderer::SceneRenderer(SceneRenderer&& other) noexcept
       shadowDepthTarget_(other.shadowDepthTarget_), shadowSampler_(other.shadowSampler_),
       shadowVertexShader_(other.shadowVertexShader_),
       shadowPipelineLayout_(other.shadowPipelineLayout_), shadowPipeline_(other.shadowPipeline_),
-      pipelineLayout_(other.pipelineLayout_), pipeline_(other.pipeline_), width_(other.width_),
-      height_(other.height_), shadowResolution_(other.shadowResolution_),
+      pipelineLayout_(other.pipelineLayout_), pipeline_(other.pipeline_),
+      hdrTarget_(other.hdrTarget_), hdrFormat_(other.hdrFormat_),
+      postProcessSettings_(other.postProcessSettings_),
+      postProcessSampler_(other.postProcessSampler_),
+      fullscreenVertexShader_(other.fullscreenVertexShader_),
+      bloomDownFragmentShader_(other.bloomDownFragmentShader_),
+      bloomUpFragmentShader_(other.bloomUpFragmentShader_),
+      toneMappingFragmentShader_(other.toneMappingFragmentShader_),
+      singleTextureSetLayout_(other.singleTextureSetLayout_),
+      dualTextureSetLayout_(other.dualTextureSetLayout_),
+      postProcessDescriptorPool_(other.postProcessDescriptorPool_),
+      toneMappingSet_(other.toneMappingSet_),
+      bloomDownPipelineLayout_(other.bloomDownPipelineLayout_),
+      bloomUpPipelineLayout_(other.bloomUpPipelineLayout_),
+      toneMappingPipelineLayout_(other.toneMappingPipelineLayout_),
+      bloomDownPipeline_(other.bloomDownPipeline_), bloomUpPipeline_(other.bloomUpPipeline_),
+      toneMappingPipeline_(other.toneMappingPipeline_), hdrPipeline_(other.hdrPipeline_),
+      width_(other.width_), height_(other.height_), shadowResolution_(other.shadowResolution_),
       colorFormat_(other.colorFormat_), depthFormat_(other.depthFormat_) {
+    for (size_t i = 0; i < kBloomPyramidLevels; ++i) {
+        bloomDownTarget_[i] = other.bloomDownTarget_[i];
+        bloomDownSets_[i] = other.bloomDownSets_[i];
+        other.bloomDownTarget_[i] = {};
+        other.bloomDownSets_[i] = {};
+    }
+    for (size_t i = 0; i < kBloomPyramidLevels - 1; ++i) {
+        bloomUpTarget_[i] = other.bloomUpTarget_[i];
+        bloomUpSets_[i] = other.bloomUpSets_[i];
+        other.bloomUpTarget_[i] = {};
+        other.bloomUpSets_[i] = {};
+    }
+
     other.device_ = nullptr;
     other.colorTarget_ = {};
     other.depthTarget_ = {};
@@ -49,6 +116,23 @@ SceneRenderer::SceneRenderer(SceneRenderer&& other) noexcept
     other.shadowPipeline_ = {};
     other.pipelineLayout_ = {};
     other.pipeline_ = {};
+    other.hdrTarget_ = {};
+    other.postProcessSampler_ = {};
+    other.fullscreenVertexShader_ = {};
+    other.bloomDownFragmentShader_ = {};
+    other.bloomUpFragmentShader_ = {};
+    other.toneMappingFragmentShader_ = {};
+    other.singleTextureSetLayout_ = {};
+    other.dualTextureSetLayout_ = {};
+    other.postProcessDescriptorPool_ = {};
+    other.toneMappingSet_ = {};
+    other.bloomDownPipelineLayout_ = {};
+    other.bloomUpPipelineLayout_ = {};
+    other.toneMappingPipelineLayout_ = {};
+    other.bloomDownPipeline_ = {};
+    other.bloomUpPipeline_ = {};
+    other.toneMappingPipeline_ = {};
+    other.hdrPipeline_ = {};
     other.width_ = 0;
     other.height_ = 0;
     other.shadowResolution_ = 2048;
@@ -74,6 +158,40 @@ SceneRenderer& SceneRenderer::operator=(SceneRenderer&& other) noexcept {
         shadowPipeline_ = other.shadowPipeline_;
         pipelineLayout_ = other.pipelineLayout_;
         pipeline_ = other.pipeline_;
+
+        hdrTarget_ = other.hdrTarget_;
+        hdrFormat_ = other.hdrFormat_;
+        postProcessSettings_ = other.postProcessSettings_;
+        for (size_t i = 0; i < kBloomPyramidLevels; ++i) {
+            bloomDownTarget_[i] = other.bloomDownTarget_[i];
+            bloomDownSets_[i] = other.bloomDownSets_[i];
+            other.bloomDownTarget_[i] = {};
+            other.bloomDownSets_[i] = {};
+        }
+        for (size_t i = 0; i < kBloomPyramidLevels - 1; ++i) {
+            bloomUpTarget_[i] = other.bloomUpTarget_[i];
+            bloomUpSets_[i] = other.bloomUpSets_[i];
+            other.bloomUpTarget_[i] = {};
+            other.bloomUpSets_[i] = {};
+        }
+
+        postProcessSampler_ = other.postProcessSampler_;
+        fullscreenVertexShader_ = other.fullscreenVertexShader_;
+        bloomDownFragmentShader_ = other.bloomDownFragmentShader_;
+        bloomUpFragmentShader_ = other.bloomUpFragmentShader_;
+        toneMappingFragmentShader_ = other.toneMappingFragmentShader_;
+        singleTextureSetLayout_ = other.singleTextureSetLayout_;
+        dualTextureSetLayout_ = other.dualTextureSetLayout_;
+        postProcessDescriptorPool_ = other.postProcessDescriptorPool_;
+        toneMappingSet_ = other.toneMappingSet_;
+        bloomDownPipelineLayout_ = other.bloomDownPipelineLayout_;
+        bloomUpPipelineLayout_ = other.bloomUpPipelineLayout_;
+        toneMappingPipelineLayout_ = other.toneMappingPipelineLayout_;
+        bloomDownPipeline_ = other.bloomDownPipeline_;
+        bloomUpPipeline_ = other.bloomUpPipeline_;
+        toneMappingPipeline_ = other.toneMappingPipeline_;
+        hdrPipeline_ = other.hdrPipeline_;
+
         width_ = other.width_;
         height_ = other.height_;
         shadowResolution_ = other.shadowResolution_;
@@ -97,6 +215,23 @@ SceneRenderer& SceneRenderer::operator=(SceneRenderer&& other) noexcept {
         other.shadowPipeline_ = {};
         other.pipelineLayout_ = {};
         other.pipeline_ = {};
+        other.hdrTarget_ = {};
+        other.postProcessSampler_ = {};
+        other.fullscreenVertexShader_ = {};
+        other.bloomDownFragmentShader_ = {};
+        other.bloomUpFragmentShader_ = {};
+        other.toneMappingFragmentShader_ = {};
+        other.singleTextureSetLayout_ = {};
+        other.dualTextureSetLayout_ = {};
+        other.postProcessDescriptorPool_ = {};
+        other.toneMappingSet_ = {};
+        other.bloomDownPipelineLayout_ = {};
+        other.bloomUpPipelineLayout_ = {};
+        other.toneMappingPipelineLayout_ = {};
+        other.bloomDownPipeline_ = {};
+        other.bloomUpPipeline_ = {};
+        other.toneMappingPipeline_ = {};
+        other.hdrPipeline_ = {};
         other.width_ = 0;
         other.height_ = 0;
         other.shadowResolution_ = 2048;
@@ -118,6 +253,7 @@ Result<void> SceneRenderer::init(rhi::RhiDevice& device, uint32_t width, uint32_
     height_ = height;
     colorFormat_ = colorFormat;
     depthFormat_ = depthFormat;
+    hdrFormat_ = selectHdrFormat(device);
 
     // 1. Allocate offscreen color attachment texture
     rhi::TextureDesc colorDesc{
@@ -382,6 +518,19 @@ Result<void> SceneRenderer::init(rhi::RhiDevice& device, uint32_t width, uint32_
     }
     pipeline_ = pipeRes.value();
 
+    if (hdrFormat_ != colorFormat_) {
+        pipeDesc.colorAttachmentFormats = {hdrFormat_};
+        pipeDesc.debugName = "MeshHdrGraphicsPipeline";
+        auto hdrPipeRes = device_->createGraphicsPipeline(pipeDesc);
+        if (!hdrPipeRes.hasValue()) {
+            shutdown();
+            return hdrPipeRes.error();
+        }
+        hdrPipeline_ = hdrPipeRes.value();
+    } else {
+        hdrPipeline_ = pipeline_;
+    }
+
     // 7. Compile Shadow Depth Vertex Shader and create Shadow Pipeline
     rhi::ShaderDesc shadowVertDesc{
         .stage = rhi::ShaderStageFlags::Vertex,
@@ -483,11 +632,94 @@ Result<void> SceneRenderer::init(rhi::RhiDevice& device, uint32_t width, uint32_
     }
     shadowPipeline_ = shadowPipeRes.value();
 
+    // 8. Initialize Post-Processing & HDR Resources
+    auto ppRes = initPostProcessResources();
+    if (!ppRes.hasValue()) {
+        shutdown();
+        return ppRes.error();
+    }
+
+    auto ppTargetsRes = createPostProcessTargets(width_, height_);
+    if (!ppTargetsRes.hasValue()) {
+        shutdown();
+        return ppTargetsRes.error();
+    }
+
     return Result<void>::success();
 }
 
 void SceneRenderer::shutdown() {
     if (device_ != nullptr) {
+        destroyPostProcessTargets();
+
+        if (toneMappingPipeline_.isValid()) {
+            device_->destroyGraphicsPipeline(toneMappingPipeline_);
+            toneMappingPipeline_ = {};
+        }
+        if (bloomUpPipeline_.isValid()) {
+            device_->destroyGraphicsPipeline(bloomUpPipeline_);
+            bloomUpPipeline_ = {};
+        }
+        if (bloomDownPipeline_.isValid()) {
+            device_->destroyGraphicsPipeline(bloomDownPipeline_);
+            bloomDownPipeline_ = {};
+        }
+        if (toneMappingPipelineLayout_.isValid()) {
+            device_->destroyPipelineLayout(toneMappingPipelineLayout_);
+            toneMappingPipelineLayout_ = {};
+        }
+        if (bloomUpPipelineLayout_.isValid()) {
+            device_->destroyPipelineLayout(bloomUpPipelineLayout_);
+            bloomUpPipelineLayout_ = {};
+        }
+        if (bloomDownPipelineLayout_.isValid()) {
+            device_->destroyPipelineLayout(bloomDownPipelineLayout_);
+            bloomDownPipelineLayout_ = {};
+        }
+        if (postProcessDescriptorPool_.isValid()) {
+            device_->destroyDescriptorPool(postProcessDescriptorPool_);
+            postProcessDescriptorPool_ = {};
+            for (auto& s : bloomDownSets_) {
+                s = {};
+            }
+            for (auto& s : bloomUpSets_) {
+                s = {};
+            }
+            toneMappingSet_ = {};
+        }
+        if (dualTextureSetLayout_.isValid()) {
+            device_->destroyDescriptorSetLayout(dualTextureSetLayout_);
+            dualTextureSetLayout_ = {};
+        }
+        if (singleTextureSetLayout_.isValid()) {
+            device_->destroyDescriptorSetLayout(singleTextureSetLayout_);
+            singleTextureSetLayout_ = {};
+        }
+        if (toneMappingFragmentShader_.isValid()) {
+            device_->destroyShader(toneMappingFragmentShader_);
+            toneMappingFragmentShader_ = {};
+        }
+        if (bloomUpFragmentShader_.isValid()) {
+            device_->destroyShader(bloomUpFragmentShader_);
+            bloomUpFragmentShader_ = {};
+        }
+        if (bloomDownFragmentShader_.isValid()) {
+            device_->destroyShader(bloomDownFragmentShader_);
+            bloomDownFragmentShader_ = {};
+        }
+        if (fullscreenVertexShader_.isValid()) {
+            device_->destroyShader(fullscreenVertexShader_);
+            fullscreenVertexShader_ = {};
+        }
+        if (postProcessSampler_.isValid()) {
+            device_->destroySampler(postProcessSampler_);
+            postProcessSampler_ = {};
+        }
+        if (hdrPipeline_.isValid() && hdrPipeline_ != pipeline_) {
+            device_->destroyGraphicsPipeline(hdrPipeline_);
+        }
+        hdrPipeline_ = {};
+
         if (shadowPipeline_.isValid()) {
             device_->destroyGraphicsPipeline(shadowPipeline_);
             shadowPipeline_ = {};
@@ -581,6 +813,8 @@ Result<void> SceneRenderer::resize(uint32_t width, uint32_t height) {
         depthTarget_ = {};
     }
 
+    destroyPostProcessTargets();
+
     width_ = width;
     height_ = height;
 
@@ -618,6 +852,11 @@ Result<void> SceneRenderer::resize(uint32_t width, uint32_t height) {
         return depthRes.error();
     }
     depthTarget_ = depthRes.value();
+
+    auto ppRes = createPostProcessTargets(width_, height_);
+    if (!ppRes.hasValue()) {
+        return ppRes.error();
+    }
 
     return Result<void>::success();
 }
@@ -850,10 +1089,14 @@ RenderStats SceneRenderer::renderScene(world::World& world, AssetManager& assetM
 
     // 3. MAIN PBR SCENE PASS
     const bool managePass = colorTarget_.isValid();
+    const bool useHdr = postProcessSettings_.enabled && hdrTarget_.isValid();
+    const rhi::TextureHandle sceneColorTarget = useHdr ? hdrTarget_ : colorTarget_;
+    const rhi::PipelineHandle scenePipeline =
+        (useHdr && hdrPipeline_.isValid()) ? hdrPipeline_ : pipeline_;
 
     if (managePass) {
         rhi::RenderPassBeginInfo passInfo{
-            .colorTarget = colorTarget_,
+            .colorTarget = sceneColorTarget,
             .depthTarget = depthTarget_,
             .clearColor = {0.08F, 0.12F, 0.20F, 1.0F},
             .clearDepth = 1.0F,
@@ -865,8 +1108,8 @@ RenderStats SceneRenderer::renderScene(world::World& world, AssetManager& assetM
         cmdList.setScissor(0, 0, width_, height_);
     }
 
-    if (pipeline_.isValid()) {
-        cmdList.bindPipeline(pipeline_);
+    if (scenePipeline.isValid()) {
+        cmdList.bindPipeline(scenePipeline);
     }
 
     // Bind Set 1: Scene Lighting & Shadow Map once for the main pass
@@ -1001,6 +1244,549 @@ RenderStats SceneRenderer::renderScene(world::World& world, AssetManager& assetM
     }
 
     return stats;
+}
+
+Result<void> SceneRenderer::initPostProcessResources() {
+    // 1. Post-process bilinear sampler with clamp-to-edge
+    rhi::SamplerDesc sampDesc{
+        .minFilter = rhi::Filter::Linear,
+        .magFilter = rhi::Filter::Linear,
+        .mipmapMode = rhi::Filter::Linear,
+        .addressU = rhi::SamplerAddressMode::ClampToEdge,
+        .addressV = rhi::SamplerAddressMode::ClampToEdge,
+        .addressW = rhi::SamplerAddressMode::ClampToEdge,
+        .debugName = "PostProcessLinearSampler",
+    };
+    auto sampRes = device_->createSampler(sampDesc);
+    if (!sampRes.hasValue()) {
+        return sampRes.error();
+    }
+    postProcessSampler_ = sampRes.value();
+
+    // 2. Descriptor set layouts
+    rhi::DescriptorSetLayoutDesc singleDesc{
+        .bindings = {{
+            .binding = 0,
+            .descriptorType = rhi::DescriptorType::CombinedImageSampler,
+            .descriptorCount = 1,
+            .stageFlags = rhi::ShaderStageFlags::Fragment,
+        }},
+        .debugName = "PostProcessSingleTextureLayout",
+    };
+    auto singleRes = device_->createDescriptorSetLayout(singleDesc);
+    if (!singleRes.hasValue()) {
+        return singleRes.error();
+    }
+    singleTextureSetLayout_ = singleRes.value();
+
+    rhi::DescriptorSetLayoutDesc dualDesc{
+        .bindings =
+            {
+                {
+                    .binding = 0,
+                    .descriptorType = rhi::DescriptorType::CombinedImageSampler,
+                    .descriptorCount = 1,
+                    .stageFlags = rhi::ShaderStageFlags::Fragment,
+                },
+                {
+                    .binding = 1,
+                    .descriptorType = rhi::DescriptorType::CombinedImageSampler,
+                    .descriptorCount = 1,
+                    .stageFlags = rhi::ShaderStageFlags::Fragment,
+                },
+            },
+        .debugName = "PostProcessDualTextureLayout",
+    };
+    auto dualRes = device_->createDescriptorSetLayout(dualDesc);
+    if (!dualRes.hasValue()) {
+        return dualRes.error();
+    }
+    dualTextureSetLayout_ = dualRes.value();
+
+    // 3. Descriptor pool for 8 post-processing descriptor sets
+    rhi::DescriptorPoolDesc poolDesc{
+        .maxSets = 8,
+        .poolSizes = {{
+            .type = rhi::DescriptorType::CombinedImageSampler,
+            .count = 12,
+        }},
+        .debugName = "PostProcessDescriptorPool",
+    };
+    auto poolRes = device_->createDescriptorPool(poolDesc);
+    if (!poolRes.hasValue()) {
+        return poolRes.error();
+    }
+    postProcessDescriptorPool_ = poolRes.value();
+
+    for (size_t i = 0; i < kBloomPyramidLevels; ++i) {
+        auto setRes =
+            device_->allocateDescriptorSet(postProcessDescriptorPool_, singleTextureSetLayout_);
+        if (!setRes.hasValue()) {
+            return setRes.error();
+        }
+        bloomDownSets_[i] = setRes.value();
+    }
+
+    for (size_t i = 0; i < kBloomPyramidLevels - 1; ++i) {
+        auto setRes =
+            device_->allocateDescriptorSet(postProcessDescriptorPool_, dualTextureSetLayout_);
+        if (!setRes.hasValue()) {
+            return setRes.error();
+        }
+        bloomUpSets_[i] = setRes.value();
+    }
+
+    auto tmSetRes =
+        device_->allocateDescriptorSet(postProcessDescriptorPool_, dualTextureSetLayout_);
+    if (!tmSetRes.hasValue()) {
+        return tmSetRes.error();
+    }
+    toneMappingSet_ = tmSetRes.value();
+
+    // 4. Shaders
+    rhi::ShaderDesc fsVertDesc{
+        .stage = rhi::ShaderStageFlags::Vertex,
+        .spirvCode = kFullscreenVertexShaderSpirv,
+        .entryPoint = "main",
+        .debugName = "FullscreenVertexShader",
+    };
+    auto fsVertRes = device_->createShader(fsVertDesc);
+    if (!fsVertRes.hasValue()) {
+        return fsVertRes.error();
+    }
+    fullscreenVertexShader_ = fsVertRes.value();
+
+    rhi::ShaderDesc bloomDownDesc{
+        .stage = rhi::ShaderStageFlags::Fragment,
+        .spirvCode = kBloomDownsampleFragmentShaderSpirv,
+        .entryPoint = "main",
+        .debugName = "BloomDownFragmentShader",
+    };
+    auto bloomDownRes = device_->createShader(bloomDownDesc);
+    if (!bloomDownRes.hasValue()) {
+        return bloomDownRes.error();
+    }
+    bloomDownFragmentShader_ = bloomDownRes.value();
+
+    rhi::ShaderDesc bloomUpDesc{
+        .stage = rhi::ShaderStageFlags::Fragment,
+        .spirvCode = kBloomUpsampleFragmentShaderSpirv,
+        .entryPoint = "main",
+        .debugName = "BloomUpFragmentShader",
+    };
+    auto bloomUpRes = device_->createShader(bloomUpDesc);
+    if (!bloomUpRes.hasValue()) {
+        return bloomUpRes.error();
+    }
+    bloomUpFragmentShader_ = bloomUpRes.value();
+
+    rhi::ShaderDesc tmDesc{
+        .stage = rhi::ShaderStageFlags::Fragment,
+        .spirvCode = kToneMappingFragmentShaderSpirv,
+        .entryPoint = "main",
+        .debugName = "ToneMappingFragmentShader",
+    };
+    auto tmRes = device_->createShader(tmDesc);
+    if (!tmRes.hasValue()) {
+        return tmRes.error();
+    }
+    toneMappingFragmentShader_ = tmRes.value();
+
+    // 5. Pipeline layouts
+    rhi::PipelineLayoutDesc downLayoutDesc{
+        .pushConstants = {{
+            .stageFlags = rhi::ShaderStageFlags::Fragment,
+            .offset = 0,
+            .size = sizeof(BloomDownsamplePushConstants),
+        }},
+        .descriptorSetLayoutHandles = {singleTextureSetLayout_},
+        .descriptorSetLayouts = {},
+        .debugName = "BloomDownPipelineLayout",
+    };
+    auto downLayoutRes = device_->createPipelineLayout(downLayoutDesc);
+    if (!downLayoutRes.hasValue()) {
+        return downLayoutRes.error();
+    }
+    bloomDownPipelineLayout_ = downLayoutRes.value();
+
+    rhi::PipelineLayoutDesc upLayoutDesc{
+        .pushConstants = {{
+            .stageFlags = rhi::ShaderStageFlags::Fragment,
+            .offset = 0,
+            .size = sizeof(BloomUpsamplePushConstants),
+        }},
+        .descriptorSetLayoutHandles = {dualTextureSetLayout_},
+        .descriptorSetLayouts = {},
+        .debugName = "BloomUpPipelineLayout",
+    };
+    auto upLayoutRes = device_->createPipelineLayout(upLayoutDesc);
+    if (!upLayoutRes.hasValue()) {
+        return upLayoutRes.error();
+    }
+    bloomUpPipelineLayout_ = upLayoutRes.value();
+
+    rhi::PipelineLayoutDesc tmLayoutDesc{
+        .pushConstants = {{
+            .stageFlags = rhi::ShaderStageFlags::Fragment,
+            .offset = 0,
+            .size = sizeof(ToneMappingPushConstants),
+        }},
+        .descriptorSetLayoutHandles = {dualTextureSetLayout_},
+        .descriptorSetLayouts = {},
+        .debugName = "ToneMappingPipelineLayout",
+    };
+    auto tmLayoutRes = device_->createPipelineLayout(tmLayoutDesc);
+    if (!tmLayoutRes.hasValue()) {
+        return tmLayoutRes.error();
+    }
+    toneMappingPipelineLayout_ = tmLayoutRes.value();
+
+    // 6. Graphics pipelines for fullscreen passes
+    rhi::GraphicsPipelineDesc downPipeDesc{
+        .vertexShader = fullscreenVertexShader_,
+        .fragmentShader = bloomDownFragmentShader_,
+        .vertexInput = {},
+        .topology = rhi::PrimitiveTopology::TriangleList,
+        .rasterization =
+            {
+                .polygonMode = rhi::PolygonMode::Fill,
+                .cullMode = rhi::CullMode::None,
+                .frontFace = rhi::FrontFace::CounterClockwise,
+            },
+        .depthStencil =
+            {
+                .depthTestEnable = false,
+                .depthWriteEnable = false,
+                .depthCompareOp = rhi::CompareOp::Always,
+            },
+        .colorBlendAttachments = {{
+            .blendEnable = false,
+            .colorWriteMask = rhi::ColorComponentFlags::All,
+        }},
+        .layout = bloomDownPipelineLayout_,
+        .colorAttachmentFormats = {hdrFormat_},
+        .debugName = "BloomDownGraphicsPipeline",
+    };
+    auto downPipeRes = device_->createGraphicsPipeline(downPipeDesc);
+    if (!downPipeRes.hasValue()) {
+        return downPipeRes.error();
+    }
+    bloomDownPipeline_ = downPipeRes.value();
+
+    rhi::GraphicsPipelineDesc upPipeDesc{
+        .vertexShader = fullscreenVertexShader_,
+        .fragmentShader = bloomUpFragmentShader_,
+        .vertexInput = {},
+        .topology = rhi::PrimitiveTopology::TriangleList,
+        .rasterization =
+            {
+                .polygonMode = rhi::PolygonMode::Fill,
+                .cullMode = rhi::CullMode::None,
+                .frontFace = rhi::FrontFace::CounterClockwise,
+            },
+        .depthStencil =
+            {
+                .depthTestEnable = false,
+                .depthWriteEnable = false,
+                .depthCompareOp = rhi::CompareOp::Always,
+            },
+        .colorBlendAttachments = {{
+            .blendEnable = false,
+            .colorWriteMask = rhi::ColorComponentFlags::All,
+        }},
+        .layout = bloomUpPipelineLayout_,
+        .colorAttachmentFormats = {hdrFormat_},
+        .debugName = "BloomUpGraphicsPipeline",
+    };
+    auto upPipeRes = device_->createGraphicsPipeline(upPipeDesc);
+    if (!upPipeRes.hasValue()) {
+        return upPipeRes.error();
+    }
+    bloomUpPipeline_ = upPipeRes.value();
+
+    rhi::GraphicsPipelineDesc tmPipeDesc{
+        .vertexShader = fullscreenVertexShader_,
+        .fragmentShader = toneMappingFragmentShader_,
+        .vertexInput = {},
+        .topology = rhi::PrimitiveTopology::TriangleList,
+        .rasterization =
+            {
+                .polygonMode = rhi::PolygonMode::Fill,
+                .cullMode = rhi::CullMode::None,
+                .frontFace = rhi::FrontFace::CounterClockwise,
+            },
+        .depthStencil =
+            {
+                .depthTestEnable = false,
+                .depthWriteEnable = false,
+                .depthCompareOp = rhi::CompareOp::Always,
+            },
+        .colorBlendAttachments = {{
+            .blendEnable = false,
+            .colorWriteMask = rhi::ColorComponentFlags::All,
+        }},
+        .layout = toneMappingPipelineLayout_,
+        .colorAttachmentFormats = {colorFormat_},
+        .debugName = "ToneMappingGraphicsPipeline",
+    };
+    auto tmPipeRes = device_->createGraphicsPipeline(tmPipeDesc);
+    if (!tmPipeRes.hasValue()) {
+        return tmPipeRes.error();
+    }
+    toneMappingPipeline_ = tmPipeRes.value();
+
+    return Result<void>::success();
+}
+
+Result<void> SceneRenderer::createPostProcessTargets(uint32_t width, uint32_t height) {
+    if (device_ == nullptr || width == 0 || height == 0) {
+        return Result<void>::success();
+    }
+
+    // 1. Fullscreen HDR Scene Target
+    rhi::TextureDesc hdrDesc{
+        .type = rhi::TextureType::Texture2D,
+        .format = hdrFormat_,
+        .width = width,
+        .height = height,
+        .depth = 1,
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .usage = rhi::TextureUsageFlags::ColorAttachment | rhi::TextureUsageFlags::Sampled |
+                 rhi::TextureUsageFlags::TransferSrc,
+        .debugName = "SceneRendererHdrTarget",
+    };
+    auto hdrRes = device_->createTexture(hdrDesc);
+    if (!hdrRes.hasValue()) {
+        return hdrRes.error();
+    }
+    hdrTarget_ = hdrRes.value();
+
+    // 2. Bloom Downsample Pyramid Targets
+    for (size_t i = 0; i < kBloomPyramidLevels; ++i) {
+        uint32_t downW = std::max(1u, width >> (i + 1));
+        uint32_t downH = std::max(1u, height >> (i + 1));
+        rhi::TextureDesc downDesc{
+            .type = rhi::TextureType::Texture2D,
+            .format = hdrFormat_,
+            .width = downW,
+            .height = downH,
+            .depth = 1,
+            .mipLevels = 1,
+            .arrayLayers = 1,
+            .usage = rhi::TextureUsageFlags::ColorAttachment | rhi::TextureUsageFlags::Sampled,
+            .debugName = "BloomDownTarget",
+        };
+        auto downRes = device_->createTexture(downDesc);
+        if (!downRes.hasValue()) {
+            return downRes.error();
+        }
+        bloomDownTarget_[i] = downRes.value();
+    }
+
+    // 3. Bloom Upsample Targets
+    for (size_t i = 0; i < kBloomPyramidLevels - 1; ++i) {
+        size_t level = (kBloomPyramidLevels - 2) - i;
+        uint32_t upW = std::max(1u, width >> (level + 1));
+        uint32_t upH = std::max(1u, height >> (level + 1));
+        rhi::TextureDesc upDesc{
+            .type = rhi::TextureType::Texture2D,
+            .format = hdrFormat_,
+            .width = upW,
+            .height = upH,
+            .depth = 1,
+            .mipLevels = 1,
+            .arrayLayers = 1,
+            .usage = rhi::TextureUsageFlags::ColorAttachment | rhi::TextureUsageFlags::Sampled,
+            .debugName = "BloomUpTarget",
+        };
+        auto upRes = device_->createTexture(upDesc);
+        if (!upRes.hasValue()) {
+            return upRes.error();
+        }
+        bloomUpTarget_[level] = upRes.value();
+    }
+
+    updatePostProcessDescriptors();
+
+    return Result<void>::success();
+}
+
+void SceneRenderer::updatePostProcessDescriptors() {
+    if (device_ == nullptr || !postProcessSampler_.isValid() || !hdrTarget_.isValid()) {
+        return;
+    }
+
+    for (size_t i = 0; i < kBloomPyramidLevels; ++i) {
+        if (!bloomDownSets_[i].isValid()) {
+            continue;
+        }
+        rhi::TextureHandle srcTex = (i == 0) ? hdrTarget_ : bloomDownTarget_[i - 1];
+        if (srcTex.isValid()) {
+            std::array<rhi::DescriptorWrite, 1> writes{
+                rhi::DescriptorWrite::makeCombinedImageSampler(0, srcTex, postProcessSampler_),
+            };
+            std::ignore = device_->updateDescriptorSet(bloomDownSets_[i], writes);
+        }
+    }
+
+    for (size_t step = 0; step < kBloomPyramidLevels - 1; ++step) {
+        if (!bloomUpSets_[step].isValid()) {
+            continue;
+        }
+        rhi::TextureHandle sampleTex = (step == 0) ? bloomDownTarget_[kBloomPyramidLevels - 1]
+                                                   : bloomUpTarget_[kBloomPyramidLevels - 1 - step];
+        size_t addLevel = (kBloomPyramidLevels - 2) - step;
+        rhi::TextureHandle addTex = bloomDownTarget_[addLevel];
+        if (sampleTex.isValid() && addTex.isValid()) {
+            std::array<rhi::DescriptorWrite, 2> writes{
+                rhi::DescriptorWrite::makeCombinedImageSampler(0, sampleTex, postProcessSampler_),
+                rhi::DescriptorWrite::makeCombinedImageSampler(1, addTex, postProcessSampler_),
+            };
+            std::ignore = device_->updateDescriptorSet(bloomUpSets_[step], writes);
+        }
+    }
+
+    if (toneMappingSet_.isValid() && bloomUpTarget_[0].isValid()) {
+        std::array<rhi::DescriptorWrite, 2> writes{
+            rhi::DescriptorWrite::makeCombinedImageSampler(0, hdrTarget_, postProcessSampler_),
+            rhi::DescriptorWrite::makeCombinedImageSampler(1, bloomUpTarget_[0],
+                                                           postProcessSampler_),
+        };
+        std::ignore = device_->updateDescriptorSet(toneMappingSet_, writes);
+    }
+}
+
+void SceneRenderer::destroyPostProcessTargets() {
+    if (device_ != nullptr) {
+        if (hdrTarget_.isValid()) {
+            device_->destroyTexture(hdrTarget_);
+            hdrTarget_ = {};
+        }
+        for (size_t i = 0; i < kBloomPyramidLevels; ++i) {
+            if (bloomDownTarget_[i].isValid()) {
+                device_->destroyTexture(bloomDownTarget_[i]);
+                bloomDownTarget_[i] = {};
+            }
+        }
+        for (size_t i = 0; i < kBloomPyramidLevels - 1; ++i) {
+            if (bloomUpTarget_[i].isValid()) {
+                device_->destroyTexture(bloomUpTarget_[i]);
+                bloomUpTarget_[i] = {};
+            }
+        }
+    }
+}
+
+void SceneRenderer::renderPostProcess(rhi::RhiCommandList& cmdList) {
+    if (device_ == nullptr || !postProcessSettings_.enabled || !hdrTarget_.isValid() ||
+        !colorTarget_.isValid()) {
+        return;
+    }
+
+    if (postProcessSettings_.bloomEnabled && bloomDownPipeline_.isValid() &&
+        bloomUpPipeline_.isValid()) {
+        // 1. Bloom Downsample Pyramid
+        cmdList.bindPipeline(bloomDownPipeline_);
+        for (size_t i = 0; i < kBloomPyramidLevels; ++i) {
+            uint32_t dstW = std::max(1u, width_ >> (i + 1));
+            uint32_t dstH = std::max(1u, height_ >> (i + 1));
+            uint32_t srcW = (i == 0) ? width_ : std::max(1u, width_ >> i);
+            uint32_t srcH = (i == 0) ? height_ : std::max(1u, height_ >> i);
+
+            rhi::RenderPassBeginInfo passInfo{
+                .colorTarget = bloomDownTarget_[i],
+                .depthTarget = {},
+                .clearColor = {0.0F, 0.0F, 0.0F, 1.0F},
+                .clearDepth = 1.0F,
+                .clearTarget = true,
+                .clearDepthTarget = false,
+            };
+            cmdList.beginRenderPass(passInfo);
+            cmdList.setViewport(0.0F, 0.0F, static_cast<float>(dstW), static_cast<float>(dstH));
+            cmdList.setScissor(0, 0, dstW, dstH);
+
+            const std::array<rhi::DescriptorSetHandle, 1> downSets = {bloomDownSets_[i]};
+            cmdList.bindDescriptorSets(bloomDownPipelineLayout_, 0, downSets);
+
+            BloomDownsamplePushConstants pc{
+                .texelSize = Vec2(1.0F / static_cast<float>(srcW), 1.0F / static_cast<float>(srcH)),
+                .threshold = postProcessSettings_.bloomThreshold,
+                .knee = postProcessSettings_.bloomKnee,
+                .isFirstPass = (i == 0) ? 1 : 0,
+                .padding = {0.0F, 0.0F, 0.0F},
+            };
+            cmdList.pushConstants(bloomDownPipelineLayout_, rhi::ShaderStageFlags::Fragment, 0,
+                                  sizeof(BloomDownsamplePushConstants), &pc);
+            cmdList.draw(3, 1, 0, 0);
+            cmdList.endRenderPass();
+        }
+
+        // 2. Bloom Upsample Pyramid
+        cmdList.bindPipeline(bloomUpPipeline_);
+        for (size_t step = 0; step < kBloomPyramidLevels - 1; ++step) {
+            size_t targetLevel = (kBloomPyramidLevels - 2) - step;
+            uint32_t dstW = std::max(1u, width_ >> (targetLevel + 1));
+            uint32_t dstH = std::max(1u, height_ >> (targetLevel + 1));
+            uint32_t srcW = std::max(1u, width_ >> (targetLevel + 2));
+            uint32_t srcH = std::max(1u, height_ >> (targetLevel + 2));
+
+            rhi::RenderPassBeginInfo passInfo{
+                .colorTarget = bloomUpTarget_[targetLevel],
+                .depthTarget = {},
+                .clearColor = {0.0F, 0.0F, 0.0F, 1.0F},
+                .clearDepth = 1.0F,
+                .clearTarget = true,
+                .clearDepthTarget = false,
+            };
+            cmdList.beginRenderPass(passInfo);
+            cmdList.setViewport(0.0F, 0.0F, static_cast<float>(dstW), static_cast<float>(dstH));
+            cmdList.setScissor(0, 0, dstW, dstH);
+
+            const std::array<rhi::DescriptorSetHandle, 1> upSets = {bloomUpSets_[step]};
+            cmdList.bindDescriptorSets(bloomUpPipelineLayout_, 0, upSets);
+
+            BloomUpsamplePushConstants pc{
+                .texelSize = Vec2(1.0F / static_cast<float>(srcW), 1.0F / static_cast<float>(srcH)),
+                .filterRadius = postProcessSettings_.bloomFilterRadius,
+                .blendFactor = 1.0F,
+            };
+            cmdList.pushConstants(bloomUpPipelineLayout_, rhi::ShaderStageFlags::Fragment, 0,
+                                  sizeof(BloomUpsamplePushConstants), &pc);
+            cmdList.draw(3, 1, 0, 0);
+            cmdList.endRenderPass();
+        }
+    }
+
+    // 3. Final Tone Mapping Pass
+    if (toneMappingPipeline_.isValid()) {
+        rhi::RenderPassBeginInfo passInfo{
+            .colorTarget = colorTarget_,
+            .depthTarget = {},
+            .clearColor = {0.0F, 0.0F, 0.0F, 1.0F},
+            .clearDepth = 1.0F,
+            .clearTarget = true,
+            .clearDepthTarget = false,
+        };
+        cmdList.beginRenderPass(passInfo);
+        cmdList.setViewport(0.0F, 0.0F, static_cast<float>(width_), static_cast<float>(height_));
+        cmdList.setScissor(0, 0, width_, height_);
+
+        const std::array<rhi::DescriptorSetHandle, 1> tmSets = {toneMappingSet_};
+        cmdList.bindDescriptorSets(toneMappingPipelineLayout_, 0, tmSets);
+
+        ToneMappingPushConstants pc{
+            .exposure = postProcessSettings_.exposure,
+            .toneMapOp = static_cast<int32_t>(postProcessSettings_.toneMapOp),
+            .bloomIntensity =
+                postProcessSettings_.bloomEnabled ? postProcessSettings_.bloomIntensity : 0.0F,
+            .bloomEnabled = postProcessSettings_.bloomEnabled ? 1 : 0,
+        };
+        cmdList.pushConstants(toneMappingPipelineLayout_, rhi::ShaderStageFlags::Fragment, 0,
+                              sizeof(ToneMappingPushConstants), &pc);
+        cmdList.draw(3, 1, 0, 0);
+        cmdList.endRenderPass();
+    }
 }
 
 } // namespace eng::render

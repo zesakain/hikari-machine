@@ -9,12 +9,12 @@
 ///   2. TransformComponent — local transform fallback.
 ///   3. PhysicsTransformComponent — fallback for dynamic rigid bodies at root level.
 ///   4. Identity matrix — stationary at origin if none of the above components are present.
-/// Manages offscreen color and depth render targets, shaders, and graphics pipeline for
-/// GPU-based scene viewport rendering.
+/// Manages offscreen color and depth render targets, shaders, graphics pipeline, HDR target,
+/// and post-processing pipeline (bloom pyramid downsample/upsample and tone mapping).
 ///
 /// Ownership and Lifetime:
-/// Owns offscreen render target textures, pipeline layout, and graphics pipeline state object.
-/// Destroys all GPU resources upon shutdown() or destruction.
+/// Owns offscreen render target textures, pipeline layouts, descriptor sets, and pipeline state
+/// objects. Destroys all GPU resources upon shutdown() or destruction.
 ///
 /// Thread-safety:
 /// Main render thread only. Not re-entrant.
@@ -30,6 +30,7 @@
 #include "render/light_components.h"
 #include "render/lighting_data.h"
 #include "render/mesh_component.h"
+#include "render/post_process_types.h"
 #include "rhi/command_list.h"
 #include "rhi/pipeline.h"
 #include "rhi/rhi_device.h"
@@ -37,6 +38,7 @@
 #include "rhi/texture.h"
 #include "world/world.h"
 
+#include <array>
 #include <cstdint>
 
 namespace eng::render {
@@ -53,6 +55,8 @@ struct RenderStats {
 /// @brief Traverses the ECS World and records mesh draw calls to the RHI command list.
 class SceneRenderer {
 public:
+    static constexpr size_t kBloomPyramidLevels = 4;
+
     SceneRenderer() = default;
     ~SceneRenderer();
 
@@ -65,8 +69,8 @@ public:
     /// Initializes offscreen render targets, shaders, pipeline layout, and graphics pipeline.
     ///
     /// Preconditions : device must be a valid, initialized RhiDevice; width > 0, height > 0.
-    /// Postconditions: color and depth targets allocated; graphics pipeline ready for recording.
-    /// Thread-safety : Main thread only.
+    /// Postconditions: color, depth, and HDR targets allocated; graphics pipelines ready for
+    /// recording. Thread-safety : Main thread only.
     ///
     /// @param device The active RHI device for resource allocation.
     /// @param width Render target width in pixels.
@@ -82,7 +86,7 @@ public:
     /// Shuts down all offscreen resources, pipelines, and shaders.
     void shutdown();
 
-    /// Resizes offscreen render targets to match new viewport dimensions.
+    /// Resizes offscreen render targets and bloom pyramid to match new viewport dimensions.
     /// Synchronizes GPU with waitIdle before destroying previous targets.
     ///
     /// @param width New width in pixels (must be > 0).
@@ -91,8 +95,8 @@ public:
     [[nodiscard]] Result<void> resize(uint32_t width, uint32_t height);
 
     /// Renders all visible mesh entities in the World to the specified command list.
-    /// If offscreen render targets are initialized, executes within an offscreen dynamic
-    /// rendering pass clearing color and depth.
+    /// If post-processing is enabled, renders into the floating-point HDR scene target.
+    /// If post-processing is disabled, renders directly into the LDR color target.
     ///
     /// @param world The ECS simulation or edit world.
     /// @param assetManager Repository for GPU mesh buffers.
@@ -104,8 +108,35 @@ public:
                             rhi::RhiCommandList& cmdList,
                             const Mat4& viewProjection = Mat4::identity());
 
+    /// Executes post-processing passes (bloom pyramid downsample/upsample and tone mapping)
+    /// transitioning radiance from the HDR scene target into the display color target.
+    ///
+    /// Preconditions : cmdList must be recording outside an active render pass.
+    /// Thread-safety : Main thread only.
+    /// Cost          : Zero heap allocation in hot path.
+    ///
+    /// @param cmdList Command list recording post-processing passes.
+    void renderPostProcess(rhi::RhiCommandList& cmdList);
+
     [[nodiscard]] rhi::TextureHandle getColorTarget() const noexcept { return colorTarget_; }
     [[nodiscard]] rhi::TextureHandle getDepthTarget() const noexcept { return depthTarget_; }
+    [[nodiscard]] rhi::TextureHandle getHdrTarget() const noexcept { return hdrTarget_; }
+    [[nodiscard]] rhi::TextureFormat getHdrFormat() const noexcept { return hdrFormat_; }
+    [[nodiscard]] bool isHdrActive() const noexcept {
+        return postProcessSettings_.enabled && hdrTarget_.isValid();
+    }
+
+    [[nodiscard]] const PostProcessSettings& getPostProcessSettings() const noexcept {
+        return postProcessSettings_;
+    }
+    void setPostProcessSettings(const PostProcessSettings& settings) noexcept {
+        postProcessSettings_ = settings;
+    }
+    [[nodiscard]] bool isPostProcessingEnabled() const noexcept {
+        return postProcessSettings_.enabled;
+    }
+    void setPostProcessingEnabled(bool enabled) noexcept { postProcessSettings_.enabled = enabled; }
+
     [[nodiscard]] rhi::PipelineHandle getPipeline() const noexcept { return pipeline_; }
     [[nodiscard]] rhi::PipelineLayoutHandle getPipelineLayout() const noexcept {
         return pipelineLayout_;
@@ -138,6 +169,11 @@ public:
     }
 
 private:
+    [[nodiscard]] Result<void> initPostProcessResources();
+    [[nodiscard]] Result<void> createPostProcessTargets(uint32_t width, uint32_t height);
+    void destroyPostProcessTargets();
+    void updatePostProcessDescriptors();
+
     rhi::RhiDevice* device_{nullptr};
     rhi::TextureHandle colorTarget_{};
     rhi::TextureHandle depthTarget_{};
@@ -155,6 +191,32 @@ private:
     rhi::PipelineHandle shadowPipeline_{};
     rhi::PipelineLayoutHandle pipelineLayout_{};
     rhi::PipelineHandle pipeline_{};
+
+    // HDR and Post-Processing Resources
+    rhi::TextureHandle hdrTarget_{};
+    rhi::TextureFormat hdrFormat_{rhi::TextureFormat::RGBA16_FLOAT};
+    PostProcessSettings postProcessSettings_{};
+    rhi::TextureHandle bloomDownTarget_[kBloomPyramidLevels]{};
+    rhi::TextureHandle bloomUpTarget_[kBloomPyramidLevels - 1]{};
+    rhi::SamplerHandle postProcessSampler_{};
+    rhi::ShaderHandle fullscreenVertexShader_{};
+    rhi::ShaderHandle bloomDownFragmentShader_{};
+    rhi::ShaderHandle bloomUpFragmentShader_{};
+    rhi::ShaderHandle toneMappingFragmentShader_{};
+    rhi::DescriptorSetLayoutHandle singleTextureSetLayout_{};
+    rhi::DescriptorSetLayoutHandle dualTextureSetLayout_{};
+    rhi::DescriptorPoolHandle postProcessDescriptorPool_{};
+    rhi::DescriptorSetHandle bloomDownSets_[kBloomPyramidLevels]{};
+    rhi::DescriptorSetHandle bloomUpSets_[kBloomPyramidLevels - 1]{};
+    rhi::DescriptorSetHandle toneMappingSet_{};
+    rhi::PipelineLayoutHandle bloomDownPipelineLayout_{};
+    rhi::PipelineLayoutHandle bloomUpPipelineLayout_{};
+    rhi::PipelineLayoutHandle toneMappingPipelineLayout_{};
+    rhi::PipelineHandle bloomDownPipeline_{};
+    rhi::PipelineHandle bloomUpPipeline_{};
+    rhi::PipelineHandle toneMappingPipeline_{};
+    rhi::PipelineHandle hdrPipeline_{};
+
     uint32_t width_{0};
     uint32_t height_{0};
     uint32_t shadowResolution_{2048};
