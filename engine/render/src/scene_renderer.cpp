@@ -871,6 +871,13 @@ RenderStats SceneRenderer::renderScene(world::World& world, AssetManager& assetM
     RenderStats stats{};
     auto& ecs = world.getRawWorld();
 
+    const bool hasTimestamps = device.getCaps().features.timestampQueries;
+    const uint32_t baseQuery = (frameSlotIndex_ % 2) * 16;
+    if (hasTimestamps) {
+        cmdList.resetQueryPool(baseQuery, 16);
+        cmdList.writeTimestamp(baseQuery + 0, rhi::GpuTimestampStage::TopOfPipe);
+    }
+
     // 1. Gather Light Sources & Build GpuLightingData
     GpuLightingData lightingData{};
     lightingData.cameraPosAndAmbientIntensity = Vec4(0.0F, 0.0F, 5.0F, 0.15F);
@@ -1009,6 +1016,9 @@ RenderStats SceneRenderer::renderScene(world::World& world, AssetManager& assetM
     const bool doShadowPass = (lightingData.dirLight.directionAndCastShadow.w > 0.5F) &&
                               shadowDepthTarget_.isValid() && shadowPipeline_.isValid();
     if (doShadowPass) {
+        if (hasTimestamps) {
+            cmdList.writeTimestamp(baseQuery + 2, rhi::GpuTimestampStage::TopOfPipe);
+        }
         rhi::RenderPassBeginInfo shadowPassInfo{
             .colorTarget = {},
             .depthTarget = shadowDepthTarget_,
@@ -1089,6 +1099,9 @@ RenderStats SceneRenderer::renderScene(world::World& world, AssetManager& assetM
         });
 
         cmdList.endRenderPass();
+        if (hasTimestamps) {
+            cmdList.writeTimestamp(baseQuery + 3, rhi::GpuTimestampStage::BottomOfPipe);
+        }
     }
 
     // 3. MAIN PBR SCENE PASS
@@ -1099,6 +1112,9 @@ RenderStats SceneRenderer::renderScene(world::World& world, AssetManager& assetM
         (useHdr && hdrPipeline_.isValid()) ? hdrPipeline_ : pipeline_;
 
     if (managePass) {
+        if (hasTimestamps) {
+            cmdList.writeTimestamp(baseQuery + 4, rhi::GpuTimestampStage::TopOfPipe);
+        }
         rhi::RenderPassBeginInfo passInfo{
             .colorTarget = sceneColorTarget,
             .depthTarget = depthTarget_,
@@ -1245,6 +1261,12 @@ RenderStats SceneRenderer::renderScene(world::World& world, AssetManager& assetM
 
     if (managePass) {
         cmdList.endRenderPass();
+        if (hasTimestamps) {
+            cmdList.writeTimestamp(baseQuery + 5, rhi::GpuTimestampStage::BottomOfPipe);
+            if (!postProcessSettings_.enabled) {
+                cmdList.writeTimestamp(baseQuery + 1, rhi::GpuTimestampStage::BottomOfPipe);
+            }
+        }
     }
 
     return stats;
@@ -1688,8 +1710,14 @@ void SceneRenderer::renderPostProcess(rhi::RhiCommandList& cmdList) {
         return;
     }
 
+    const bool hasTimestamps = device_->getCaps().features.timestampQueries;
+    const uint32_t baseQuery = (frameSlotIndex_ % 2) * 16;
+
     if (postProcessSettings_.bloomEnabled && bloomDownPipeline_.isValid() &&
         bloomUpPipeline_.isValid()) {
+        if (hasTimestamps) {
+            cmdList.writeTimestamp(baseQuery + 6, rhi::GpuTimestampStage::TopOfPipe);
+        }
         // 1. Bloom Downsample Pyramid
         cmdList.bindPipeline(bloomDownPipeline_);
         for (size_t i = 0; i < kBloomPyramidLevels; ++i) {
@@ -1726,6 +1754,11 @@ void SceneRenderer::renderPostProcess(rhi::RhiCommandList& cmdList) {
             cmdList.endRenderPass();
         }
 
+        if (hasTimestamps) {
+            cmdList.writeTimestamp(baseQuery + 7, rhi::GpuTimestampStage::BottomOfPipe);
+            cmdList.writeTimestamp(baseQuery + 8, rhi::GpuTimestampStage::TopOfPipe);
+        }
+
         // 2. Bloom Upsample Pyramid
         cmdList.bindPipeline(bloomUpPipeline_);
         for (size_t step = 0; step < kBloomPyramidLevels - 1; ++step) {
@@ -1760,10 +1793,17 @@ void SceneRenderer::renderPostProcess(rhi::RhiCommandList& cmdList) {
             cmdList.draw(3, 1, 0, 0);
             cmdList.endRenderPass();
         }
+
+        if (hasTimestamps) {
+            cmdList.writeTimestamp(baseQuery + 9, rhi::GpuTimestampStage::BottomOfPipe);
+        }
     }
 
     // 3. Final Tone Mapping Pass
     if (toneMappingPipeline_.isValid()) {
+        if (hasTimestamps) {
+            cmdList.writeTimestamp(baseQuery + 10, rhi::GpuTimestampStage::TopOfPipe);
+        }
         rhi::RenderPassBeginInfo passInfo{
             .colorTarget = colorTarget_,
             .depthTarget = {},
@@ -1793,7 +1833,43 @@ void SceneRenderer::renderPostProcess(rhi::RhiCommandList& cmdList) {
                               sizeof(ToneMappingPushConstants), &pc);
         cmdList.draw(3, 1, 0, 0);
         cmdList.endRenderPass();
+
+        if (hasTimestamps) {
+            cmdList.writeTimestamp(baseQuery + 11, rhi::GpuTimestampStage::BottomOfPipe);
+        }
     }
+
+    if (hasTimestamps) {
+        cmdList.writeTimestamp(baseQuery + 1, rhi::GpuTimestampStage::BottomOfPipe);
+    }
+}
+
+void SceneRenderer::updateGpuTimings(rhi::RhiDevice& device) {
+    if (!device.getCaps().features.timestampQueries) {
+        gpuPassTimings_.valid = false;
+        return;
+    }
+
+    // Double-buffered query retrieval: inspect query results from prior frame slot
+    const uint32_t readbackBase = (((frameSlotIndex_ + 1) % 2)) * 16;
+
+    auto totalOpt = device.getQueryTimeMs(readbackBase + 0, readbackBase + 1);
+    if (totalOpt.has_value()) {
+        gpuPassTimings_.totalSceneMs = totalOpt.value();
+        gpuPassTimings_.shadowPassMs =
+            device.getQueryTimeMs(readbackBase + 2, readbackBase + 3).value_or(0.0F);
+        gpuPassTimings_.mainPbrPassMs =
+            device.getQueryTimeMs(readbackBase + 4, readbackBase + 5).value_or(0.0F);
+        gpuPassTimings_.bloomDownsampleMs =
+            device.getQueryTimeMs(readbackBase + 6, readbackBase + 7).value_or(0.0F);
+        gpuPassTimings_.bloomUpsampleMs =
+            device.getQueryTimeMs(readbackBase + 8, readbackBase + 9).value_or(0.0F);
+        gpuPassTimings_.toneMappingMs =
+            device.getQueryTimeMs(readbackBase + 10, readbackBase + 11).value_or(0.0F);
+        gpuPassTimings_.valid = true;
+    }
+
+    frameSlotIndex_++;
 }
 
 } // namespace eng::render

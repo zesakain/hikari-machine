@@ -51,6 +51,27 @@ struct RenderStats {
     uint32_t meshesRendered{0};
 };
 
+/// @struct GpuPassTimings
+/// @brief Hardware GPU execution duration for individual scene rendering and post-processing
+/// passes.
+struct GpuPassTimings {
+    /// Total duration spanning scene rendering from shadow pass through tone mapping
+    /// (milliseconds).
+    float totalSceneMs{0.0F};
+    /// Duration of directional shadow map generation (milliseconds).
+    float shadowPassMs{0.0F};
+    /// Duration of forward PBR mesh rasterization and material shading (milliseconds).
+    float mainPbrPassMs{0.0F};
+    /// Duration of bloom downsampling pyramid passes (milliseconds).
+    float bloomDownsampleMs{0.0F};
+    /// Duration of bloom upsampling and accumulation passes (milliseconds).
+    float bloomUpsampleMs{0.0F};
+    /// Duration of tone mapping and presentation conversion pass (milliseconds).
+    float toneMappingMs{0.0F};
+    /// Whether these timings reflect valid GPU query results from the preceding frame.
+    bool valid{false};
+};
+
 /// @class SceneRenderer
 /// @brief Traverses the ECS World and records mesh draw calls to the RHI command list.
 class SceneRenderer {
@@ -117,6 +138,18 @@ public:
     ///
     /// @param cmdList Command list recording post-processing passes.
     void renderPostProcess(rhi::RhiCommandList& cmdList);
+
+    /// Asynchronously polls and updates GPU pass duration telemetry from the preceding frame.
+    ///
+    /// Cost : Zero heap allocation, non-blocking check. Allowed in hot path.
+    ///
+    /// @param device The active RHI device owning query pool resources.
+    void updateGpuTimings(rhi::RhiDevice& device);
+
+    /// Returns the latest measured GPU execution durations for all rendering passes.
+    [[nodiscard]] const GpuPassTimings& getGpuPassTimings() const noexcept {
+        return gpuPassTimings_;
+    }
 
     [[nodiscard]] rhi::TextureHandle getColorTarget() const noexcept { return colorTarget_; }
     [[nodiscard]] rhi::TextureHandle getDepthTarget() const noexcept { return depthTarget_; }
@@ -233,6 +266,8 @@ private:
     uint32_t shadowResolution_{2048};
     rhi::TextureFormat colorFormat_{rhi::TextureFormat::RGBA8_UNORM};
     rhi::TextureFormat depthFormat_{rhi::TextureFormat::D32_FLOAT};
+    GpuPassTimings gpuPassTimings_{};
+    uint32_t frameSlotIndex_{0};
 };
 
 } // namespace eng::render

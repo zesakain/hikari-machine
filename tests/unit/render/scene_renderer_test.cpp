@@ -616,6 +616,58 @@ static int testSceneRendererMultiMaterialSubmeshes() {
     return 0;
 }
 
+static int testSceneRendererGpuPassTimings() {
+    rhi::VulkanDeviceDesc vkDesc{.windowHandle = nullptr, .enableValidation = false};
+    auto devRes = rhi::createVulkanDevice(vkDesc);
+    if (!devRes.hasValue()) {
+        std::cout << "Vulkan device unavailable; skipping SceneRenderer GPU timings test\n";
+        return 0;
+    }
+    auto device = std::move(devRes.value());
+    if (!device->getCaps().features.timestampQueries) {
+        std::cout << "GPU timestamp queries not supported; skipping timings test\n";
+        return 0;
+    }
+
+    world::World world;
+    registerRenderComponents(world);
+    AssetManager assetManager;
+
+    SceneRenderer renderer;
+    auto initRes = renderer.init(*device, 64, 64);
+    TEST_CHECK(initRes.hasValue());
+
+    auto cmdRes = device->createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto cmd = std::move(cmdRes.value());
+
+    // Frame 0: render and submit
+    cmd->begin();
+    renderer.renderScene(world, assetManager, *device, *cmd);
+    renderer.renderPostProcess(*cmd);
+    cmd->end();
+    TEST_CHECK(device->submit(cmd.get()).hasValue());
+    renderer.updateGpuTimings(*device);
+
+    // Frame 1: render and submit, then retrieve Frame 0 query timings
+    cmd->begin();
+    renderer.renderScene(world, assetManager, *device, *cmd);
+    renderer.renderPostProcess(*cmd);
+    cmd->end();
+    TEST_CHECK(device->submit(cmd.get()).hasValue());
+    renderer.updateGpuTimings(*device);
+
+    const auto& timings = renderer.getGpuPassTimings();
+    TEST_CHECK(timings.valid);
+    TEST_CHECK(timings.totalSceneMs >= 0.0F);
+    TEST_CHECK(timings.mainPbrPassMs >= 0.0F);
+
+    renderer.shutdown();
+    std::cout << "SceneRenderer GPU pass timings verified! (Total: " << timings.totalSceneMs
+              << " ms, MainPBR: " << timings.mainPbrPassMs << " ms)\n";
+    return 0;
+}
+
 int main() {
     std::cout << "Running SceneRenderer Tests...\n";
 
@@ -635,6 +687,9 @@ int main() {
         return 1;
     }
     if (testSceneRendererMultiMaterialSubmeshes() != 0) {
+        return 1;
+    }
+    if (testSceneRendererGpuPassTimings() != 0) {
         return 1;
     }
 
