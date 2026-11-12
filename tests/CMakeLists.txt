@@ -243,6 +243,10 @@ if(HIKARI_BUILD_EDITOR)
     add_executable(profile_gpu_serialization ${CMAKE_SOURCE_DIR}/tools/profile_gpu_serialization.cpp)
     target_link_libraries(profile_gpu_serialization PRIVATE hikari::editor_lib hikari::engine_framework hikari::engine_render hikari::engine_physics hikari::engine_world hikari::engine_rhi imgui_static)
     target_include_directories(profile_gpu_serialization PRIVATE ${imgui_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/editor/src)
+
+    add_executable(benchmark_scalability ${CMAKE_SOURCE_DIR}/tools/benchmark_scalability.cpp)
+    target_link_libraries(benchmark_scalability PRIVATE hikari::editor_lib hikari::engine_framework hikari::engine_render hikari::engine_physics hikari::engine_world hikari::engine_rhi imgui_static)
+    target_include_directories(benchmark_scalability PRIVATE ${imgui_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/editor/src)
 endif()
 
 
