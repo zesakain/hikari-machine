@@ -145,6 +145,8 @@ struct PerformanceSettings {
     bool gpuProfiling{true};
     bool cpuProfiling{true};
     bool renderStats{true};
+    bool frustumCulling{true}; ///< CPU world-space frustum culling for camera and shadows
+    bool depthPrepass{false};  ///< Early depth prepass before main PBR rasterization
 
     bool operator==(const PerformanceSettings& other) const noexcept = default;
 };

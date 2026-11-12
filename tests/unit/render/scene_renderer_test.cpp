@@ -8,6 +8,7 @@
 #include "render/mesh_component.h"
 #include "render/scene_renderer.h"
 #include "rhi/rhi_device.h"
+#include "world/hierarchy_systems.h"
 #include "world/world.h"
 
 #include <cmath>
@@ -668,6 +669,106 @@ static int testSceneRendererGpuPassTimings() {
     return 0;
 }
 
+static int testSceneRendererFrustumCulling() {
+#if defined(HIKARI_HAS_TSAN)
+    std::cout << "ThreadSanitizer active: skipping live GPU driver initialization\n";
+    return 0;
+#endif
+
+    rhi::VulkanDeviceDesc vkDesc{.windowHandle = nullptr, .enableValidation = false};
+    auto devRes = rhi::createVulkanDevice(vkDesc);
+    if (!devRes.hasValue()) {
+        std::cout << "Vulkan device unavailable; skipping frustum culling test\n";
+        return 0;
+    }
+    auto device = std::move(devRes.value());
+
+    world::World world;
+    registerRenderComponents(world);
+    AssetManager assetManager;
+
+    auto loadRes = assetManager.loadMesh("assets/models/cube.obj");
+    TEST_CHECK(loadRes.hasValue());
+    AssetId cubeId = loadRes.value();
+
+    auto& ecs = world.getRawWorld();
+
+    // Entity 1: in front of camera (Z = -5)
+    auto frontEntity = ecs.entity("FrontCube");
+    frontEntity.set<MeshComponent>(MeshComponent{
+        .meshAsset = cubeId,
+        .visible = true,
+    });
+    frontEntity.set<physics::PhysicsTransformComponent>(physics::PhysicsTransformComponent{
+        .transform = Transform(Vec3(0.0F, 0.0F, -5.0F)),
+    });
+
+    // Entity 2: behind camera (Z = +5)
+    auto behindEntity = ecs.entity("BehindCube");
+    behindEntity.set<MeshComponent>(MeshComponent{
+        .meshAsset = cubeId,
+        .visible = true,
+    });
+    behindEntity.set<physics::PhysicsTransformComponent>(physics::PhysicsTransformComponent{
+        .transform = Transform(Vec3(0.0F, 0.0F, 5.0F)),
+    });
+
+    // Directional light with shadows enabled
+    auto lightEntity = ecs.entity("Sun");
+    DirectionalLightComponent sunLight{};
+    sunLight.enabled = true;
+    sunLight.castShadows = true;
+    sunLight.direction = Vec3(0.0F, 1.0F, 0.0F);
+    lightEntity.set<DirectionalLightComponent>(sunLight);
+
+    world::updateHierarchyTransforms(world);
+
+    SceneRenderer renderer;
+    auto initRes = renderer.init(*device, 64, 64);
+    TEST_CHECK(initRes.hasValue());
+
+    constexpr float kPi = 3.14159265358979323846F;
+    Mat4 view =
+        Mat4::lookAt(Vec3(0.0F, 0.0F, 0.0F), Vec3(0.0F, 0.0F, -1.0F), Vec3(0.0F, 1.0F, 0.0F));
+    Mat4 proj = Mat4::perspective(60.0F * (kPi / 180.0F), 1.0F, 0.1F, 50.0F);
+    Mat4 viewProj = proj * view;
+
+    auto cmdRes = device->createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto cmd = std::move(cmdRes.value());
+
+    // 1. Frustum culling enabled
+    GraphicsSettings settings = renderer.getGraphicsSettings();
+    settings.performance.frustumCulling = true;
+    (void)renderer.applyGraphicsSettings(settings);
+
+    cmd->begin();
+    RenderStats culledStats = renderer.renderScene(world, assetManager, *device, *cmd, viewProj);
+    cmd->end();
+    TEST_CHECK(device->submit(cmd.get()).hasValue());
+    device->waitIdle();
+
+    TEST_CHECK(culledStats.drawCalls == 1);
+    TEST_CHECK(culledStats.culledPrimitives >= 1);
+
+    // 2. Frustum culling disabled
+    settings.performance.frustumCulling = false;
+    (void)renderer.applyGraphicsSettings(settings);
+
+    cmd->begin();
+    RenderStats unculledStats = renderer.renderScene(world, assetManager, *device, *cmd, viewProj);
+    cmd->end();
+    TEST_CHECK(device->submit(cmd.get()).hasValue());
+    device->waitIdle();
+
+    TEST_CHECK(unculledStats.drawCalls == 2);
+    TEST_CHECK(unculledStats.culledPrimitives == 0);
+
+    renderer.shutdown();
+    std::cout << "SceneRenderer camera and shadow frustum culling verified!\n";
+    return 0;
+}
+
 int main() {
     std::cout << "Running SceneRenderer Tests...\n";
 
@@ -690,6 +791,9 @@ int main() {
         return 1;
     }
     if (testSceneRendererGpuPassTimings() != 0) {
+        return 1;
+    }
+    if (testSceneRendererFrustumCulling() != 0) {
         return 1;
     }
 

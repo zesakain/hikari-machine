@@ -254,6 +254,8 @@ Result<std::string> GraphicsSettingsSerializer::serializeToString(const Graphics
     perfObj.set("gpuProfiling", JsonValue(settings.performance.gpuProfiling));
     perfObj.set("cpuProfiling", JsonValue(settings.performance.cpuProfiling));
     perfObj.set("renderStats", JsonValue(settings.performance.renderStats));
+    perfObj.set("frustumCulling", JsonValue(settings.performance.frustumCulling));
+    perfObj.set("depthPrepass", JsonValue(settings.performance.depthPrepass));
     root.set("performance", std::move(perfObj));
 
     // Debug
@@ -424,6 +426,10 @@ GraphicsSettingsSerializer::deserializeFromString(std::string_view jsonText) {
             perf->getBool("cpuProfiling", settings.performance.cpuProfiling);
         settings.performance.renderStats =
             perf->getBool("renderStats", settings.performance.renderStats);
+        settings.performance.frustumCulling =
+            perf->getBool("frustumCulling", settings.performance.frustumCulling);
+        settings.performance.depthPrepass =
+            perf->getBool("depthPrepass", settings.performance.depthPrepass);
     }
 
     // 6. Debug

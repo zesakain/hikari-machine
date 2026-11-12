@@ -216,6 +216,63 @@ static int testPerspectiveLookAtInverseAndRay() {
     return 0;
 }
 
+int testFrustumAndPlane() {
+    // Mat4 equality & isNearlyEqual
+    Mat4 m1 = Mat4::identity();
+    Mat4 m2 = Mat4::identity();
+    TEST_CHECK(m1 == m2);
+    TEST_CHECK(m1.isNearlyEqual(m2));
+    m2.m[0] = 2.0F;
+    TEST_CHECK(m1 != m2);
+    TEST_CHECK(!m1.isNearlyEqual(m2));
+
+    // Plane distance & normalization
+    Plane p(Vec3(0.0F, 2.0F, 0.0F), -4.0F); // y = 2
+    Plane normP = p.normalized();
+    TEST_CHECK(std::abs(normP.normal.y - 1.0F) < 1e-5F);
+    TEST_CHECK(std::abs(normP.distance - (-2.0F)) < 1e-5F);
+    TEST_CHECK(std::abs(normP.signedDistance(Vec3(0.0F, 5.0F, 0.0F)) - 3.0F) < 1e-5F);
+    TEST_CHECK(std::abs(normP.signedDistance(Vec3(0.0F, -1.0F, 0.0F)) - (-3.0F)) < 1e-5F);
+
+    // Camera view-projection frustum
+    constexpr float kPi = 3.14159265358979323846F;
+    Mat4 view = Mat4::lookAt(Vec3(0.0F, 0.0F, 0.0F), Vec3(0.0F, 0.0F, -1.0F), Vec3::unitY());
+    Mat4 proj = Mat4::perspective(60.0F * (kPi / 180.0F), 1.0F, 0.1F, 100.0F);
+    Mat4 vp = proj * view;
+
+    Frustum frustum = Frustum::fromViewProjection(vp);
+
+    // Box right in front of camera
+    AABB boxFront(Vec3(-1.0F, -1.0F, -10.0F), Vec3(1.0F, 1.0F, -8.0F));
+    TEST_CHECK(frustum.intersectsAABB(boxFront));
+
+    // Box behind camera
+    AABB boxBehind(Vec3(-1.0F, -1.0F, 5.0F), Vec3(1.0F, 1.0F, 10.0F));
+    TEST_CHECK(!frustum.intersectsAABB(boxBehind));
+
+    // Box far off to the right
+    AABB boxRight(Vec3(100.0F, -1.0F, -10.0F), Vec3(110.0F, 1.0F, -8.0F));
+    TEST_CHECK(!frustum.intersectsAABB(boxRight));
+
+    // Box beyond far plane (z < -100)
+    AABB boxBeyondFar(Vec3(-1.0F, -1.0F, -120.0F), Vec3(1.0F, 1.0F, -105.0F));
+    TEST_CHECK(!frustum.intersectsAABB(boxBeyondFar));
+
+    // Huge box enclosing entire frustum
+    AABB boxEnclosing(Vec3(-500.0F, -500.0F, -500.0F), Vec3(500.0F, 500.0F, 500.0F));
+    TEST_CHECK(frustum.intersectsAABB(boxEnclosing));
+
+    // Invalid AABB should conservatively return true
+    AABB invalidBox;
+    TEST_CHECK(frustum.intersectsAABB(invalidBox));
+
+    // Sphere tests
+    TEST_CHECK(frustum.intersectsSphere(Vec3(0.0F, 0.0F, -10.0F), 2.0F));
+    TEST_CHECK(!frustum.intersectsSphere(Vec3(0.0F, 0.0F, 10.0F), 2.0F));
+
+    return 0;
+}
+
 int main() {
     std::cout << "Running Math Tests...\n";
 
@@ -232,6 +289,9 @@ int main() {
         return 1;
     }
     if (testPerspectiveLookAtInverseAndRay() != 0) {
+        return 1;
+    }
+    if (testFrustumAndPlane() != 0) {
         return 1;
     }
 

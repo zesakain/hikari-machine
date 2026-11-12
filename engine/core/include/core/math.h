@@ -479,6 +479,26 @@ struct Mat4 {
         return m[(col * 4) + row];
     }
 
+    [[nodiscard]] bool isNearlyEqual(const Mat4& rhs, float epsilon = 1e-5F) const noexcept {
+        for (size_t i = 0; i < 16; ++i) {
+            if (std::abs(m[i] - rhs.m[i]) > epsilon) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    [[nodiscard]] bool operator==(const Mat4& rhs) const noexcept {
+        for (size_t i = 0; i < 16; ++i) {
+            if (m[i] != rhs.m[i]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    [[nodiscard]] bool operator!=(const Mat4& rhs) const noexcept { return !(*this == rhs); }
+
     /// Creates a perspective projection matrix (Vulkan [0, 1] depth range).
     [[nodiscard]] static Mat4 perspective(float fovYRadians, float aspect, float zNear,
                                           float zFar) noexcept {
@@ -749,6 +769,116 @@ inline std::optional<float> Ray::intersectAABB(const AABB& aabb) const noexcept 
     }
     return intersectAABB(aabb.minBound, aabb.maxBound);
 }
+
+/// @struct Plane
+/// @brief 3D plane in Hessian normal form: normal.dot(p) + distance = 0.
+struct Plane {
+    Vec3 normal{0.0F, 1.0F, 0.0F};
+    float distance{0.0F};
+
+    constexpr Plane() noexcept = default;
+    constexpr Plane(const Vec3& inNormal, float inDistance) noexcept
+        : normal(inNormal), distance(inDistance) {}
+    constexpr Plane(float inA, float inB, float inC, float inD) noexcept
+        : normal(inA, inB, inC), distance(inD) {}
+
+    [[nodiscard]] Plane normalized() const noexcept {
+        const float lenSq = normal.lengthSq();
+        if (lenSq > 1e-12F) {
+            const float invLen = 1.0F / std::sqrt(lenSq);
+            return Plane{normal * invLen, distance * invLen};
+        }
+        return *this;
+    }
+
+    [[nodiscard]] constexpr float signedDistance(const Vec3& point) const noexcept {
+        return Vec3::dot(normal, point) + distance;
+    }
+};
+
+/// @struct Frustum
+/// @brief Six-plane viewing frustum for CPU-side visibility and frustum culling.
+struct Frustum {
+    enum PlaneIndex : uint8_t {
+        Left = 0,
+        Right = 1,
+        Bottom = 2,
+        Top = 3,
+        Near = 4,
+        Far = 5,
+        Count = 6
+    };
+
+    Plane planes[6]{};
+
+    constexpr Frustum() noexcept = default;
+
+    /// Extracts normalized frustum planes from a column-major view-projection matrix (Vulkan [0, 1]
+    /// depth range).
+    [[nodiscard]] static Frustum fromViewProjection(const Mat4& m) noexcept {
+        Frustum f;
+        // In column-major Mat4:
+        // row 0: m[0], m[4], m[8], m[12]
+        // row 1: m[1], m[5], m[9], m[13]
+        // row 2: m[2], m[6], m[10], m[14]
+        // row 3: m[3], m[7], m[11], m[15]
+
+        // Left plane: row 3 + row 0 (x >= -w)
+        f.planes[Left] =
+            Plane(m.m[3] + m.m[0], m.m[7] + m.m[4], m.m[11] + m.m[8], m.m[15] + m.m[12])
+                .normalized();
+        // Right plane: row 3 - row 0 (x <= w)
+        f.planes[Right] =
+            Plane(m.m[3] - m.m[0], m.m[7] - m.m[4], m.m[11] - m.m[8], m.m[15] - m.m[12])
+                .normalized();
+        // Bottom plane: row 3 + row 1 (y >= -w)
+        f.planes[Bottom] =
+            Plane(m.m[3] + m.m[1], m.m[7] + m.m[5], m.m[11] + m.m[9], m.m[15] + m.m[13])
+                .normalized();
+        // Top plane: row 3 - row 1 (y <= w)
+        f.planes[Top] = Plane(m.m[3] - m.m[1], m.m[7] - m.m[5], m.m[11] - m.m[9], m.m[15] - m.m[13])
+                            .normalized();
+        // Near plane: For Vulkan [0, 1] depth range (z >= 0 -> row 2)
+        f.planes[Near] = Plane(m.m[2], m.m[6], m.m[10], m.m[14]).normalized();
+        // Far plane: row 3 - row 2 (z <= w)
+        f.planes[Far] =
+            Plane(m.m[3] - m.m[2], m.m[7] - m.m[6], m.m[11] - m.m[10], m.m[15] - m.m[14])
+                .normalized();
+
+        return f;
+    }
+
+    /// Evaluates whether an AABB intersects or is inside the frustum.
+    /// If the AABB is invalid or uninitialized, returns true (conservative fallback).
+    [[nodiscard]] bool intersectsAABB(const AABB& aabb) const noexcept {
+        if (!aabb.isValid()) {
+            return true;
+        }
+        const Vec3 center = aabb.getCenter();
+        const Vec3 extents = aabb.getExtents();
+
+        for (const auto& plane : planes) {
+            const float r = (std::abs(plane.normal.x) * extents.x) +
+                            (std::abs(plane.normal.y) * extents.y) +
+                            (std::abs(plane.normal.z) * extents.z);
+            const float d = plane.signedDistance(center);
+            if (d < -r) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /// Evaluates whether a bounding sphere intersects or is inside the frustum.
+    [[nodiscard]] bool intersectsSphere(const Vec3& center, float radius) const noexcept {
+        for (const auto& plane : planes) {
+            if (plane.signedDistance(center) < -radius) {
+                return false;
+            }
+        }
+        return true;
+    }
+};
 
 /// @struct Transform
 /// @brief Spatial transformation combining position, orientation, and non-uniform scale.

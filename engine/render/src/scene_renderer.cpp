@@ -1078,6 +1078,9 @@ void SceneRenderer::recordShadowPass(rhi::RhiCommandList& cmdList) {
     cmdList.setScissor(0, 0, shadowResolution_, shadowResolution_);
     cmdList.bindPipeline(shadowPipeline_);
 
+    const bool applyLightCulling = settings_.performance.frustumCulling;
+    const Frustum lightFrustum = Frustum::fromViewProjection(currentLightSpaceMatrix_);
+
     auto& ecs = currentWorld_->getRawWorld();
     auto shadowMeshQuery = ecs.query<const MeshComponent>();
     shadowMeshQuery.each([&](flecs::entity e, const MeshComponent& meshComp) {
@@ -1115,6 +1118,17 @@ void SceneRenderer::recordShadowPass(rhi::RhiCommandList& cmdList) {
             const auto* tc = e.get<physics::PhysicsTransformComponent>();
             if (tc != nullptr) {
                 model = tc->transform.toMatrix();
+            }
+        }
+
+        if (applyLightCulling) {
+            const AABB localBounds = (meshComp.submeshIndex < gpuMesh->getSubmeshes().size())
+                                         ? gpuMesh->getSubmeshes()[meshComp.submeshIndex].bounds
+                                         : gpuMesh->getBounds();
+            const AABB worldBounds = localBounds.transform(model);
+            if (!lightFrustum.intersectsAABB(worldBounds)) {
+                lastRenderStats_.culledPrimitives++;
+                return;
             }
         }
 
@@ -1207,6 +1221,10 @@ void SceneRenderer::recordMainPbrPass(rhi::RhiCommandList& cmdList) {
         cmdList.bindDescriptorSets(pipelineLayout_, 1, sceneSets);
     }
 
+    const bool applyCameraCulling =
+        settings_.performance.frustumCulling && !currentViewProj_.isNearlyEqual(Mat4::identity());
+    const Frustum cameraFrustum = Frustum::fromViewProjection(currentViewProj_);
+
     auto& ecs = currentWorld_->getRawWorld();
     auto query = ecs.query<const MeshComponent>();
     query.each([&](flecs::entity e, const MeshComponent& meshComp) {
@@ -1260,6 +1278,17 @@ void SceneRenderer::recordMainPbrPass(rhi::RhiCommandList& cmdList) {
             const auto* tc = e.get<physics::PhysicsTransformComponent>();
             if (tc != nullptr) {
                 model = tc->transform.toMatrix();
+            }
+        }
+
+        if (applyCameraCulling) {
+            const AABB localBounds = (meshComp.submeshIndex < gpuMesh->getSubmeshes().size())
+                                         ? gpuMesh->getSubmeshes()[meshComp.submeshIndex].bounds
+                                         : gpuMesh->getBounds();
+            const AABB worldBounds = localBounds.transform(model);
+            if (!cameraFrustum.intersectsAABB(worldBounds)) {
+                lastRenderStats_.culledPrimitives++;
+                return;
             }
         }
 

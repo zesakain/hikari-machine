@@ -336,7 +336,11 @@ static int testVulkanSponzaLiveRenderingAndCertification() {
         toRadians(65.0F), static_cast<float>(width) / static_cast<float>(height), 0.1F, 100.0F);
     Mat4 viewProjOverview = proj * viewOverview;
 
-    // Warm-up frame (pre-warms GPU textures, samplers, pipelines)
+    // 1. Unculled baseline verification (guarantees entire scene geometry is valid and loadable)
+    GraphicsSettings unculledSettings = renderer.getGraphicsSettings();
+    unculledSettings.performance.frustumCulling = false;
+    (void)renderer.applyGraphicsSettings(unculledSettings);
+
     cmd->begin();
     auto warmStats = renderer.renderScene(world, assetManager, *device, *cmd, viewProjOverview);
     if (renderer.isPostProcessingEnabled()) {
@@ -346,10 +350,30 @@ static int testVulkanSponzaLiveRenderingAndCertification() {
     TEST_CHECK(device->submit(cmd.get()).hasValue());
     device->waitIdle();
 
-    std::cout << "  Warm-up Frame Complete. Telemetry: " << warmStats.drawCalls << " draw calls, "
-              << warmStats.triangles << " triangles rendered\n";
+    std::cout << "  Unculled Warm-up Frame Complete. Telemetry: " << warmStats.drawCalls
+              << " draw calls, " << warmStats.triangles << " triangles rendered\n";
     TEST_CHECK(warmStats.drawCalls >= 100);
     TEST_CHECK(warmStats.triangles >= 200000);
+
+    // 2. Frustum culling verification (confirms frustum culling reduces draw calls on perspective
+    // overview)
+    GraphicsSettings culledSettings = renderer.getGraphicsSettings();
+    culledSettings.performance.frustumCulling = true;
+    (void)renderer.applyGraphicsSettings(culledSettings);
+
+    cmd->begin();
+    auto culledStats = renderer.renderScene(world, assetManager, *device, *cmd, viewProjOverview);
+    if (renderer.isPostProcessingEnabled()) {
+        renderer.renderPostProcess(*cmd);
+    }
+    cmd->end();
+    TEST_CHECK(device->submit(cmd.get()).hasValue());
+    device->waitIdle();
+
+    std::cout << "  Frustum Culled Frame Telemetry: " << culledStats.drawCalls
+              << " draw calls rendered, " << culledStats.culledPrimitives << " culled primitives\n";
+    TEST_CHECK(culledStats.culledPrimitives > 0);
+    TEST_CHECK(culledStats.drawCalls < warmStats.drawCalls);
 
     // Benchmark 10 consecutive frames measuring frame latency
     constexpr uint32_t kBenchFrames = 10;
