@@ -199,21 +199,47 @@ graph TD
 
 ## 5. Performance Profile & Sponza Bottleneck Analysis
 
-Profiling telemetry captured on the NVIDIA Pascal test floor (P106-100, 6GB VRAM, 1080p viewport) highlights the following performance realities:
+### 5.1 Reconciled GPU Telemetry Datasets
 
-| Metric | Measured Value | Architectural Reason |
-|---|---|---|
-| Total Draw Calls | 206 calls/frame | 103 submeshes in shadow pass + 103 in PBR pass |
-| Total Vertices | 262,267 vertices | Khronos Sponza mesh geometry |
-| Total Triangles | 524,534 triangles/frame | Rendered twice per frame |
-| Culled Primitives | **0 primitives (0%)** | **No frustum culling exists** in `SceneRenderer` |
-| Shadow Pass GPU Duration | $1.42\text{ ms}$ | High vertex throughput, no fragment cost |
-| Main PBR Pass GPU Duration | **$18.94\text{ ms}$** | Heavy Cook-Torrance shading + high overdraw (no depth pre-pass) |
-| Bloom Pyramid GPU Duration | $0.85\text{ ms}$ | Down/up compute/graphics passes |
-| Tone Mapping GPU Duration | $0.32\text{ ms}$ | Single fullscreen triangle composite |
-| ImGui Overlay GPU Duration | $0.41\text{ ms}$ | Viewport blit and editor UI rendering |
-| **Total GPU Frame Duration** | **$21.94\text{ ms}$ (45.5 FPS)** | Exceeds $16.6\text{ ms}$ budget; bound by Main PBR pass |
+During the Milestone 10/11 audits, two distinct GPU performance datasets appeared in historical documentation. This section formally reconciles their origins:
 
-### Primary Root Causes for Milestone 11B Resolution:
-1. **Absence of Frustum Culling:** Even when the editor camera faces a solid wall, all 103 submeshes are submitted to both passes.
-2. **Absence of Depth Pre-Pass:** The forward PBR pass executes expensive Cook-Torrance BRDF shading and 9-tap PCF shadow lookups on occluded fragments, wasting up to 60% of shader cycles in scenes with depth complexity.
+#### Dataset A: Verified Sponza Benchmark Profile (`tests/profile_gpu_serialization.cpp`)
+- **Scene:** Persistent Sponza Benchmark Scene (`assets/scenes/sponza_benchmark.hikari`), 103 submeshes, 262,267 triangles.
+- **Hardware & Device:** NVIDIA P106-100 discrete GPU (Device index 0, Pascal architecture, 6GB VRAM), headless render.
+- **Configuration:** Viewport $1280 \times 720$ (1.0x render scale), Directional Shadow Map $2048 \times 2048$ `D32_FLOAT`, full HDR (`RGBA16_FLOAT`), Bloom down/up pyramid, ACES tone mapping.
+- **Measurement Method:** Hardware Vulkan timestamp queries (`VK_QUERY_TYPE_TIMESTAMP`) delimited in-stream on graphics command buffer.
+- **Sample Size:** 120 steady-state frames.
+
+| Render Pass | Hardware Timestamp Duration | Share of Total | Query Slot Indices |
+|---|---|---|---|
+| **Directional Shadow Pass (2048×2048)** | **$15.81\text{ ms}$** (Min 15.25, Max 15.90) | 45.36% | Queries 2 -> 3 |
+| **Main Forward PBR Pass (720p HDR)** | **$18.94\text{ ms}$** (Min 18.88, Max 19.11) | 54.36% | Queries 4 -> 5 |
+| **Bloom Downsample (6 mips)** | **$0.03\text{ ms}$** | 0.09% | Queries 6 -> 7 |
+| **Bloom Upsample (5 mips)** | **$0.01\text{ ms}$** | 0.03% | Queries 8 -> 9 |
+| **Tone Mapping & Composite** | **$0.03\text{ ms}$** | 0.09% | Queries 10 -> 11 |
+| **Total Hardware Scene Duration** | **$34.84\text{ ms}$** (Min 34.30, Max 35.10) | 100.0% | Queries 0 -> 1 |
+| *Pipeline Barrier / Transition Overhead* | $0.03\text{ ms}$ | 0.09% | Inter-pass gap |
+
+#### Dataset B: Erroneous Cross-Scene Composite (SUPERSEDED / UNVERIFIED)
+An earlier draft in `2cbf4dd` cited: *Shadow: 1.42 ms, PBR: 18.94 ms, Bloom: 0.85 ms, Tone mapping: 0.32 ms, Total: 21.94 ms*.  
+**Audit Finding:** This dataset is **erroneous and unverified as a single coherent measurement**. The $1.42\text{ ms}$ figure was lifted from the single-mesh *Damaged Helmet* benchmark (`docs/architecture/graphics_settings_and_scalability.md:276`), while $18.94\text{ ms}$ was taken from *Sponza*. Sponza's shadow pass duration has never been $1.42\text{ ms}$; under $2048 \times 2048$ shadow resolution, it consistently measures $15.25\text{ ms} - 15.81\text{ ms}$. These two datasets represent completely different workloads and must **never be combined**.
+
+---
+
+### 5.2 Performance Causality & Bottleneck Analysis (Provisional)
+
+> [!WARNING]
+> Because low-level GPU hardware performance counters (e.g., SM warp execution efficiency, texture cache hit rates, primitive assembler busy cycles via NVIDIA NVPerf/Nsight) have not been collected on the P106-100 test floor, all bottleneck classifications below are strictly **PROVISIONAL**.
+
+#### Key Measured Evidence:
+1. **Resolution Invariance of Main PBR Pass:**  
+   In the scalability certification (`docs/architecture/graphics_settings_and_scalability.md:263-267`), scaling the Sponza render scale from $0.75\times$ ($960 \times 540$) to $1.00\times$ ($1280 \times 720$) to $1.25\times$ ($1600 \times 900$) results in an almost completely flat PBR pass duration ($19.00\text{ ms} \to 19.01\text{ ms} \to 19.10\text{ ms}$), despite a $2.77\times$ variation in shaded pixel count.
+2. **Wireframe Mode Parity:**  
+   Switching the Sponza main pass to polygon wireframe mode (`VK_POLYGON_MODE_LINE`), which eliminates interior triangle fill and Cook-Torrance fragment shading entirely, results in virtually identical pass duration: **$18.88\text{ ms}$** (vs $19.01\text{ ms}$ in solid fill).
+3. **Shadow Pass Geometry Duration:**  
+   The Directional Shadow Pass contains **zero fragment shading** (vertex depth-only shader writing `gl_Position`), yet consumes **$15.81\text{ ms}$** (45.36% of GPU time) to process the 103 submeshes (262,267 triangles).
+
+#### Inferred Engineering Causality:
+- **Geometry & Submission Bound:** The data strongly demonstrates that the workload on Pascal P106-100 is significantly limited by **vertex processing throughput, draw-call submission overhead, and push constant/descriptor state transitions**, rather than being purely bound by Cook-Torrance fragment shading overdraw.
+- **Frustum Culling Priority (Definite):** Viewport camera does zero frustum culling. All 103 submeshes are submitted to both passes (206 total draws, 524,534 triangles/frame) regardless of camera orientation. Hierarchical CPU frustum culling is an unambiguous, high-return optimization.
+- **Depth Pre-Pass Benefit (Provisional):** While an Early-Z depth pre-pass can reduce fragment shader overdraw, it introduces 103 additional draw calls and a third vertex processing pass over the 262k triangles. If vertex processing and draw-call dispatch remain the primary bottleneck, adding a depth pre-pass without prior frustum culling and state batching could **increase** total frame time. Its net benefit must be empirically measured in Milestone 11B before making it permanent.

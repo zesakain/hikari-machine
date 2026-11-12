@@ -69,32 +69,44 @@ graph TD
 
 ---
 
-## 4. Multi-Frame GPU Synchronization & Deferred Invalidation
+## 4. GPU Synchronization, Command Submission & Resource Invalidation
 
-Vulkan command lists execute asynchronously on the GPU. When a resource is modified, resized, or destroyed on the CPU thread, Hikari enforces strict GPU safety rules.
+### 4.1 Actual Synchronization Model: Synchronous Lockstep Submission
+
+An audit of [`engine/rhi/src/vulkan/vulkan_device.cpp:1280-1337`](../../engine/rhi/src/vulkan/vulkan_device.cpp#L1280-L1337) reveals the actual submission and synchronization model currently implemented:
 
 ```mermaid
-flowchart TD
-    CPU_Event["CPU Event: Viewport Resize or Settings Change"] --> AcquireLock["Mark Old Resources as Retiring"]
-    AcquireLock --> Decision{"Is Engine in Hot Path or Resize?"}
-    
-    Decision -- Resize / Settings Apply --> DrainGPU["rhiDevice->waitIdle()<br/>(Cold path: stall GPU pipeline safely)"]
-    DrainGPU --> FreeOldImmediate["vkDestroyImageView() & vmaDestroyImage()<br/>Reallocate new targets immediately"]
-    FreeOldImmediate --> ResumeRendering["Resume Normal Frame Loop"]
+sequenceDiagram
+    autonumber
+    participant CPU as Main Thread (src/main.cpp)
+    participant Dev as rhi::VulkanDevice
+    participant Queue as VkQueue (Graphics)
+    participant Fence as VkFence (Temporary)
+    participant GPU as GPU Execution Pipeline
 
-    Decision -- Per-Frame Descriptor Replacement --> PushQueue["Push VkDescriptorSet to pendingDescriptorFrees_<br/>Tag with current frame fence / generation"]
-    PushQueue --> NextFrames["Continue Frame Processing (N frames in flight)"]
-    NextFrames --> CheckFence{"Has Frame Completed on GPU?"}
-    CheckFence -- Yes --> FreeDeferred["vkFreeDescriptorSets(pool, 1, &descriptor)"]
-    CheckFence -- No --> KeepWaiting["Retain in queue until fence signals"]
+    CPU->>Dev: submit(mainCmd)
+    Dev->>Dev: vkCreateFence(flags = 0)
+    Dev->>Queue: vkQueueSubmit(submitInfo, fence)
+    Note over CPU,Dev: SYNCHRONOUS STALL: CPU immediately blocks on fence!
+    Dev->>Fence: vkWaitForFences(fence, timeout = 2s)
+    GPU-->>Fence: Command buffer execution completes
+    Fence-->>Dev: Fence signaled
+    Dev->>Dev: vkDestroyFence(fence)
+    Dev->>Dev: cmdList->cleanupStagingResources()
+    Dev-->>CPU: submit() returns success
+    CPU->>Dev: present()
 ```
 
-### Frame-In-Flight Synchronization Primitives
-1. **Per-Frame Semaphores:**
-   - `imageAvailableSemaphore_`: Signaled when `vkAcquireNextImageKHR` acquires a swapchain backbuffer.
-   - `renderFinishedSemaphore_`: Signaled when the graphics command list finishes execution, consumed by `vkQueuePresentKHR`.
-2. **Per-Frame Fences (`VkFence`):**
-   - Each frame in flight has a fence signaled upon GPU command completion.
-   - `vkWaitForFences()` is invoked at the start of the next iteration of that frame slot before recycling its command buffer.
-3. **Pipeline Image Barriers (`VkImageMemoryBarrier`):**
-   - Enforce execution and memory dependencies between consecutive passes (Shadow write $\to$ PBR fragment read; PBR color write $\to$ Bloom compute read; Bloom write $\to$ Tone mapping composite read).
+#### Key Architectural Findings:
+1. **Synchronous Command Submission:**  
+   `VulkanDevice::submit()` does not pipeline multiple frames in flight. Instead, it creates a temporary fence per submission, calls `vkQueueSubmit`, and **immediately blocks the CPU thread with `vkWaitForFences()`** until the GPU finishes recording and executing that exact command buffer. This accounts for the `CPU vkWaitForFences: Avg 35.15 ms` stall duration observed in telemetry.
+2. **Device-Wide Idle Waits (`waitIdle`) for Resource Safety:**  
+   Resource invalidation and destruction across the engine explicitly rely on device-wide stalls via `device_->waitIdle()`:
+   - **Render Target Resize:** [`engine/render/src/scene_renderer.cpp:850`](../../engine/render/src/scene_renderer.cpp#L850) calls `device_->waitIdle()` before destroying `colorTarget_`, `depthTarget_`, and bloom pyramid textures.
+   - **Shadow Map Resize:** [`engine/render/src/scene_renderer.cpp:923`](../../engine/render/src/scene_renderer.cpp#L923) calls `device_->waitIdle()` before destroying `shadowDepthTarget_` and updating scene descriptors.
+   - **Viewport Descriptor Cleanup:** [`editor/src/editor_engine.cpp:681`](../../editor/src/editor_engine.cpp#L681) calls `impl_->rhiDevice->waitIdle()` at the start of `beginFrame()` before calling `ImGui_ImplVulkan_RemoveTexture()` on descriptor sets queued in `pendingDescriptorFrees_`.
+   - **Swapchain Recreation:** [`engine/rhi/src/vulkan/vulkan_device.cpp:1488`](../../engine/rhi/src/vulkan/vulkan_device.cpp#L1488) calls `waitIdle()` before destroying the old `VkSwapchainKHR` and its backbuffer image views.
+   - **Engine Teardown:** [`src/main.cpp`](../../src/main.cpp) and `VulkanDevice::~VulkanDevice` ([`vulkan_device.cpp:54`](../../engine/rhi/src/vulkan/vulkan_device.cpp#L54)) execute `waitIdle()` prior to releasing any descriptor pools, pipelines, or VMA allocations.
+
+3. **Planned Evolution (Milestone 11B):**  
+   True asynchronous multi-frame pipelining (allowing CPU frame $N+1$ recording while GPU executes frame $N$) requires decoupling `VulkanDevice::submit` from `vkWaitForFences`, maintaining permanent per-frame fences in a ring buffer, and rotating descriptor sets per frame. This is a primary optimization target for Milestone 11B.

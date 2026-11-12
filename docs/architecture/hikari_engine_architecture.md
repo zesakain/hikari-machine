@@ -233,8 +233,9 @@ graph TD
 |---|---|---|---|
 | **Render Graph** | Fully dynamic DAG of passes with automated memory barriers and transient aliasing | **Disconnected.** `RenderGraph` exists and passes unit tests, but `SceneRenderer` hardcodes passes linearly | Manual `VkImageMemoryBarrier` calls; high risk of barrier bugs when adding passes |
 | **Frustum Culling** | Hierarchical CPU AABB-frustum culling of mesh instances | **Missing.** `SceneRenderer` iterates all `MeshComponent` entities and renders unconditionally | 206 draw calls & 524k triangles/frame in Sponza; 0% culling efficiency |
-| **Depth Pre-Pass** | Early-Z depth-only pass to eliminate overdraw in forward PBR | **Missing.** Geometry rasterized directly into HDR color target | Main PBR pass takes $18.94\text{ ms}$ on Pascal P106-100 due to fragment overdraw |
-| **Shadow Cascades** | 4-split Cascaded Shadow Maps (CSM) for large environments | **Single fixed 2048 projection.** Single orthographic box | Extreme perspective aliasing and acne in Sponza |
+| **Depth Pre-Pass** | Early-Z depth-only pass to eliminate overdraw in forward PBR | **Missing.** Geometry rasterized directly into HDR color target | Main PBR pass takes $18.94\text{ ms}$; resolution/wireframe invariance indicates vertex/submission overhead is also a major factor |
+| **Shadow Cascades** | 4-split Cascaded Shadow Maps (CSM) for large environments | **Single fixed 2048 projection.** Single orthographic box | Extreme perspective aliasing and acne in Sponza; shadow pass consumes $15.81\text{ ms}$ |
+| **Frame Pipelining** | Asynchronous multi-frame pipelining with decoupled per-frame fences | **Synchronous lockstep.** `VulkanDevice::submit()` immediately calls `vkWaitForFences()` | CPU stalled for $\sim 35\text{ ms}$ waiting for GPU; zero frame overlap |
 | **Multi-GPU Topology** | Hardware-neutral single-device submission | **Cross-GPU bus transfer.** Render on P106-100, present on GT 1030 | PCIe latency and presentation overhead |
 
 ---
@@ -244,7 +245,9 @@ graph TD
 This architectural mapping directly underpins the execution of the **Hikari Rendering Evolution (Milestone 11 Series)**:
 
 - **Milestone 11B (Renderer Modernization & Architecture Optimization):**
-  - Directly resolves **RISK-01** (Frustum Culling) and **RISK-04** (Depth Pre-Pass), reducing main pass duration from $18.94\text{ ms}$ to within the $10\text{ ms}$ budget.
+  - Directly resolves **RISK-01** (Frustum Culling), eliminating redundant geometry submission across both passes.
+  - Refactors **RISK-07** (Synchronous CPU Fence Stall) to establish true asynchronous frames in flight with decoupled per-frame fences and ring-buffered descriptor pools.
+  - Evaluates **RISK-04** (Depth Pre-Pass vs Vertex Cost): empirically measures whether an Early-Z pre-pass yields a net frame-time reduction once frustum culling is active.
   - Directly migrates `SceneRenderer` onto **RISK-02** (`RenderGraph`), establishing dynamic barrier compilation.
 - **Milestone 11C (Advanced Lighting & Image-Based Lighting):**
   - Connects split-sum GGX environment maps and irradiance probes into the forward PBR pipeline via descriptor set 0.
