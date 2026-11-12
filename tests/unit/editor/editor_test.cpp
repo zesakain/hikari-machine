@@ -12,6 +12,7 @@
 #include "framework/conductor.h"
 #include "framework/mode.h"
 #include "framework/runtime_session.h"
+#include "framework/scene_serializer.h"
 #include "panels/content_browser_panel.h"
 #include "physics/physics_components.h"
 #include "platform/input_snapshot.h"
@@ -1821,6 +1822,74 @@ static void testViewportTransformGizmoManipulation() {
     tc->transform.scale.z += 1.5F;
     TEST_CHECK(tc->transform.scale.z == 2.5F);
 
+    // 2. Child entity transform preservation under parent with rotation
+    auto parent = testWorld.createEntity("RotatedParent");
+    const Quat parentRot =
+        Quat::fromAxisAngle(Vec3::unitY(), std::numbers::pi_v<float> * 0.5F); // 90 deg around Y
+    testWorld.setComponent(
+        parent, world::TransformComponent{Transform{Vec3{10.0F, 0.0F, 0.0F}, parentRot}});
+
+    auto child = testWorld.createEntity("OrientedChild");
+    // Local (0, 0, 2) rotated 90 deg Y becomes world (2, 0, 0) -> world pos is (12, 0, 0)
+    testWorld.setComponent(child, world::TransformComponent{Transform{Vec3{0.0F, 0.0F, 2.0F}}});
+    TEST_CHECK(HierarchyPanel::reparentEntity(testWorld, child, parent, false));
+
+    world::updateHierarchyTransforms(testWorld);
+    const auto* childWtInitial = testWorld.getComponent<world::WorldTransformComponent>(child);
+    TEST_CHECK(childWtInitial != nullptr);
+    TEST_CHECK(std::abs(childWtInitial->worldTransform.position.x - 12.0F) < 1e-4F);
+
+    // Translate child in world space along +X by 3 meters (target world pos: 15, 0, 0)
+    // Relative to parent at 10, relPos is (5, 0, 0).
+    // Parent rotation inverse rotates (5, 0, 0) into local (0, 0, 5)!
+    const Vec3 targetChildWorldPos =
+        childWtInitial->worldTransform.position + Vec3{3.0F, 0.0F, 0.0F};
+    const Vec3 relPos = targetChildWorldPos - Vec3{10.0F, 0.0F, 0.0F};
+    const Vec3 localPos = parentRot.inverse().rotate(relPos);
+    TEST_CHECK(std::abs(localPos.z - 5.0F) < 1e-4F);
+
+    auto* childTc = testWorld.getMutableComponent<world::TransformComponent>(child);
+    TEST_CHECK(childTc != nullptr);
+    childTc->transform.position = localPos;
+    childTc->isDirty = true;
+
+    world::updateHierarchyTransforms(testWorld);
+    const auto* childWtUpdated = testWorld.getComponent<world::WorldTransformComponent>(child);
+    TEST_CHECK(childWtUpdated != nullptr);
+    TEST_CHECK(std::abs(childWtUpdated->worldTransform.position.x - 15.0F) < 1e-4F);
+    TEST_CHECK(std::abs(childWtUpdated->worldTransform.position.z - 0.0F) < 1e-4F);
+
+    // 3. Multi-selection relative layout preservation
+    auto entA = testWorld.createEntity("MultiA");
+    auto entB = testWorld.createEntity("MultiB");
+    testWorld.setComponent(entA, world::TransformComponent{Transform{Vec3{0.0F, 0.0F, 0.0F}}});
+    testWorld.setComponent(entB, world::TransformComponent{Transform{Vec3{5.0F, 0.0F, 0.0F}}});
+    world::updateHierarchyTransforms(testWorld);
+
+    selection.clear();
+    selection.select(entA, false);
+    selection.select(entB, true);
+    TEST_CHECK(selection.count() == 2);
+
+    // Move both by delta (2, 3, 4)
+    const Vec3 moveDelta{2.0F, 3.0F, 4.0F};
+    for (auto h : selection.getSelectedEntities()) {
+        auto* comp = testWorld.getMutableComponent<world::TransformComponent>(h);
+        TEST_CHECK(comp != nullptr);
+        comp->transform.position += moveDelta;
+        comp->isDirty = true;
+    }
+    world::updateHierarchyTransforms(testWorld);
+
+    const auto* wtA = testWorld.getComponent<world::WorldTransformComponent>(entA);
+    const auto* wtB = testWorld.getComponent<world::WorldTransformComponent>(entB);
+    TEST_CHECK(wtA != nullptr);
+    TEST_CHECK(wtB != nullptr);
+    TEST_CHECK(std::abs(wtA->worldTransform.position.x - 2.0F) < 1e-4F);
+    TEST_CHECK(std::abs(wtB->worldTransform.position.x - 7.0F) < 1e-4F);
+    TEST_CHECK(std::abs((wtB->worldTransform.position - wtA->worldTransform.position).length() -
+                        5.0F) < 1e-4F);
+
     std::cout << "[PASS] testViewportTransformGizmoManipulation\n";
 }
 
@@ -3091,6 +3160,362 @@ static void testEditorPanelsKeyboardIntegration() {
     std::cout << "[PASS] testEditorPanelsKeyboardIntegration\n";
 }
 
+static void testEditModeTransformManipulationRegression() {
+    auto devRes = rhi::createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto nullDev = std::move(devRes.value());
+
+    auto cmdRes = nullDev->createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto nullCmd = std::move(cmdRes.value());
+
+    world::World editWorld;
+    auto entityA = editWorld.createEntity("AuthoredEntityA");
+    editWorld.setComponent(entityA, world::TransformComponent{Transform{Vec3{1.0F, 2.0F, 3.0F}}});
+    editWorld.setComponent(entityA, physics::PhysicsTransformComponent{
+                                        .transform = Transform{Vec3{1.0F, 2.0F, 3.0F}},
+                                    });
+
+    framework::RuntimeSessionConfig sessionConfig{};
+    framework::RuntimeSession runtimeSession(sessionConfig);
+    runtimeSession.setEditWorld(&editWorld);
+
+    EditorEngine editor;
+    EditorConfig config{.autoSaveLayout = false};
+    TEST_CHECK(editor.initialize(*nullDev, config));
+    editor.bindRuntimeSession(&runtimeSession);
+    editor.bindWorld(&editWorld);
+
+    auto tickFrame = [&]() {
+        nullCmd->begin();
+        editor.beginFrame(Duration::fromMilliseconds(16));
+        editor.drawPanels();
+        editor.renderScene(*nullCmd);
+        editor.endFrame(*nullCmd);
+        nullCmd->end();
+    };
+
+    // 1. Initial Edit Mode frame evaluates hierarchy and synchronizes WorldTransformComponent
+    tickFrame();
+
+    const auto* wtA = editWorld.getComponent<world::WorldTransformComponent>(entityA);
+    TEST_CHECK(wtA != nullptr);
+    TEST_CHECK(std::abs(wtA->worldTransform.position.x - 1.0F) < 1e-4F);
+    TEST_CHECK(std::abs(wtA->worldTransform.position.y - 2.0F) < 1e-4F);
+    TEST_CHECK(std::abs(wtA->worldTransform.position.z - 3.0F) < 1e-4F);
+
+    // 2. Edit Mode: Inspector-equivalent property mutation in Edit Mode
+    auto eA = editWorld.getRawWorld().entity(entityA.id);
+    auto* tcA = eA.get_mut<world::TransformComponent>();
+    TEST_CHECK(tcA != nullptr);
+    tcA->transform.position = Vec3{10.0F, 20.0F, 30.0F};
+    tcA->transform.rotation = Quat::fromAxisAngle(Vec3::unitY(), std::numbers::pi_v<float> * 0.5F);
+    tcA->transform.scale = Vec3{2.0F, 2.0F, 2.0F};
+    tcA->isDirty = true;
+    eA.modified<world::TransformComponent>();
+
+    // Advance frame in Edit Mode: WorldTransformComponent MUST be updated without running Play
+    // Mode!
+    tickFrame();
+
+    const auto* wtAUpdated = editWorld.getComponent<world::WorldTransformComponent>(entityA);
+    TEST_CHECK(wtAUpdated != nullptr);
+    TEST_CHECK(std::abs(wtAUpdated->worldTransform.position.x - 10.0F) < 1e-4F);
+    TEST_CHECK(std::abs(wtAUpdated->worldTransform.position.y - 20.0F) < 1e-4F);
+    TEST_CHECK(std::abs(wtAUpdated->worldTransform.position.z - 30.0F) < 1e-4F);
+    TEST_CHECK(std::abs(wtAUpdated->worldTransform.scale.x - 2.0F) < 1e-4F);
+
+    // 3. Scene persistence: Edited transforms persist across serialize / deserialize
+    auto serRes = framework::SceneSerializer::serializeToString(editWorld);
+    TEST_CHECK(serRes.hasValue());
+
+    world::World reloadedWorld;
+    auto deserRes =
+        framework::SceneSerializer::deserializeFromString(reloadedWorld, serRes.value());
+    TEST_CHECK(deserRes.hasValue());
+
+    bool foundReloaded = false;
+    for (auto h : reloadedWorld.getAllEntities()) {
+        if (reloadedWorld.getEntityName(h) == "AuthoredEntityA") {
+            foundReloaded = true;
+            const auto* reloadedTc = reloadedWorld.getComponent<world::TransformComponent>(h);
+            const auto* reloadedWt = reloadedWorld.getComponent<world::WorldTransformComponent>(h);
+            TEST_CHECK(reloadedTc != nullptr);
+            TEST_CHECK(reloadedWt != nullptr);
+            TEST_CHECK(std::abs(reloadedTc->transform.position.x - 10.0F) < 1e-4F);
+            TEST_CHECK(std::abs(reloadedWt->worldTransform.position.x - 10.0F) < 1e-4F);
+        }
+    }
+    TEST_CHECK(foundReloaded);
+
+    // 4. Hierarchy Transform Semantics: Parent-Child hierarchy manipulation in Edit Mode
+    auto parentEnt = editWorld.createEntity("ParentProp");
+    editWorld.setComponent(parentEnt, world::TransformComponent{Transform{Vec3{5.0F, 0.0F, 0.0F}}});
+
+    auto childEnt = editWorld.createEntity("ChildProp");
+    editWorld.setComponent(childEnt, world::TransformComponent{Transform{Vec3{1.0F, 0.0F, 0.0F}}});
+    TEST_CHECK(HierarchyPanel::reparentEntity(editWorld, childEnt, parentEnt, false));
+
+    tickFrame();
+
+    const auto* childWt = editWorld.getComponent<world::WorldTransformComponent>(childEnt);
+    TEST_CHECK(childWt != nullptr);
+    TEST_CHECK(std::abs(childWt->worldTransform.position.x - 6.0F) < 1e-4F); // 5.0 + 1.0
+
+    // Move parent in Edit Mode -> child world transform updates, child local transform preserved
+    auto* parentTc = editWorld.getMutableComponent<world::TransformComponent>(parentEnt);
+    TEST_CHECK(parentTc != nullptr);
+    parentTc->transform.position = Vec3{15.0F, 0.0F, 0.0F};
+    parentTc->isDirty = true;
+
+    tickFrame();
+
+    const auto* childWtAfterParentMove =
+        editWorld.getComponent<world::WorldTransformComponent>(childEnt);
+    const auto* childTcAfterParentMove =
+        editWorld.getComponent<world::TransformComponent>(childEnt);
+    TEST_CHECK(childWtAfterParentMove != nullptr);
+    TEST_CHECK(childTcAfterParentMove != nullptr);
+    TEST_CHECK(std::abs(childTcAfterParentMove->transform.position.x - 1.0F) <
+               1e-4F); // local unchanged
+    TEST_CHECK(std::abs(childWtAfterParentMove->worldTransform.position.x - 16.0F) <
+               1e-4F); // 15.0 + 1.0
+
+    // 5. Play Mode Isolation & Stop Restoration
+    editor.getSelectionModel().select(entityA);
+    TEST_CHECK(editor.getSelectionModel().isSelected(entityA));
+
+    // Transition Edit -> Play
+    TEST_CHECK(runtimeSession.play().hasValue());
+    tickFrame();
+
+    // Selection must be cleared on transition to runtime world (prevent stale cross-world handles)
+    TEST_CHECK(editor.getSelectionModel().empty());
+
+    // Manipulate entity in runtime world
+    world::World* runtimeWorld = runtimeSession.getRuntimeWorld();
+    TEST_CHECK(runtimeWorld != nullptr);
+
+    world::EntityHandle runtimeEntity{};
+    for (auto h : runtimeWorld->getAllEntities()) {
+        if (runtimeWorld->getEntityName(h) == "AuthoredEntityA") {
+            runtimeEntity = h;
+        }
+    }
+    TEST_CHECK(runtimeEntity.isValid());
+
+    auto* runtimeTc = runtimeWorld->getMutableComponent<world::TransformComponent>(runtimeEntity);
+    TEST_CHECK(runtimeTc != nullptr);
+    runtimeTc->transform.position = Vec3{999.0F, 999.0F, 999.0F};
+    runtimeTc->isDirty = true;
+
+    editor.getSelectionModel().select(runtimeEntity);
+    tickFrame();
+
+    const auto* runtimeWt =
+        runtimeWorld->getComponent<world::WorldTransformComponent>(runtimeEntity);
+    TEST_CHECK(runtimeWt != nullptr);
+    TEST_CHECK(std::abs(runtimeWt->worldTransform.position.x - 999.0F) < 1e-4F);
+
+    // Authored Edit World MUST REMAIN COMPLETELY UNTOUCHED!
+    const auto* authoredTc = editWorld.getComponent<world::TransformComponent>(entityA);
+    const auto* authoredWt = editWorld.getComponent<world::WorldTransformComponent>(entityA);
+    TEST_CHECK(authoredTc != nullptr);
+    TEST_CHECK(authoredWt != nullptr);
+    TEST_CHECK(std::abs(authoredTc->transform.position.x - 10.0F) < 1e-4F);
+    TEST_CHECK(std::abs(authoredWt->worldTransform.position.x - 10.0F) < 1e-4F);
+
+    // Transition Play -> Stop
+    TEST_CHECK(runtimeSession.stop().hasValue());
+    tickFrame();
+
+    // Selection cleared or validated; no stale runtime handle remains
+    TEST_CHECK(!editor.getSelectionModel().isSelected(runtimeEntity));
+    TEST_CHECK(runtimeSession.getActiveWorld() == &editWorld);
+
+    // Authored entity is still at (10, 20, 30)
+    const auto* restoredWt = editWorld.getComponent<world::WorldTransformComponent>(entityA);
+    TEST_CHECK(restoredWt != nullptr);
+    TEST_CHECK(std::abs(restoredWt->worldTransform.position.x - 10.0F) < 1e-4F);
+    TEST_CHECK(std::abs(restoredWt->worldTransform.position.y - 20.0F) < 1e-4F);
+    TEST_CHECK(std::abs(restoredWt->worldTransform.position.z - 30.0F) < 1e-4F);
+
+    // 6. Multiple Play / Stop cycles idempotency
+    for (int cycle = 0; cycle < 3; ++cycle) {
+        TEST_CHECK(runtimeSession.play().hasValue());
+        tickFrame();
+        TEST_CHECK(runtimeSession.stop().hasValue());
+        tickFrame();
+        const auto* cycleWt = editWorld.getComponent<world::WorldTransformComponent>(entityA);
+        TEST_CHECK(cycleWt != nullptr);
+        TEST_CHECK(std::abs(cycleWt->worldTransform.position.x - 10.0F) < 1e-4F);
+    }
+
+    editor.shutdown();
+    std::cout << "[PASS] testEditModeTransformManipulationRegression\n";
+}
+
+static void testEditorVulkanTransformManipulationScenarios() {
+    rhi::VulkanDeviceDesc vkDesc{.windowHandle = nullptr, .enableValidation = false};
+    auto devRes = rhi::createVulkanDevice(vkDesc);
+    if (!devRes.hasValue()) {
+        std::cout << "[SKIP] testEditorVulkanTransformManipulationScenarios (no Vulkan device)\n";
+        return;
+    }
+    auto vkDevice = std::move(devRes.value());
+
+    auto cmdRes = vkDevice->createCommandList();
+    TEST_CHECK(cmdRes.hasValue());
+    auto vkCmd = std::move(cmdRes.value());
+
+    world::World editWorld;
+    auto entity = editWorld.createEntity("VulkanTarget");
+    editWorld.setComponent(entity, world::TransformComponent{Transform{Vec3{0.0F, 0.0F, 0.0F}}});
+    editWorld.setComponent(entity, physics::PhysicsTransformComponent{
+                                       .transform = Transform{Vec3{0.0F, 0.0F, 0.0F}},
+                                   });
+
+    framework::RuntimeSessionConfig sessionConfig{};
+    framework::RuntimeSession runtimeSession(sessionConfig);
+    runtimeSession.setEditWorld(&editWorld);
+
+    EditorEngine editor;
+    EditorConfig config{.autoSaveLayout = false};
+    TEST_CHECK(editor.initialize(*vkDevice, config));
+    editor.bindRuntimeSession(&runtimeSession);
+    editor.bindWorld(&editWorld);
+
+    auto tickVulkanFrame = [&]() {
+        vkCmd->begin();
+        editor.beginFrame(Duration::fromMilliseconds(16), 1280, 720);
+        editor.drawPanels();
+        editor.renderScene(*vkCmd);
+        editor.endFrame(*vkCmd);
+        vkCmd->end();
+        (void)vkDevice->submit(vkCmd.get());
+        vkDevice->waitIdle();
+    };
+
+    // Scenario 1: Initial frame and Move object in Edit Mode
+    tickVulkanFrame();
+    auto* tc = editWorld.getMutableComponent<world::TransformComponent>(entity);
+    TEST_CHECK(tc != nullptr);
+    tc->transform.position = Vec3{3.5F, 1.2F, -2.4F};
+    tc->isDirty = true;
+
+    tickVulkanFrame();
+    const auto* wt1 = editWorld.getComponent<world::WorldTransformComponent>(entity);
+    TEST_CHECK(wt1 != nullptr);
+    TEST_CHECK(std::abs(wt1->worldTransform.position.x - 3.5F) < 1e-4F);
+    TEST_CHECK(std::abs(wt1->worldTransform.position.y - 1.2F) < 1e-4F);
+    TEST_CHECK(std::abs(wt1->worldTransform.position.z - (-2.4F)) < 1e-4F);
+
+    // Scenario 2: Rotate object in Edit Mode
+    const Quat rot90Y = Quat::fromAxisAngle(Vec3::unitY(), std::numbers::pi_v<float> * 0.5F);
+    tc->transform.rotation = rot90Y;
+    tc->isDirty = true;
+
+    tickVulkanFrame();
+    const auto* wt2 = editWorld.getComponent<world::WorldTransformComponent>(entity);
+    TEST_CHECK(wt2 != nullptr);
+    Vec3 fwd = wt2->worldTransform.rotation.rotate(Vec3{0.0F, 0.0F, -1.0F});
+    TEST_CHECK(std::abs(fwd.x - (-1.0F)) < 1e-3F);
+
+    // Scenario 3: Scale object in Edit Mode
+    tc->transform.scale = Vec3{2.5F, 3.0F, 1.5F};
+    tc->isDirty = true;
+
+    tickVulkanFrame();
+    const auto* wt3 = editWorld.getComponent<world::WorldTransformComponent>(entity);
+    TEST_CHECK(wt3 != nullptr);
+    TEST_CHECK(std::abs(wt3->worldTransform.scale.x - 2.5F) < 1e-4F);
+    TEST_CHECK(std::abs(wt3->worldTransform.scale.y - 3.0F) < 1e-4F);
+    TEST_CHECK(std::abs(wt3->worldTransform.scale.z - 1.5F) < 1e-4F);
+
+    // Scenario 4: Modify Transform through Inspector-equivalent path
+    Transform inspectorTr{Vec3{7.0F, 8.0F, 9.0F}, Quat::identity(), Vec3{1.0F, 1.0F, 1.0F}};
+    auto ecsEnt = editWorld.getRawWorld().entity(entity.id);
+    auto* mutTc = ecsEnt.get_mut<world::TransformComponent>();
+    mutTc->transform = inspectorTr;
+    mutTc->isDirty = true;
+    ecsEnt.modified<world::TransformComponent>();
+
+    tickVulkanFrame();
+    const auto* wt4 = editWorld.getComponent<world::WorldTransformComponent>(entity);
+    TEST_CHECK(wt4 != nullptr);
+    TEST_CHECK(std::abs(wt4->worldTransform.position.x - 7.0F) < 1e-4F);
+    TEST_CHECK(std::abs(wt4->worldTransform.position.y - 8.0F) < 1e-4F);
+    TEST_CHECK(std::abs(wt4->worldTransform.position.z - 9.0F) < 1e-4F);
+
+    // Scenario 5: Enter Play Mode and manipulate runtime object
+    TEST_CHECK(runtimeSession.play().hasValue());
+    tickVulkanFrame();
+
+    world::World* runtimeWorld = runtimeSession.getRuntimeWorld();
+    TEST_CHECK(runtimeWorld != nullptr);
+
+    world::EntityHandle runtimeEnt{};
+    for (auto h : runtimeWorld->getAllEntities()) {
+        if (runtimeWorld->getEntityName(h) == "VulkanTarget") {
+            runtimeEnt = h;
+        }
+    }
+    TEST_CHECK(runtimeEnt.isValid());
+
+    auto* rTc = runtimeWorld->getMutableComponent<world::TransformComponent>(runtimeEnt);
+    TEST_CHECK(rTc != nullptr);
+    rTc->transform.position = Vec3{555.0F, 666.0F, 777.0F};
+    rTc->isDirty = true;
+
+    tickVulkanFrame();
+    const auto* rWt = runtimeWorld->getComponent<world::WorldTransformComponent>(runtimeEnt);
+    TEST_CHECK(rWt != nullptr);
+    TEST_CHECK(std::abs(rWt->worldTransform.position.x - 555.0F) < 1e-4F);
+
+    // Verify authored scene state is untouched
+    const auto* authoredTc = editWorld.getComponent<world::TransformComponent>(entity);
+    const auto* authoredWt = editWorld.getComponent<world::WorldTransformComponent>(entity);
+    TEST_CHECK(authoredTc != nullptr);
+    TEST_CHECK(authoredWt != nullptr);
+    TEST_CHECK(std::abs(authoredTc->transform.position.x - 7.0F) < 1e-4F);
+    TEST_CHECK(std::abs(authoredWt->worldTransform.position.x - 7.0F) < 1e-4F);
+
+    // Scenario 6: Stop Play Mode and verify authored state restoration
+    TEST_CHECK(runtimeSession.stop().hasValue());
+    tickVulkanFrame();
+
+    const auto* restoredWt = editWorld.getComponent<world::WorldTransformComponent>(entity);
+    TEST_CHECK(restoredWt != nullptr);
+    TEST_CHECK(std::abs(restoredWt->worldTransform.position.x - 7.0F) < 1e-4F);
+    TEST_CHECK(std::abs(restoredWt->worldTransform.position.y - 8.0F) < 1e-4F);
+    TEST_CHECK(std::abs(restoredWt->worldTransform.position.z - 9.0F) < 1e-4F);
+
+    // Scenario 7: Save and reload scene to verify persistence
+    auto ser = framework::SceneSerializer::serializeToString(editWorld);
+    TEST_CHECK(ser.hasValue());
+
+    world::World loadedWorld;
+    auto deser = framework::SceneSerializer::deserializeFromString(loadedWorld, ser.value());
+    TEST_CHECK(deser.hasValue());
+
+    bool foundLoaded = false;
+    for (auto h : loadedWorld.getAllEntities()) {
+        if (loadedWorld.getEntityName(h) == "VulkanTarget") {
+            foundLoaded = true;
+            const auto* lTc = loadedWorld.getComponent<world::TransformComponent>(h);
+            const auto* lWt = loadedWorld.getComponent<world::WorldTransformComponent>(h);
+            TEST_CHECK(lTc != nullptr);
+            TEST_CHECK(lWt != nullptr);
+            TEST_CHECK(std::abs(lTc->transform.position.x - 7.0F) < 1e-4F);
+            TEST_CHECK(std::abs(lWt->worldTransform.position.x - 7.0F) < 1e-4F);
+        }
+    }
+    TEST_CHECK(foundLoaded);
+
+    editor.shutdown();
+    std::cout << "[PASS] testEditorVulkanTransformManipulationScenarios\n";
+}
+
 int main() {
     std::cout << "Running Editor subsystem unit tests...\n";
     const std::filesystem::path candidates[] = {"assets/models", "../../../assets/models",
@@ -3151,6 +3576,10 @@ int main() {
     // Editor Keyboard, Text Input, and Modal Navigation Tests
     testEditorTextInputAndKeyboardSuite();
     testEditorPanelsKeyboardIntegration();
+
+    // Critical Bug Fix: Transform Manipulation in Edit Mode and Runtime Scene Isolation
+    testEditModeTransformManipulationRegression();
+    testEditorVulkanTransformManipulationScenarios();
 
     std::cout << "All Editor subsystem tests PASSED!\n";
     return 0;
