@@ -3568,6 +3568,96 @@ static void testEditorBenchmarkSceneLoading() {
     std::cout << "[PASS] testEditorBenchmarkSceneLoading\n";
 }
 
+static void testEditorPersistentBenchmarkScenes() {
+    std::cout << "Testing Persistent .hikari Benchmark Scenes & Editor Integration...\n";
+    auto devRes = rhi::createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto nullDev = std::move(devRes.value());
+    EditorEngine editor;
+    TEST_CHECK(editor.initialize(*nullDev));
+
+    world::World world;
+    physics::registerPhysicsComponents(world);
+    editor.bindWorld(&world);
+
+    WorkspaceManager wm;
+    SelectionModel sel;
+    EditorCamera camera;
+
+    // 1. Load Sponza_Benchmark.hikari
+    const char* sponzaScene = "assets/benchmark-scenes/Sponza_Benchmark.hikari";
+    TEST_CHECK(std::filesystem::exists(sponzaScene));
+    bool sponzaOk = wm.openScene(world, sponzaScene, &sel, &camera, &editor.getSceneRenderer());
+    TEST_CHECK(sponzaOk);
+    TEST_CHECK(wm.getCurrentScenePath() == sponzaScene);
+    TEST_CHECK(!wm.isSceneDirty());
+
+    // Verify entity count (> 100 entities in Sponza hierarchy)
+    auto entities = world.getAllEntities();
+    TEST_CHECK(entities.size() >= 100);
+
+    // Verify directional sunlight
+    flecs::world& ecs = world.getRawWorld();
+    bool foundSun = false;
+    ecs.query<const render::DirectionalLightComponent>().each(
+        [&](flecs::entity, const render::DirectionalLightComponent& light) {
+            foundSun = true;
+            TEST_CHECK(light.enabled);
+            TEST_CHECK(light.castShadows);
+            TEST_CHECK(light.intensity >= 3.0F);
+        });
+    TEST_CHECK(foundSun);
+
+    // Verify camera was framed
+    TEST_CHECK(std::abs(camera.getPosition().y - 2.0F) < 0.1F);
+
+    // Verify post-process settings
+    const auto& pp = editor.getSceneRenderer().getPostProcessSettings();
+    TEST_CHECK(pp.enabled);
+    TEST_CHECK(pp.toneMapOp == render::ToneMapOperator::AcesFitted);
+    TEST_CHECK(pp.bloomEnabled);
+
+    // Test camera reset
+    camera.pan(100.0F, 50.0F);
+    wm.resetBenchmarkCamera(&camera);
+    TEST_CHECK(std::abs(camera.getPosition().y - 2.0F) < 0.1F);
+
+    // 2. Round-trip save and reload test
+    const char* tempScene = "assets/benchmark-scenes/Sponza_RoundTrip_Test.hikari";
+    bool saveOk = wm.saveScene(world, tempScene, &editor.getSceneRenderer(), &camera);
+    TEST_CHECK(saveOk);
+    TEST_CHECK(std::filesystem::exists(tempScene));
+
+    world::World roundTripWorld;
+    physics::registerPhysicsComponents(roundTripWorld);
+    EditorCamera rtCamera;
+    bool rtLoadOk =
+        wm.openScene(roundTripWorld, tempScene, &sel, &rtCamera, &editor.getSceneRenderer());
+    TEST_CHECK(rtLoadOk);
+    TEST_CHECK(roundTripWorld.getAllEntities().size() == entities.size());
+
+    // Clean up temporary test file
+    std::error_code ec;
+    std::filesystem::remove(tempScene, ec);
+
+    // 3. Load FlightHelmet_Benchmark.hikari
+    const char* flightScene = "assets/benchmark-scenes/FlightHelmet_Benchmark.hikari";
+    TEST_CHECK(std::filesystem::exists(flightScene));
+    bool flightOk = wm.openScene(world, flightScene, &sel, &camera, &editor.getSceneRenderer());
+    TEST_CHECK(flightOk);
+    TEST_CHECK(world.getAllEntities().size() >= 5);
+
+    // 4. Load DamagedHelmet_Benchmark.hikari
+    const char* damagedScene = "assets/benchmark-scenes/DamagedHelmet_Benchmark.hikari";
+    TEST_CHECK(std::filesystem::exists(damagedScene));
+    bool damagedOk = wm.openScene(world, damagedScene, &sel, &camera, &editor.getSceneRenderer());
+    TEST_CHECK(damagedOk);
+    TEST_CHECK(world.getAllEntities().size() >= 2);
+
+    editor.shutdown();
+    std::cout << "[PASS] testEditorPersistentBenchmarkScenes\n";
+}
+
 int main() {
     std::cout << "Running Editor subsystem unit tests...\n";
     const std::filesystem::path candidates[] = {"assets/models", "../../../assets/models",
@@ -3635,6 +3725,7 @@ int main() {
 
     // Milestone 10G: Sponza Benchmark Scene Loading in Editor
     testEditorBenchmarkSceneLoading();
+    testEditorPersistentBenchmarkScenes();
 
     std::cout << "All Editor subsystem tests PASSED!\n";
     return 0;

@@ -5,10 +5,12 @@
 #include "panels/content_browser_panel.h"
 
 #include "core/log.h"
+#include "editor/editor_engine.h"
 #include "editor/editor_theme.h"
 #include "editor/external_editor.h"
 #include "editor/hierarchy_panel.h"
 #include "editor/selection_model.h"
+#include "editor/workspace_manager.h"
 #include "physics/physics_components.h"
 #include "render/asset_manager.h"
 #include "render/gltf_scene_importer.h"
@@ -490,10 +492,17 @@ void ContentBrowserPanel::drawListView(EditorContext& ctx) {
                 controller_.setSelectedItemIndex(static_cast<int>(i));
             }
 
-            // Double click opens folder or launches external script editor for Lua scripts
+            // Double click opens folder, launches external editor, or opens scene
             if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                 if (item.isDirectory) {
                     controller_.navigateTo(item.fullPath);
+                    break;
+                }
+                if (item.type == ContentItemType::Scene && ctx.editorEngine != nullptr &&
+                    ctx.world != nullptr) {
+                    ctx.editorEngine->getWorkspaceManager().openScene(
+                        *ctx.world, item.fullPath.string().c_str(), ctx.selection, ctx.editorCamera,
+                        ctx.sceneRenderer);
                     break;
                 }
                 if (ExternalEditorLauncher::isSupportedScriptFile(item.fullPath)) {
@@ -518,6 +527,17 @@ void ContentBrowserPanel::drawListView(EditorContext& ctx) {
             std::snprintf(ctxMenuId, sizeof(ctxMenuId), "ItemCtx_%zu", i);
             if (ImGui::BeginPopupContextItem(ctxMenuId)) {
                 controller_.setSelectedItemIndex(static_cast<int>(i));
+
+                if (item.type == ContentItemType::Scene) {
+                    if (ImGui::MenuItem("Open Scene")) {
+                        if (ctx.editorEngine != nullptr && ctx.world != nullptr) {
+                            ctx.editorEngine->getWorkspaceManager().openScene(
+                                *ctx.world, item.fullPath.string().c_str(), ctx.selection,
+                                ctx.editorCamera, ctx.sceneRenderer);
+                        }
+                    }
+                    ImGui::Separator();
+                }
 
                 if (ExternalEditorLauncher::isSupportedScriptFile(item.fullPath)) {
                     if (ImGui::MenuItem("Open in External Editor")) {
@@ -686,10 +706,18 @@ void ContentBrowserPanel::drawGridView(EditorContext& ctx) {
 
         const bool isCardHovered = ImGui::IsItemHovered();
 
-        // Double-click opens folder or launches external script editor for Lua scripts
+        // Double-click opens folder, launches external script editor, or opens scene
         if (isCardHovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
             if (item.isDirectory) {
                 controller_.navigateTo(item.fullPath);
+                ImGui::PopID();
+                break;
+            }
+            if (item.type == ContentItemType::Scene && ctx.editorEngine != nullptr &&
+                ctx.world != nullptr) {
+                ctx.editorEngine->getWorkspaceManager().openScene(
+                    *ctx.world, item.fullPath.string().c_str(), ctx.selection, ctx.editorCamera,
+                    ctx.sceneRenderer);
                 ImGui::PopID();
                 break;
             }
@@ -740,6 +768,17 @@ void ContentBrowserPanel::drawGridView(EditorContext& ctx) {
         // Context menu
         if (ImGui::BeginPopupContextItem("GridItemCtx")) {
             controller_.setSelectedItemIndex(static_cast<int>(i));
+
+            if (item.type == ContentItemType::Scene) {
+                if (ImGui::MenuItem("Open Scene")) {
+                    if (ctx.editorEngine != nullptr && ctx.world != nullptr) {
+                        ctx.editorEngine->getWorkspaceManager().openScene(
+                            *ctx.world, item.fullPath.string().c_str(), ctx.selection,
+                            ctx.editorCamera, ctx.sceneRenderer);
+                    }
+                }
+                ImGui::Separator();
+            }
 
             if (ExternalEditorLauncher::isSupportedScriptFile(item.fullPath)) {
                 if (ImGui::MenuItem("Open in External Editor")) {

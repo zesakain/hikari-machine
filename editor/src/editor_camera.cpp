@@ -34,6 +34,13 @@ void EditorCamera::resetToDefault() noexcept {
     updateMatrices(1280.0F, 720.0F);
 }
 
+void EditorCamera::lookAt(const Vec3& eye, const Vec3& target) noexcept {
+    pivot_ = target;
+    position_ = eye;
+    updateVectorsFromPivot();
+    updateMatrices(1280.0F, 720.0F);
+}
+
 void EditorCamera::frame(const Vec3& target, float radius) noexcept {
     pivot_ = target;
     distance_ = std::clamp(std::max(2.0F, radius * 2.5F), kMinDistance, kMaxDistance);
@@ -98,8 +105,7 @@ void EditorCamera::fly(const Vec3& localMovement, float deltaTime, float fastMul
         dir = dir / std::sqrt(lenSq);
     }
     const float speed = moveSpeed_ * fastMultiplier * deltaTime;
-    const Vec3 move =
-        (right_ * dir.x) + (Vec3::unitY() * dir.y) + (forward_ * dir.z);
+    const Vec3 move = (right_ * dir.x) + (Vec3::unitY() * dir.y) + (forward_ * dir.z);
 
     position_ += move * speed;
     pivot_ += move * speed;

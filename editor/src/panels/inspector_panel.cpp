@@ -10,6 +10,8 @@
 #include "imgui_utils.h"
 #include "physics/physics_components.h"
 #include "render/asset_manager.h"
+#include "render/camera_component.h"
+#include "render/light_components.h"
 #include "render/mesh_component.h"
 #include "render/scene_renderer.h"
 #include "script/script_components.h"
@@ -1262,6 +1264,206 @@ void InspectorPanel::draw(EditorContext& ctx) {
                     ctx.markDirty();
                 }
 
+                // 6. Directional Light Component
+                bool removeDirLight = false;
+                if (e.has<render::DirectionalLightComponent>()) {
+                    ImGui::PushID("DirectionalLightComp");
+                    bool headerOpen = ImGui::CollapsingHeader("Directional Light",
+                                                              ImGuiTreeNodeFlags_DefaultOpen);
+                    if (headerOpen) {
+                        auto* dl = e.get_mut<render::DirectionalLightComponent>();
+                        ImGui::Columns(2, "DirLightProps", false);
+                        ImGui::SetColumnWidth(0, ThemeMetrics::kPropertyLabelWidth);
+
+                        ImGui::TextUnformatted("Enabled");
+                        ImGui::NextColumn();
+                        if (ImGui::Checkbox("##DlEnabled", &dl->enabled)) {
+                            e.modified<render::DirectionalLightComponent>();
+                            ctx.markDirty();
+                        }
+                        ImGui::NextColumn();
+
+                        ImGui::TextUnformatted("Direction");
+                        ImGui::NextColumn();
+                        float dirArr[3] = {dl->direction.x, dl->direction.y, dl->direction.z};
+                        if (ImGui::DragFloat3("##DlDir", dirArr, 0.01F, -1.0F, 1.0F, "%.2f")) {
+                            Vec3 newDir(dirArr[0], dirArr[1], dirArr[2]);
+                            if (newDir.lengthSq() > 1e-4F) {
+                                dl->direction = newDir.normalized();
+                            }
+                            e.modified<render::DirectionalLightComponent>();
+                            ctx.markDirty();
+                        }
+                        ImGui::NextColumn();
+
+                        ImGui::TextUnformatted("Color");
+                        ImGui::NextColumn();
+                        float colArr[3] = {dl->color.x, dl->color.y, dl->color.z};
+                        if (ImGui::ColorEdit3("##DlColor", colArr)) {
+                            dl->color = Vec3(colArr[0], colArr[1], colArr[2]);
+                            e.modified<render::DirectionalLightComponent>();
+                            ctx.markDirty();
+                        }
+                        ImGui::NextColumn();
+
+                        ImGui::TextUnformatted("Intensity");
+                        ImGui::NextColumn();
+                        if (ImGui::DragFloat("##DlIntensity", &dl->intensity, 0.05F, 0.0F, 50.0F,
+                                             "%.2f")) {
+                            e.modified<render::DirectionalLightComponent>();
+                            ctx.markDirty();
+                        }
+                        ImGui::NextColumn();
+
+                        ImGui::TextUnformatted("Cast Shadows");
+                        ImGui::NextColumn();
+                        if (ImGui::Checkbox("##DlCastShadows", &dl->castShadows)) {
+                            e.modified<render::DirectionalLightComponent>();
+                            ctx.markDirty();
+                        }
+                        ImGui::NextColumn();
+
+                        ImGui::TextUnformatted("Shadow Bias");
+                        ImGui::NextColumn();
+                        if (ImGui::DragFloat("##DlShadowBias", &dl->shadowBias, 0.0005F, 0.0001F,
+                                             0.05F, "%.4f")) {
+                            e.modified<render::DirectionalLightComponent>();
+                            ctx.markDirty();
+                        }
+                        ImGui::NextColumn();
+
+                        ImGui::Columns(1);
+                        ImGui::Spacing();
+                        if (ImGui::SmallButton("Remove Directional Light")) {
+                            removeDirLight = true;
+                        }
+                    }
+                    ImGui::PopID();
+                }
+                if (removeDirLight) {
+                    e.remove<render::DirectionalLightComponent>();
+                    ctx.markDirty();
+                }
+
+                // 7. Point Light Component
+                bool removePointLight = false;
+                if (e.has<render::PointLightComponent>()) {
+                    ImGui::PushID("PointLightComp");
+                    bool headerOpen =
+                        ImGui::CollapsingHeader("Point Light", ImGuiTreeNodeFlags_DefaultOpen);
+                    if (headerOpen) {
+                        auto* pl = e.get_mut<render::PointLightComponent>();
+                        ImGui::Columns(2, "PointLightProps", false);
+                        ImGui::SetColumnWidth(0, ThemeMetrics::kPropertyLabelWidth);
+
+                        ImGui::TextUnformatted("Enabled");
+                        ImGui::NextColumn();
+                        if (ImGui::Checkbox("##PlEnabled", &pl->enabled)) {
+                            e.modified<render::PointLightComponent>();
+                            ctx.markDirty();
+                        }
+                        ImGui::NextColumn();
+
+                        ImGui::TextUnformatted("Color");
+                        ImGui::NextColumn();
+                        float colArr[3] = {pl->color.x, pl->color.y, pl->color.z};
+                        if (ImGui::ColorEdit3("##PlColor", colArr)) {
+                            pl->color = Vec3(colArr[0], colArr[1], colArr[2]);
+                            e.modified<render::PointLightComponent>();
+                            ctx.markDirty();
+                        }
+                        ImGui::NextColumn();
+
+                        ImGui::TextUnformatted("Intensity");
+                        ImGui::NextColumn();
+                        if (ImGui::DragFloat("##PlIntensity", &pl->intensity, 0.1F, 0.0F, 100.0F,
+                                             "%.1f")) {
+                            e.modified<render::PointLightComponent>();
+                            ctx.markDirty();
+                        }
+                        ImGui::NextColumn();
+
+                        ImGui::TextUnformatted("Range");
+                        ImGui::NextColumn();
+                        if (ImGui::DragFloat("##PlRange", &pl->range, 0.1F, 0.1F, 200.0F,
+                                             "%.1f m")) {
+                            e.modified<render::PointLightComponent>();
+                            ctx.markDirty();
+                        }
+                        ImGui::NextColumn();
+
+                        ImGui::Columns(1);
+                        ImGui::Spacing();
+                        if (ImGui::SmallButton("Remove Point Light")) {
+                            removePointLight = true;
+                        }
+                    }
+                    ImGui::PopID();
+                }
+                if (removePointLight) {
+                    e.remove<render::PointLightComponent>();
+                    ctx.markDirty();
+                }
+
+                // 8. Camera Component
+                bool removeCamera = false;
+                if (e.has<render::CameraComponent>()) {
+                    ImGui::PushID("CameraComp");
+                    bool headerOpen =
+                        ImGui::CollapsingHeader("Camera Component", ImGuiTreeNodeFlags_DefaultOpen);
+                    if (headerOpen) {
+                        auto* cc = e.get_mut<render::CameraComponent>();
+                        ImGui::Columns(2, "CameraProps", false);
+                        ImGui::SetColumnWidth(0, ThemeMetrics::kPropertyLabelWidth);
+
+                        ImGui::TextUnformatted("Primary Camera");
+                        ImGui::NextColumn();
+                        if (ImGui::Checkbox("##CcPrimary", &cc->isPrimary)) {
+                            e.modified<render::CameraComponent>();
+                            ctx.markDirty();
+                        }
+                        ImGui::NextColumn();
+
+                        ImGui::TextUnformatted("Field of View");
+                        ImGui::NextColumn();
+                        if (ImGui::DragFloat("##CcFov", &cc->fovDegrees, 0.5F, 10.0F, 150.0F,
+                                             "%.1f deg")) {
+                            e.modified<render::CameraComponent>();
+                            ctx.markDirty();
+                        }
+                        ImGui::NextColumn();
+
+                        ImGui::TextUnformatted("Near Plane");
+                        ImGui::NextColumn();
+                        if (ImGui::DragFloat("##CcNear", &cc->nearPlane, 0.01F, 0.001F, 10.0F,
+                                             "%.3f m")) {
+                            e.modified<render::CameraComponent>();
+                            ctx.markDirty();
+                        }
+                        ImGui::NextColumn();
+
+                        ImGui::TextUnformatted("Far Plane");
+                        ImGui::NextColumn();
+                        if (ImGui::DragFloat("##CcFar", &cc->farPlane, 1.0F, 1.0F, 10000.0F,
+                                             "%.1f m")) {
+                            e.modified<render::CameraComponent>();
+                            ctx.markDirty();
+                        }
+                        ImGui::NextColumn();
+
+                        ImGui::Columns(1);
+                        ImGui::Spacing();
+                        if (ImGui::SmallButton("Remove Camera Component")) {
+                            removeCamera = true;
+                        }
+                    }
+                    ImGui::PopID();
+                }
+                if (removeCamera) {
+                    e.remove<render::CameraComponent>();
+                    ctx.markDirty();
+                }
+
                 ImGui::Spacing();
                 ImGui::Separator();
                 ImGui::Spacing();
@@ -1277,6 +1479,9 @@ void InspectorPanel::draw(EditorContext& ctx) {
                     bool hasCollider = e.has<physics::ColliderComponent>();
                     bool hasScript = e.has<script::ScriptComponent>();
                     bool hasMesh = e.has<render::MeshComponent>();
+                    bool hasDirLight = e.has<render::DirectionalLightComponent>();
+                    bool hasPointLight = e.has<render::PointLightComponent>();
+                    bool hasCamera = e.has<render::CameraComponent>();
 
                     ImGui::TextDisabled("Physics");
                     if (ImGui::MenuItem("Transform", nullptr, false, !hasTransform)) {
@@ -1309,6 +1514,18 @@ void InspectorPanel::draw(EditorContext& ctx) {
                             .visible = true,
                             .castShadows = true,
                         });
+                        ctx.markDirty();
+                    }
+                    if (ImGui::MenuItem("Directional Light", nullptr, false, !hasDirLight)) {
+                        e.set<render::DirectionalLightComponent>({});
+                        ctx.markDirty();
+                    }
+                    if (ImGui::MenuItem("Point Light", nullptr, false, !hasPointLight)) {
+                        e.set<render::PointLightComponent>({});
+                        ctx.markDirty();
+                    }
+                    if (ImGui::MenuItem("Camera Component", nullptr, false, !hasCamera)) {
+                        e.set<render::CameraComponent>({});
                         ctx.markDirty();
                     }
 

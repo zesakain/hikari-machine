@@ -4,6 +4,7 @@
 #include "editor/workspace_manager.h"
 
 #include "core/log.h"
+#include "editor/editor_camera.h"
 #include "editor/editor_theme.h"
 #include "editor/hierarchy_panel.h"
 #include "editor/selection_model.h"
@@ -18,6 +19,7 @@
 #include "render/gltf_scene_importer.h"
 #include "render/light_components.h"
 #include "render/mesh_component.h"
+#include "render/scene_renderer.h"
 #include "rhi/rhi_device.h"
 #include "script/script_components.h"
 #include "world/components.h"
@@ -45,6 +47,9 @@ struct WorkspaceManager::Impl {
     std::string currentSceneName{"Untitled"};
     bool isSceneDirty{false};
 
+    std::optional<Vec3> benchmarkDefaultCameraPos;
+    std::optional<Vec3> benchmarkDefaultCameraTarget;
+
     bool showNewConfirmModal{false};
     bool showOpenConfirmModal{false};
     bool showOpenDialogModal{false};
@@ -52,7 +57,7 @@ struct WorkspaceManager::Impl {
     bool showSceneErrorModal{false};
     std::string lastSceneError{""};
 
-    char openPathBuffer[512]{"assets/scenes/sample.hikari"};
+    char openPathBuffer[512]{"assets/benchmark-scenes/Sponza_Benchmark.hikari"};
     char savePathBuffer[512]{"assets/scenes/my_scene.hikari"};
 
     bool newScene(world::World& world, SelectionModel* selection) {
@@ -63,11 +68,14 @@ struct WorkspaceManager::Impl {
         currentScenePath.clear();
         currentSceneName = "Untitled";
         isSceneDirty = false;
+        benchmarkDefaultCameraPos.reset();
+        benchmarkDefaultCameraTarget.reset();
         ENG_LOG_INFO("Editor", "New Scene created successfully");
         return true;
     }
 
-    bool saveScene(world::World& world, const char* customPath = nullptr) {
+    bool saveScene(world::World& world, const char* customPath = nullptr,
+                   render::SceneRenderer* renderer = nullptr, EditorCamera* camera = nullptr) {
         std::string targetPath = (customPath != nullptr && customPath[0] != '\0')
                                      ? std::string(customPath)
                                      : currentScenePath;
@@ -80,7 +88,20 @@ struct WorkspaceManager::Impl {
         meta.name = currentSceneName;
         meta.generator = "Hikari Editor 0.1.0";
 
-        auto res = framework::SceneSerializer::serializeToFile(world, targetPath, meta);
+        std::optional<render::PostProcessSettings> pp;
+        if (renderer != nullptr) {
+            pp = renderer->getPostProcessSettings();
+        }
+
+        std::optional<Vec3> camPos;
+        std::optional<Vec3> camTgt;
+        if (camera != nullptr) {
+            camPos = camera->getPosition();
+            camTgt = camera->getPivot();
+        }
+
+        auto res = framework::SceneSerializer::serializeToFile(world, targetPath, meta, {}, pp,
+                                                               camPos, camTgt);
         if (!res.hasValue()) {
             lastSceneError = "Failed to save scene: ";
             lastSceneError += res.error().message;
@@ -97,7 +118,8 @@ struct WorkspaceManager::Impl {
         return true;
     }
 
-    bool openScene(world::World& world, const char* filepath, SelectionModel* selection) {
+    bool openScene(world::World& world, const char* filepath, SelectionModel* selection = nullptr,
+                   EditorCamera* camera = nullptr, render::SceneRenderer* renderer = nullptr) {
         if (filepath == nullptr || filepath[0] == '\0') {
             lastSceneError = "Invalid empty scene file path.";
             showSceneErrorModal = true;
@@ -130,20 +152,59 @@ struct WorkspaceManager::Impl {
         currentSceneName = p.stem().string();
         isSceneDirty = false;
 
-        ENG_LOG_INFO("Editor", "Scene successfully opened and loaded into World");
+        // Restore camera framing if provided in scene file
+        benchmarkDefaultCameraPos = res.value().cameraPosition;
+        benchmarkDefaultCameraTarget = res.value().cameraTarget;
+
+        if (camera != nullptr && res.value().cameraPosition.has_value()) {
+            Vec3 tgt = res.value().cameraTarget.value_or(Vec3::zero());
+            camera->lookAt(*res.value().cameraPosition, tgt);
+        }
+
+        // Restore post-processing settings if provided in scene file
+        if (renderer != nullptr && res.value().postProcessSettings.has_value()) {
+            renderer->setPostProcessSettings(*res.value().postProcessSettings);
+        }
+
+        ENG_LOG_INFO("Editor",
+                     "Scene successfully opened and loaded into World: " + std::string(filepath));
         return true;
+    }
+
+    void resetBenchmarkCamera(EditorCamera* camera) noexcept {
+        if (camera == nullptr) {
+            return;
+        }
+        if (benchmarkDefaultCameraPos.has_value()) {
+            camera->lookAt(*benchmarkDefaultCameraPos,
+                           benchmarkDefaultCameraTarget.value_or(Vec3::zero()));
+        } else {
+            camera->resetToDefault();
+        }
     }
 
     bool loadBenchmarkScene(world::World& world, const char* filepath,
                             SelectionModel* selection = nullptr,
-                            render::AssetManager* assetManager = nullptr) {
-        if (filepath == nullptr || filepath[0] == '\0' || !std::filesystem::exists(filepath)) {
-            lastSceneError = "Benchmark scene file does not exist on disk: ";
-            if (filepath != nullptr) {
-                lastSceneError += filepath;
-            }
+                            render::AssetManager* assetManager = nullptr,
+                            EditorCamera* camera = nullptr,
+                            render::SceneRenderer* renderer = nullptr) {
+        if (filepath == nullptr || filepath[0] == '\0') {
+            lastSceneError = "Benchmark scene file does not exist on disk.";
             showSceneErrorModal = true;
-            ENG_LOG_ERROR("Editor", "Benchmark scene file not found");
+            return false;
+        }
+
+        // Check if a persistent .hikari scene exists for this benchmark
+        std::string pathStr(filepath);
+        if (pathStr.ends_with(".hikari") && std::filesystem::exists(pathStr)) {
+            return openScene(world, filepath, selection, camera, renderer);
+        }
+
+        if (!std::filesystem::exists(filepath)) {
+            lastSceneError = "Benchmark source file does not exist on disk: ";
+            lastSceneError += filepath;
+            showSceneErrorModal = true;
+            ENG_LOG_ERROR("Editor", "Benchmark source file not found");
             return false;
         }
 
@@ -256,7 +317,7 @@ struct WorkspaceManager::Impl {
                 }
                 if (ImGui::MenuItem("Save Scene", "Ctrl+S")) {
                     if (ctx.world != nullptr) {
-                        saveScene(*ctx.world);
+                        saveScene(*ctx.world, nullptr, ctx.sceneRenderer, ctx.editorCamera);
                     }
                 }
                 if (ImGui::MenuItem("Save Scene As...", "Ctrl+Shift+S")) {
@@ -523,25 +584,53 @@ struct WorkspaceManager::Impl {
             if (ImGui::BeginMenu("Benchmarks")) {
                 if (ImGui::MenuItem("Khronos Sponza Atrium (10G)")) {
                     if (ctx.world != nullptr) {
-                        loadBenchmarkScene(*ctx.world, "test-assets/benchmark/sponza/Sponza.gltf",
-                                           ctx.selection, ctx.assetManager);
+                        const char* sponzaScene = "assets/benchmark-scenes/Sponza_Benchmark.hikari";
+                        if (std::filesystem::exists(sponzaScene)) {
+                            openScene(*ctx.world, sponzaScene, ctx.selection, ctx.editorCamera,
+                                      ctx.sceneRenderer);
+                        } else {
+                            loadBenchmarkScene(*ctx.world,
+                                               "test-assets/benchmark/sponza/Sponza.gltf",
+                                               ctx.selection, ctx.assetManager, ctx.editorCamera,
+                                               ctx.sceneRenderer);
+                        }
                         ctx.selectedEntityId = 0;
                     }
                 }
                 if (ImGui::MenuItem("Khronos Flight Helmet")) {
                     if (ctx.world != nullptr) {
-                        loadBenchmarkScene(*ctx.world,
-                                           "test-assets/benchmark/flight_helmet/FlightHelmet.gltf",
-                                           ctx.selection, ctx.assetManager);
+                        const char* flightScene =
+                            "assets/benchmark-scenes/FlightHelmet_Benchmark.hikari";
+                        if (std::filesystem::exists(flightScene)) {
+                            openScene(*ctx.world, flightScene, ctx.selection, ctx.editorCamera,
+                                      ctx.sceneRenderer);
+                        } else {
+                            loadBenchmarkScene(
+                                *ctx.world, "test-assets/benchmark/flight_helmet/FlightHelmet.gltf",
+                                ctx.selection, ctx.assetManager, ctx.editorCamera,
+                                ctx.sceneRenderer);
+                        }
                         ctx.selectedEntityId = 0;
                     }
                 }
                 if (ImGui::MenuItem("Damaged Helmet PBR")) {
                     if (ctx.world != nullptr) {
-                        loadBenchmarkScene(*ctx.world, "test-assets/DamagedHelmet.glb",
-                                           ctx.selection, ctx.assetManager);
+                        const char* damagedScene =
+                            "assets/benchmark-scenes/DamagedHelmet_Benchmark.hikari";
+                        if (std::filesystem::exists(damagedScene)) {
+                            openScene(*ctx.world, damagedScene, ctx.selection, ctx.editorCamera,
+                                      ctx.sceneRenderer);
+                        } else {
+                            loadBenchmarkScene(*ctx.world, "test-assets/DamagedHelmet.glb",
+                                               ctx.selection, ctx.assetManager, ctx.editorCamera,
+                                               ctx.sceneRenderer);
+                        }
                         ctx.selectedEntityId = 0;
                     }
+                }
+                ImGui::Separator();
+                if (ImGui::MenuItem("Reset Benchmark Camera")) {
+                    resetBenchmarkCamera(ctx.editorCamera);
                 }
                 ImGui::EndMenu();
             }
@@ -552,6 +641,18 @@ struct WorkspaceManager::Impl {
                     showAboutModal = true;
                 }
                 ImGui::EndMenu();
+            }
+
+            // Display active scene name badge on menu bar
+            const std::string sceneBadge =
+                "Scene: " + currentSceneName + (isSceneDirty ? " *" : "");
+            float textWidth = ImGui::CalcTextSize(sceneBadge.c_str()).x;
+            float avail = ImGui::GetContentRegionAvail().x;
+            if (avail > textWidth + 24.0F) {
+                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + avail - textWidth - 12.0F);
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55F, 0.78F, 0.98F, 1.0F));
+                ImGui::TextUnformatted(sceneBadge.c_str());
+                ImGui::PopStyleColor();
             }
 
             ImGui::EndMainMenuBar();
@@ -578,7 +679,7 @@ struct WorkspaceManager::Impl {
                 }
             } else if (io.KeyCtrl && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_S, false)) {
                 if (ctx.world != nullptr) {
-                    saveScene(*ctx.world);
+                    saveScene(*ctx.world, nullptr, ctx.sceneRenderer, ctx.editorCamera);
                 }
             } else if (io.KeyCtrl && io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_S, false)) {
                 showSaveAsDialogModal = true;
@@ -689,15 +790,33 @@ struct WorkspaceManager::Impl {
         if (ImGui::BeginPopupModal("Open Scene", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
             ImGui::Text("Enter .hikari scene file path:");
             ImGui::InputText("##OpenPath", openPathBuffer, sizeof(openPathBuffer));
+            ImGui::Spacing();
+            ImGui::TextDisabled("Quick Benchmarks:");
             ImGui::SameLine();
-            if (ImGui::Button("Sample Scene")) {
+            if (ImGui::SmallButton("Sponza")) {
+                std::snprintf(openPathBuffer, sizeof(openPathBuffer),
+                              "assets/benchmark-scenes/Sponza_Benchmark.hikari");
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Flight Helmet")) {
+                std::snprintf(openPathBuffer, sizeof(openPathBuffer),
+                              "assets/benchmark-scenes/FlightHelmet_Benchmark.hikari");
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Damaged Helmet")) {
+                std::snprintf(openPathBuffer, sizeof(openPathBuffer),
+                              "assets/benchmark-scenes/DamagedHelmet_Benchmark.hikari");
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Sample")) {
                 std::snprintf(openPathBuffer, sizeof(openPathBuffer),
                               "assets/scenes/sample.hikari");
             }
             ImGui::Separator();
             if (ImGui::Button("Open", ImVec2(120.0F, 0.0F))) {
                 if (ctx.world != nullptr) {
-                    if (openScene(*ctx.world, openPathBuffer, ctx.selection)) {
+                    if (openScene(*ctx.world, openPathBuffer, ctx.selection, ctx.editorCamera,
+                                  ctx.sceneRenderer)) {
                         ctx.selectedEntityId = 0;
                         ImGui::CloseCurrentPopup();
                     }
@@ -720,7 +839,8 @@ struct WorkspaceManager::Impl {
             ImGui::Separator();
             if (ImGui::Button("Save", ImVec2(120.0F, 0.0F))) {
                 if (ctx.world != nullptr) {
-                    if (saveScene(*ctx.world, savePathBuffer)) {
+                    if (saveScene(*ctx.world, savePathBuffer, ctx.sceneRenderer,
+                                  ctx.editorCamera)) {
                         ImGui::CloseCurrentPopup();
                     }
                 }
@@ -1173,19 +1293,26 @@ bool WorkspaceManager::newScene(world::World& world, SelectionModel* selection) 
     return impl_->newScene(world, selection);
 }
 
-bool WorkspaceManager::saveScene(world::World& world, const char* customPath) {
-    return impl_->saveScene(world, customPath);
+bool WorkspaceManager::saveScene(world::World& world, const char* customPath,
+                                 render::SceneRenderer* renderer, EditorCamera* camera) {
+    return impl_->saveScene(world, customPath, renderer, camera);
 }
 
 bool WorkspaceManager::openScene(world::World& world, const char* filepath,
-                                 SelectionModel* selection) {
-    return impl_->openScene(world, filepath, selection);
+                                 SelectionModel* selection, EditorCamera* camera,
+                                 render::SceneRenderer* renderer) {
+    return impl_->openScene(world, filepath, selection, camera, renderer);
 }
 
 bool WorkspaceManager::loadBenchmarkScene(world::World& world, const char* filepath,
                                           SelectionModel* selection,
-                                          render::AssetManager* assetManager) {
-    return impl_->loadBenchmarkScene(world, filepath, selection, assetManager);
+                                          render::AssetManager* assetManager, EditorCamera* camera,
+                                          render::SceneRenderer* renderer) {
+    return impl_->loadBenchmarkScene(world, filepath, selection, assetManager, camera, renderer);
+}
+
+void WorkspaceManager::resetBenchmarkCamera(EditorCamera* camera) noexcept {
+    impl_->resetBenchmarkCamera(camera);
 }
 
 std::string_view WorkspaceManager::getCurrentScenePath() const noexcept {

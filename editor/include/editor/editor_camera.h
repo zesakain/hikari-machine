@@ -35,17 +35,20 @@ enum class EditorCameraMode : uint8_t {
 /// @brief Editor-only interactive 3D camera.
 class EditorCamera {
 public:
-    static constexpr float kDefaultMoveSpeed = 5.0F;        // 5.0 meters / second
-    static constexpr float kFastSpeedMultiplier = 4.0F;     // 5.0 * 4.0 = 20.0 m/s (Shift)
-    static constexpr float kSlowSpeedMultiplier = 0.2F;     // 5.0 * 0.2 = 1.0 m/s (Ctrl)
-    static constexpr float kMinMoveSpeed = 0.5F;            // minimum flight speed
-    static constexpr float kMaxMoveSpeed = 100.0F;          // maximum flight speed
+    static constexpr float kDefaultMoveSpeed = 5.0F;          // 5.0 meters / second
+    static constexpr float kFastSpeedMultiplier = 4.0F;       // 5.0 * 4.0 = 20.0 m/s (Shift)
+    static constexpr float kSlowSpeedMultiplier = 0.2F;       // 5.0 * 0.2 = 1.0 m/s (Ctrl)
+    static constexpr float kMinMoveSpeed = 0.5F;              // minimum flight speed
+    static constexpr float kMaxMoveSpeed = 100.0F;            // maximum flight speed
     static constexpr float kDefaultMouseSensitivity = 0.003F; // radians / pixel
 
     EditorCamera() noexcept;
 
     /// Resets camera to default framing looking at the world origin.
     void resetToDefault() noexcept;
+
+    /// Sets camera position and look-at target pivot point.
+    void lookAt(const Vec3& eye, const Vec3& target) noexcept;
 
     /// Frames the camera on a specific world-space target with a bounding radius.
     void frame(const Vec3& target, float radius = 2.0F) noexcept;
@@ -180,7 +183,7 @@ private:
 
     EditorCameraMode cameraMode_{EditorCameraMode::Orbit};
     bool isNavigating_{false};
-    float moveSpeed_{kDefaultMoveSpeed};          // meters / second
+    float moveSpeed_{kDefaultMoveSpeed};               // meters / second
     float mouseSensitivity_{kDefaultMouseSensitivity}; // radians / pixel
 
     Mat4 viewMatrix_{Mat4::identity()};

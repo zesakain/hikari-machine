@@ -24,6 +24,7 @@
 
 #if defined(HIKARI_BUILD_EDITOR)
 #include "editor/editor_engine.h"
+#include "editor/workspace_manager.h"
 #include "framework/runtime_session.h"
 #include "framework/scene_serializer.h"
 #include "world/hierarchy_systems.h"
@@ -324,39 +325,20 @@ body {
 
             if (!scenePath.empty()) {
                 if (scenePath.ends_with(".gltf") || scenePath.ends_with(".glb")) {
-                    auto importRes = render::GltfSceneImporter::importScene(
-                        scenePath, world, &editorEngine.getAssetManager());
-                    if (importRes.success) {
+                    bool ok = editorEngine.getWorkspaceManager().loadBenchmarkScene(
+                        world, scenePath.c_str(), &editorEngine.getSelectionModel(),
+                        &editorEngine.getAssetManager(), nullptr, &editorEngine.getSceneRenderer());
+                    if (ok) {
                         ENG_LOG_INFO("Core",
-                                     "Successfully imported glTF startup scene: " + scenePath +
-                                         " (" + std::to_string(importRes.nodeCount) + " entities)");
-                        // Ensure directional sunlight exists if none is in the scene
-                        flecs::world& ecs = world.getRawWorld();
-                        bool hasSun = false;
-                        ecs.query<const render::DirectionalLightComponent>().each(
-                            [&](flecs::entity, const render::DirectionalLightComponent&) {
-                                hasSun = true;
-                            });
-                        if (!hasSun) {
-                            auto sun = world.createEntity("Sunlight");
-                            render::DirectionalLightComponent sunLight{};
-                            sunLight.enabled = true;
-                            sunLight.direction = Vec3(0.4F, 0.85F, 0.3F).normalized();
-                            sunLight.color = Vec3(1.0F, 0.96F, 0.90F);
-                            sunLight.intensity = 3.5F;
-                            sunLight.castShadows = true;
-                            sunLight.shadowBias = 0.0025F;
-                            world.setComponent(sun, sunLight);
-                        }
-                        world::updateHierarchyTransforms(world);
+                                     "Successfully imported glTF startup scene: " + scenePath);
                     } else {
-                        ENG_LOG_WARN("Core", "Failed to import glTF startup scene: " + scenePath +
-                                                 " (" + importRes.errorMessage + ")");
+                        ENG_LOG_WARN("Core", "Failed to import glTF startup scene: " + scenePath);
                     }
                 } else {
-                    auto loadRes =
-                        framework::SceneSerializer::deserializeFromFile(world, scenePath);
-                    if (loadRes.hasValue()) {
+                    bool ok = editorEngine.getWorkspaceManager().openScene(
+                        world, scenePath.c_str(), &editorEngine.getSelectionModel(), nullptr,
+                        &editorEngine.getSceneRenderer());
+                    if (ok) {
                         ENG_LOG_INFO("Core", "Successfully loaded startup scene: " + scenePath);
                     } else {
                         ENG_LOG_WARN("Core", "Failed to load startup scene: " + scenePath);

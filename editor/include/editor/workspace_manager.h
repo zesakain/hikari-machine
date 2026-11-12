@@ -68,15 +68,22 @@ public:
     bool newScene(world::World& world, SelectionModel* selection = nullptr);
 
     /// Saves the current scene to disk. Uses customPath if provided, or currentScenePath.
-    bool saveScene(world::World& world, const char* customPath = nullptr);
+    bool saveScene(world::World& world, const char* customPath = nullptr,
+                   render::SceneRenderer* renderer = nullptr, EditorCamera* camera = nullptr);
 
     /// Loads a scene from disk into the world. Returns true on success.
-    bool openScene(world::World& world, const char* filepath, SelectionModel* selection = nullptr);
+    bool openScene(world::World& world, const char* filepath, SelectionModel* selection = nullptr,
+                   EditorCamera* camera = nullptr, render::SceneRenderer* renderer = nullptr);
 
-    /// Loads a glTF benchmark scene into the world. Returns true on success.
+    /// Loads a glTF or persistent .hikari benchmark scene into the world. Returns true on success.
     bool loadBenchmarkScene(world::World& world, const char* filepath,
                             SelectionModel* selection = nullptr,
-                            render::AssetManager* assetManager = nullptr);
+                            render::AssetManager* assetManager = nullptr,
+                            EditorCamera* camera = nullptr,
+                            render::SceneRenderer* renderer = nullptr);
+
+    /// Resets editor camera to benchmark scene defaults.
+    void resetBenchmarkCamera(EditorCamera* camera) noexcept;
 
     /// Returns the active scene filesystem path.
     [[nodiscard]] std::string_view getCurrentScenePath() const noexcept;
