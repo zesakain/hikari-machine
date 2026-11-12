@@ -355,8 +355,9 @@ bool EditorEngine::initialize(rhi::RhiDevice& rhiDevice, const EditorConfig& con
     }
 
     ImGuiIO& io = ImGui::GetIO();
-    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable; // Enable Dear ImGui Docking System
-    io.IniFilename = nullptr;                         // Managed explicitly by WorkspaceManager
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;     // Enable Dear ImGui Docking System
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // Master keyboard navigation & activation
+    io.IniFilename = nullptr;                             // Managed explicitly by WorkspaceManager
     io.DisplaySize = ImVec2(1280.0F, 720.0F);
     io.DeltaTime = 1.0F / 60.0F;
 
