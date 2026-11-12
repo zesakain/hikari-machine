@@ -15,6 +15,7 @@
 #include "framework/scene_serializer.h"
 #include "framework/simulation_state.h"
 #include "imgui_utils.h"
+#include "panels/settings_panel.h"
 #include "physics/physics_components.h"
 #include "render/gltf_scene_importer.h"
 #include "render/light_components.h"
@@ -462,10 +463,20 @@ struct WorkspaceManager::Impl {
                     }
                 }
                 ImGui::Separator();
+                if (ImGui::MenuItem("Preferences...", "Ctrl+,")) {
+                    for (auto& panel : panels) {
+                        if (panel->getId() == "settings" || panel->getId() == "Settings") {
+                            auto* sp = static_cast<SettingsPanel*>(panel.get());
+                            sp->openToCategory(SettingsCategory::General);
+                            break;
+                        }
+                    }
+                }
                 if (ImGui::MenuItem("Project Settings...", "Ctrl+Shift+P")) {
                     for (auto& panel : panels) {
-                        if (panel->getId() == "ProjectSettings") {
-                            panel->setOpen(true);
+                        if (panel->getId() == "settings" || panel->getId() == "Settings") {
+                            auto* sp = static_cast<SettingsPanel*>(panel.get());
+                            sp->openToCategory(SettingsCategory::GraphicsQuality);
                             break;
                         }
                     }
@@ -1051,7 +1062,7 @@ struct WorkspaceManager::Impl {
 
             // Group 3: Two-State Conductor badge & quick switch
             if (ctx.conductor != nullptr) {
-                float rightAnchor = viewport->Size.x - 240.0F;
+                float rightAnchor = viewport->Size.x - 330.0F;
                 if (ImGui::GetCursorPosX() < rightAnchor) {
                     ImGui::SameLine(rightAnchor);
                 } else {
@@ -1094,6 +1105,25 @@ struct WorkspaceManager::Impl {
             } else {
                 ImGui::SameLine();
                 ImGui::TextDisabled("[Conductor: Standalone]");
+            }
+
+            // Group 4: Settings Quick-Access Toolbar Button
+            float settingsAnchor = viewport->Size.x - 85.0F;
+            if (ImGui::GetCursorPosX() < settingsAnchor) {
+                ImGui::SameLine(settingsAnchor);
+            } else {
+                ImGui::SameLine();
+            }
+            if (ImGui::SmallButton("* Settings")) {
+                for (auto& panel : panels) {
+                    if (panel->getId() == "settings" || panel->getId() == "Settings") {
+                        panel->setOpen(!panel->isOpen());
+                        break;
+                    }
+                }
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Open Settings & Preferences (Ctrl+Shift+P / Ctrl+,)");
             }
         }
         ImGui::End();

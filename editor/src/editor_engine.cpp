@@ -6,6 +6,7 @@
 #include "core/assert.h"
 #include "core/log.h"
 #include "core/time/frame_telemetry.h"
+#include "editor/editor_preferences_serializer.h"
 #include "editor/editor_theme.h"
 #include "editor/hierarchy_panel.h"
 #include "editor/selection_model.h"
@@ -16,7 +17,7 @@
 #include "panels/content_browser_panel.h"
 #include "panels/inspector_panel.h"
 #include "panels/metrics_panel.h"
-#include "panels/project_settings_panel.h"
+#include "panels/settings_panel.h"
 #include "panels/viewport_panel.h"
 #include "platform/input_snapshot.h"
 #include "render/asset_manager.h"
@@ -233,6 +234,7 @@ struct EditorEngine::Impl {
 
     EditorConfig config{};
     EditorContext context{};
+    EditorPreferences preferences{};
     WorkspaceManager workspaceManager{};
     SelectionModel selectionModel{};
     render::AssetManager assetManager{};
@@ -416,7 +418,7 @@ bool EditorEngine::initialize(rhi::RhiDevice& rhiDevice, const EditorConfig& con
     impl_->workspaceManager.registerPanel(std::make_unique<MetricsPanel>());
     impl_->workspaceManager.registerPanel(std::make_unique<ConductorPanel>());
     impl_->workspaceManager.registerPanel(std::make_unique<ContentBrowserPanel>());
-    impl_->workspaceManager.registerPanel(std::make_unique<ProjectSettingsPanel>());
+    impl_->workspaceManager.registerPanel(std::make_unique<SettingsPanel>());
 
     impl_->workspaceManager.setLayoutFilePath(config.layoutFilePath);
 
@@ -502,6 +504,9 @@ bool EditorEngine::initialize(rhi::RhiDevice& rhiDevice, const EditorConfig& con
 
     // Restore persisted graphics settings if available
     (void)loadGraphicsSettings();
+
+    // Restore persisted user editor preferences from OS config directory
+    (void)loadEditorPreferences();
 
     // Initialize viewport renderer with initial baseline dimensions
     (void)impl_->resizeViewport(1280, 720);
@@ -978,6 +983,47 @@ bool EditorEngine::loadGraphicsSettings(const char* filepath) {
         return false;
     }
     return applyGraphicsSettings(res.value());
+}
+
+const EditorPreferences& EditorEngine::getEditorPreferences() const noexcept {
+    return impl_->preferences;
+}
+
+EditorPreferences& EditorEngine::getEditorPreferences() noexcept {
+    return impl_->preferences;
+}
+
+bool EditorEngine::applyEditorPreferences(const EditorPreferences& prefs) {
+    impl_->preferences = prefs;
+    impl_->preferences.validateAndClamp();
+    return true;
+}
+
+bool EditorEngine::saveEditorPreferences() {
+    auto path = EditorPreferencesSerializer::getDefaultPreferencesPath();
+    auto res = EditorPreferencesSerializer::serializeToFile(impl_->preferences, path);
+    if (!res.hasValue()) {
+        ENG_LOG_ERROR("Editor", "Failed to save editor preferences to " + path.string() + ": " +
+                                    std::string(res.error().message));
+        return false;
+    }
+    ENG_LOG_INFO("Editor", "Saved editor preferences to " + path.string());
+    return true;
+}
+
+bool EditorEngine::loadEditorPreferences() {
+    auto path = EditorPreferencesSerializer::getDefaultPreferencesPath();
+    auto res = EditorPreferencesSerializer::deserializeFromFile(path);
+    if (!res.hasValue()) {
+        ENG_LOG_WARN("Editor", "Failed to load editor preferences from " + path.string() + ": " +
+                                   std::string(res.error().message) + "; using defaults");
+        impl_->preferences.resetToDefaults();
+        return false;
+    }
+    impl_->preferences = res.value();
+    impl_->preferences.validateAndClamp();
+    ENG_LOG_INFO("Editor", "Loaded editor preferences from " + path.string());
+    return true;
 }
 
 const render::PostProcessSettings& EditorEngine::getPostProcessSettings() const noexcept {

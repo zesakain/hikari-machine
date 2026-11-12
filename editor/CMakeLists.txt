@@ -45,8 +45,11 @@ add_library(editor_lib STATIC
     src/content_browser_controller.cpp
     src/editor_camera.cpp
     src/editor_engine.cpp
+    src/editor_preferences.cpp
+    src/editor_preferences_serializer.cpp
     src/editor_theme.cpp
     src/external_editor.cpp
+    src/external_editor_service.cpp
     src/selection_model.cpp
     src/ui_helpers.cpp
     src/workspace_manager.cpp
@@ -57,7 +60,7 @@ add_library(editor_lib STATIC
     src/panels/metrics_panel.cpp
     src/panels/conductor_panel.cpp
     src/panels/content_browser_panel.cpp
-    src/panels/project_settings_panel.cpp
+    src/panels/settings_panel.cpp
 )
 add_library(hikari::editor_lib ALIAS editor_lib)
 

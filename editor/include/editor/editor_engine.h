@@ -19,6 +19,7 @@
 #pragma once
 
 #include "core/time/duration.h"
+#include "editor/editor_preferences.h"
 #include "render/graphics_settings.h"
 #include "render/post_process_types.h"
 
@@ -193,6 +194,21 @@ public:
 
     /// Loads graphics settings from disk.
     bool loadGraphicsSettings(const char* filepath = nullptr);
+
+    /// Returns the central user preferences configuration.
+    [[nodiscard]] const EditorPreferences& getEditorPreferences() const noexcept;
+
+    /// Returns the central user preferences configuration (mutable).
+    [[nodiscard]] EditorPreferences& getEditorPreferences() noexcept;
+
+    /// Validates and applies modified user preferences across the editor.
+    bool applyEditorPreferences(const EditorPreferences& prefs);
+
+    /// Saves editor preferences to the user-level configuration path.
+    bool saveEditorPreferences();
+
+    /// Loads editor preferences from the user-level configuration path.
+    bool loadEditorPreferences();
 
     /// Returns the current post-processing settings configured on the internal SceneRenderer.
     [[nodiscard]] const render::PostProcessSettings& getPostProcessSettings() const noexcept;

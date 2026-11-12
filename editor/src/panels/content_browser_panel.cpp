@@ -8,6 +8,7 @@
 #include "editor/editor_engine.h"
 #include "editor/editor_theme.h"
 #include "editor/external_editor.h"
+#include "editor/external_editor_service.h"
 #include "editor/hierarchy_panel.h"
 #include "editor/selection_model.h"
 #include "editor/workspace_manager.h"
@@ -505,8 +506,12 @@ void ContentBrowserPanel::drawListView(EditorContext& ctx) {
                         ctx.sceneRenderer);
                     break;
                 }
-                if (ExternalEditorLauncher::isSupportedScriptFile(item.fullPath)) {
-                    auto res = ExternalEditorLauncher::openScript(item.fullPath);
+                if (ExternalEditorService::isSupportedScriptFile(item.fullPath)) {
+                    ScriptingPreferences prefs =
+                        (ctx.editorEngine != nullptr)
+                            ? ctx.editorEngine->getEditorPreferences().scripting
+                            : ScriptingPreferences{};
+                    auto res = ExternalEditorService::openFile(item.fullPath, prefs);
                     if (!res.hasValue()) {
                         errorMessage_ = res.error().message;
                         showErrorModal_ = true;
@@ -539,12 +544,30 @@ void ContentBrowserPanel::drawListView(EditorContext& ctx) {
                     ImGui::Separator();
                 }
 
-                if (ExternalEditorLauncher::isSupportedScriptFile(item.fullPath)) {
-                    if (ImGui::MenuItem("Open in External Editor")) {
-                        auto res = ExternalEditorLauncher::openScript(item.fullPath);
+                if (ExternalEditorService::isSupportedScriptFile(item.fullPath)) {
+                    ScriptingPreferences prefs =
+                        (ctx.editorEngine != nullptr)
+                            ? ctx.editorEngine->getEditorPreferences().scripting
+                            : ScriptingPreferences{};
+                    char menuLabel[128];
+                    std::snprintf(menuLabel, sizeof(menuLabel), "Open in %s",
+                                  externalEditorTypeToString(prefs.editorType));
+                    if (ImGui::MenuItem(menuLabel)) {
+                        auto res = ExternalEditorService::openFile(item.fullPath, prefs);
                         if (!res.hasValue()) {
                             errorMessage_ = res.error().message;
                             showErrorModal_ = true;
+                        }
+                    }
+                    if (prefs.editorType != ExternalEditorType::SystemDefault) {
+                        if (ImGui::MenuItem("Open in System Default")) {
+                            ScriptingPreferences sysPrefs = prefs;
+                            sysPrefs.editorType = ExternalEditorType::SystemDefault;
+                            auto res = ExternalEditorService::openFile(item.fullPath, sysPrefs);
+                            if (!res.hasValue()) {
+                                errorMessage_ = res.error().message;
+                                showErrorModal_ = true;
+                            }
                         }
                     }
                     ImGui::Separator();
@@ -721,8 +744,12 @@ void ContentBrowserPanel::drawGridView(EditorContext& ctx) {
                 ImGui::PopID();
                 break;
             }
-            if (ExternalEditorLauncher::isSupportedScriptFile(item.fullPath)) {
-                auto res = ExternalEditorLauncher::openScript(item.fullPath);
+            if (ExternalEditorService::isSupportedScriptFile(item.fullPath)) {
+                ScriptingPreferences prefs =
+                    (ctx.editorEngine != nullptr)
+                        ? ctx.editorEngine->getEditorPreferences().scripting
+                        : ScriptingPreferences{};
+                auto res = ExternalEditorService::openFile(item.fullPath, prefs);
                 if (!res.hasValue()) {
                     errorMessage_ = res.error().message;
                     showErrorModal_ = true;
@@ -780,12 +807,30 @@ void ContentBrowserPanel::drawGridView(EditorContext& ctx) {
                 ImGui::Separator();
             }
 
-            if (ExternalEditorLauncher::isSupportedScriptFile(item.fullPath)) {
-                if (ImGui::MenuItem("Open in External Editor")) {
-                    auto res = ExternalEditorLauncher::openScript(item.fullPath);
+            if (ExternalEditorService::isSupportedScriptFile(item.fullPath)) {
+                ScriptingPreferences prefs =
+                    (ctx.editorEngine != nullptr)
+                        ? ctx.editorEngine->getEditorPreferences().scripting
+                        : ScriptingPreferences{};
+                char menuLabel[128];
+                std::snprintf(menuLabel, sizeof(menuLabel), "Open in %s",
+                              externalEditorTypeToString(prefs.editorType));
+                if (ImGui::MenuItem(menuLabel)) {
+                    auto res = ExternalEditorService::openFile(item.fullPath, prefs);
                     if (!res.hasValue()) {
                         errorMessage_ = res.error().message;
                         showErrorModal_ = true;
+                    }
+                }
+                if (prefs.editorType != ExternalEditorType::SystemDefault) {
+                    if (ImGui::MenuItem("Open in System Default")) {
+                        ScriptingPreferences sysPrefs = prefs;
+                        sysPrefs.editorType = ExternalEditorType::SystemDefault;
+                        auto res = ExternalEditorService::openFile(item.fullPath, sysPrefs);
+                        if (!res.hasValue()) {
+                            errorMessage_ = res.error().message;
+                            showErrorModal_ = true;
+                        }
                     }
                 }
                 ImGui::Separator();
