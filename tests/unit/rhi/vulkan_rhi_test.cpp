@@ -1446,6 +1446,34 @@ static int testVulkanTextureTransfersAndLayoutTransitions() {
     return 0;
 }
 
+static int testVulkanTextureFormatCapabilities() {
+#if defined(HIKARI_HAS_TSAN)
+    std::cout << "ThreadSanitizer active: skipping live GPU driver initialization\n";
+    return 0;
+#endif
+
+    VulkanDeviceDesc desc{.windowHandle = nullptr, .enableValidation = true};
+    auto devRes = createVulkanDevice(desc);
+    if (!devRes.hasValue()) {
+        std::cout << "Vulkan device unavailable; skipping format capability test\n";
+        return 0;
+    }
+    auto dev = std::move(devRes.value());
+
+    TEST_CHECK(dev->isTextureFormatSupported(TextureFormat::RGBA16_FLOAT,
+                                             TextureUsageFlags::ColorAttachment |
+                                                 TextureUsageFlags::Sampled));
+    TEST_CHECK(dev->isTextureFormatSupported(TextureFormat::RGBA8_UNORM,
+                                             TextureUsageFlags::ColorAttachment |
+                                                 TextureUsageFlags::Sampled));
+    TEST_CHECK(dev->isTextureFormatSupported(TextureFormat::D32_FLOAT,
+                                             TextureUsageFlags::DepthStencilAttachment));
+    TEST_CHECK(!dev->isTextureFormatSupported(TextureFormat::Undefined,
+                                              TextureUsageFlags::ColorAttachment));
+    std::cout << "Vulkan texture format capability queries verified!\n";
+    return 0;
+}
+
 int main() {
     std::cout << "Running Vulkan RHI Tests...\n";
 
@@ -1517,6 +1545,9 @@ int main() {
         return 1;
     }
     if (testVulkanTextureTransfersAndLayoutTransitions() != 0) {
+        return 1;
+    }
+    if (testVulkanTextureFormatCapabilities() != 0) {
         return 1;
     }
 

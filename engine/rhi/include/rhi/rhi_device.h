@@ -111,6 +111,18 @@ public:
         return nullptr;
     }
 
+    /// Queries whether a given texture format is supported by the device for specific usage flags.
+    ///
+    /// @param format Texture format to inspect.
+    /// @param usage Intended usage flags (e.g. ColorAttachment, Sampled).
+    /// @return True if hardware supports the format for the requested usages; false otherwise.
+    [[nodiscard]] virtual bool isTextureFormatSupported(TextureFormat format,
+                                                        TextureUsageFlags usage) const noexcept {
+        (void)format;
+        (void)usage;
+        return format != TextureFormat::Undefined;
+    }
+
     /// Creates a texture sampler state.
     ///
     /// @param desc Filtering and coordinate wrapping configuration.

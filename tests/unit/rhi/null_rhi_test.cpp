@@ -1230,6 +1230,24 @@ static int testTextureTransfersAndLayoutTransitions() {
     return 0;
 }
 
+static int testTextureFormatCapabilities() {
+    auto devRes = createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto dev = std::move(devRes.value());
+
+    TEST_CHECK(dev->isTextureFormatSupported(TextureFormat::RGBA16_FLOAT,
+                                             TextureUsageFlags::ColorAttachment |
+                                                 TextureUsageFlags::Sampled));
+    TEST_CHECK(dev->isTextureFormatSupported(TextureFormat::RGBA8_UNORM,
+                                             TextureUsageFlags::ColorAttachment |
+                                                 TextureUsageFlags::Sampled));
+    TEST_CHECK(dev->isTextureFormatSupported(TextureFormat::D32_FLOAT,
+                                             TextureUsageFlags::DepthStencilAttachment));
+    TEST_CHECK(!dev->isTextureFormatSupported(TextureFormat::Undefined,
+                                              TextureUsageFlags::ColorAttachment));
+    return 0;
+}
+
 int main() {
     if (testGpuCapsQuery() != 0) {
         return 1;
@@ -1271,6 +1289,9 @@ int main() {
         return 1;
     }
     if (testTextureTransfersAndLayoutTransitions() != 0) {
+        return 1;
+    }
+    if (testTextureFormatCapabilities() != 0) {
         return 1;
     }
     std::cout << "All Null RHI unit tests passed!\n";

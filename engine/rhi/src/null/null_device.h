@@ -107,6 +107,11 @@ public:
     [[nodiscard]] Result<TextureHandle> createTexture(const TextureDesc& desc) override;
     void destroyTexture(TextureHandle handle) override;
     [[nodiscard]] const TextureDesc* getTextureDesc(TextureHandle handle) const noexcept override;
+    [[nodiscard]] bool isTextureFormatSupported(TextureFormat format,
+                                                TextureUsageFlags usage) const noexcept override {
+        (void)usage;
+        return format != TextureFormat::Undefined;
+    }
 
     [[nodiscard]] Result<SamplerHandle> createSampler(const SamplerDesc& desc) override;
     void destroySampler(SamplerHandle handle) override;

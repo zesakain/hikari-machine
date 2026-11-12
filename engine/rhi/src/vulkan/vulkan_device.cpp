@@ -619,6 +619,40 @@ void VulkanDevice::destroyTexture(TextureHandle handle) {
     ++slot.generation;
 }
 
+bool VulkanDevice::isTextureFormatSupported(TextureFormat format,
+                                            TextureUsageFlags usage) const noexcept {
+    VkFormat vkFmt = toVkFormat(format);
+    if (vkFmt == VK_FORMAT_UNDEFINED || physicalDevice_ == nullptr) {
+        return false;
+    }
+
+    VkFormatProperties props{};
+    vkGetPhysicalDeviceFormatProperties(physicalDevice_->handle(), vkFmt, &props);
+    const VkFormatFeatureFlags features = props.optimalTilingFeatures;
+
+    if (hasFlag(usage, TextureUsageFlags::ColorAttachment)) {
+        if ((features & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT) == 0) {
+            return false;
+        }
+    }
+    if (hasFlag(usage, TextureUsageFlags::DepthStencilAttachment)) {
+        if ((features & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) == 0) {
+            return false;
+        }
+    }
+    if (hasFlag(usage, TextureUsageFlags::Sampled)) {
+        if ((features & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT) == 0) {
+            return false;
+        }
+    }
+    if (hasFlag(usage, TextureUsageFlags::Storage)) {
+        if ((features & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT) == 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
 Result<SamplerHandle> VulkanDevice::createSampler(const SamplerDesc& desc) {
     const bool enableAniso =
         desc.anisotropyEnable && physicalDevice_->getCaps().features.samplerAnisotropy;
