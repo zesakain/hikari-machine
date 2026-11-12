@@ -208,14 +208,16 @@ graph TD
 4. Stores computed matrix and world translation/rotation into `WorldTransformComponent`.
 5. `SceneRenderer` uses `WorldTransformComponent::worldMatrix` directly as instance model matrix.
 
-### Workflow 5: Play/Pause/Stop Runtime State Machine
-1. User clicks "Play" in Editor toolbar: `RuntimeSession::play()` executes.
-2. Exact snapshot of `editWorld_` is cloned into `runtimeWorld_`.
-3. Jolt physics bodies are instantiated in `PhysicsWorld` for all entities with `PhysicsBodyComponent`.
-4. Conductor and Editor point to `runtimeWorld_`.
-5. User clicks "Stop": `RuntimeSession::stop()` executes.
-6. All Jolt bodies in `PhysicsWorld` are destroyed; `runtimeWorld_` is completely discarded.
-7. Conductor and Editor are pointed back to pristine `editWorld_`, guaranteeing zero drift or residual physics corruption.
+### Workflow 5: Two-State Conductor Gameplay Mode Transition (Single Shared World)
+1. Active State A executes gameplay logic over the authoritative `world::World`. Continuous systems (`SystemGroup::Continuous`) integrate physics and propagate transforms continuously.
+2. Conductor signals Standby State B to begin incremental preparation (`ConductorState::Preparing`).
+3. State B executes `prepare(world, budget)` within its frame budget ($\le 500\ \mu\text{s}$), storing speculative camera, targeting, UI, and input setups into its separate `StateContext` without mutating shared world entities.
+4. Conductor reaches readiness (`ConductorState::Prepared`) and triggers `commit(world)` to validate speculative caches. If validation fails (e.g. target entity died during standby), the transition aborts cleanly and State A remains active with zero corruption.
+5. Upon validation success: atomic role reversal occurs (`activeSlot_ = SlotB`), `SystemGroup::StateA` is disabled, `SystemGroup::StateB` is enabled, and `SystemGroup::Transition` is enabled.
+6. The gameplay Action clock executes the slow-motion transition curve ($0.2 \to 1.0$), while fixed-step continuous physics runs at normal unscaled speed.
+7. Upon curve completion, `SystemGroup::Transition` is disabled, and State B operates in steady active execution over the **exact same shared world**.
+
+*(Note: For level authoring in the Editor, [`framework::RuntimeSession`](../../engine/framework/include/framework/runtime_session.h) provides an isolated Play-in-Editor preview sandbox that stages authoring state in memory so designers can test levels without permanently moving objects upon Stop. This is strictly an editor tool; gameplay mode transitions never duplicate the shared world).*
 
 ### Workflow 6: Settings Modification & Runtime Propagation
 1. User adjusts graphics or preferences in `SettingsPanel`.

@@ -135,9 +135,12 @@ flowchart TD
    - Passes input directly to `editor::EditorEngine::handleEvent()`. If ImGui captures keyboard (`io.WantCaptureKeyboard`) or mouse (`io.WantCaptureMouse`), game input propagation is withheld.
    - Handles window events (`SDL_EVENT_WINDOW_RESIZED`, `SDL_EVENT_WINDOW_CLOSE_REQUESTED`, `SDL_EVENT_WINDOW_MINIMIZED`).
 
-2. **Simulation & Physics Ticking:**
-   - Evaluates simulation state via `framework::RuntimeSession::state()`.
-   - If `State::Playing`: updates fixed timestep accumulator ($60\text{ Hz} = 16.666\text{ ms}$). Executes `physicsWorld->step(fixedDt)`. Synchronizes resulting rigid body velocities and positions into `PhysicsTransformComponent`.
+2. **Simulation & Conductor Ticking:**
+   - Evaluates simulation clocks: World clock runs unscaled; Action clock is scaled during slow-motion transition curves; UI clock ticks in real time.
+   - Conductor executes active mode logic (`getActiveMode().update(world, dt)`) and progresses shared world simulation (`world.progress(dt)`).
+   - Continuous systems (`SystemGroup::Continuous`) execute every frame over the single shared world (Jolt physics stepping at fixed $60\text{ Hz}$, rigid-body velocity sync, hierarchy transform propagation).
+   - If a mode transition is in progress, standby preparation runs within its per-frame budget ($\le 500\ \mu\text{s}$), and transition systems (`SystemGroup::Transition`) execute during the slow-motion curve.
+   - *(Note: In Editor preview mode, EditorEngine coordinates preview sandboxing via RuntimeSession to protect scene authoring state).*
    - Updates `HierarchyTransformSystem::update(world)` to ensure root-to-leaf world transform propagation across Flecs entities.
 
 3. **Editor & UI Layout Update:**

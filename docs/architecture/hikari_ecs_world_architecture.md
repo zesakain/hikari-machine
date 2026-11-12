@@ -169,57 +169,118 @@ flowchart TD
 
 ---
 
-## 4. RuntimeSession: Play/Edit Mode Isolation
+## 4. Two-State Conductor over Single Shared World Architecture
 
-To guarantee that game execution during Play mode does not permanently alter, corrupt, or leave lingering physics drifts on the scene authoring state, [`framework::RuntimeSession`](../../engine/framework/include/framework/runtime_session.h) implements a complete world isolation and rollback protocol.
+### 4.1 The Single Shared World Contract
+
+In accordance with `/AGENTS.md` Rule 8, Hikari Engine's defining operational mechanism is the **Two-State Conductor operating over a single shared World**.
 
 ```mermaid
-stateDiagram-v2
-    [*] --> EditMode: Initial Startup
+graph TB
+    subgraph SingleSharedWorld [Single Shared Flecs World (eng::world::World)]
+        Entities["Shared Entity Population (Hero, Enemies, Geometry, Lights)"]
+        ContinuousGroup["SystemGroup::Continuous (Physics, Hierarchy Transforms, Audio)"]
+        StateAGroup["SystemGroup::StateA (Active Mode Systems)"]
+        StateBGroup["SystemGroup::StateB (Standby Mode Systems)"]
+        TransitionGroup["SystemGroup::Transition (Slow-Motion Transition Systems)"]
+    end
 
-    state EditMode {
-        [*] --> SceneAuthoring: Load Scene / Edit Transforms
-        SceneAuthoring --> SelectionAndGizmos: Modify Entities
-    }
+    subgraph ConductorRuntime [Two-State Conductor (eng::framework::Conductor)]
+        SlotA["Slot A (Active Role)"]
+        SlotB["Slot B (Standby Role)"]
+        CtxA["StateContext A (Camera, Targeting, UI, Input)"]
+        CtxB["StateContext B (Camera, Targeting, UI, Input, Cache)"]
+    end
 
-    EditMode --> PlayMode: User Clicks "Play"
-    note on link
-        1. Deep clone editWorld_ -> runtimeWorld_
-        2. Initialize Jolt physics bodies in runtimeWorld_
-        3. Switch active simulation pointer to runtimeWorld_
-        4. Start Action & Physics Clocks
-    end note
-
-    state PlayMode {
-        [*] --> SimulationRunning: 60Hz Physics & Game Systems
-        SimulationRunning --> Paused: User Clicks "Pause"
-        Paused --> SimulationRunning: User Clicks "Resume"
-        SimulationRunning --> SimulationStep: User Clicks "Step Frame"
-        SimulationStep --> Paused
-    }
-
-    PlayMode --> EditMode: User Clicks "Stop"
-    note on link
-        1. Terminate all physics simulations
-        2. Discard and destroy runtimeWorld_
-        3. Restore active world pointer to pristine editWorld_
-        4. Rebind Editor selection and UI inspectors
-    end note
+    ConductorRuntime -->|Gates System Groups| ContinuousGroup
+    ConductorRuntime -->|Enables / Disables| StateAGroup
+    ConductorRuntime -->|Enables / Disables| StateBGroup
+    ConductorRuntime -->|Enables During Curve| TransitionGroup
+    SlotA -.->|Direct Pointer / Reference| Entities
+    SlotB -.->|Direct Pointer / Reference| Entities
+    SlotA --- CtxA
+    SlotB --- CtxB
 ```
 
-### Technical Rollback Mechanics
-1. **On Entering Play Mode (`RuntimeSession::play()`):**
-   - Serializes or clones the active `editWorld_` into an isolated `runtimeWorld_`.
-   - Traverses all entities in `runtimeWorld_` containing `PhysicsBodyComponent` and creates corresponding Jolt rigid bodies (`JPH::BodyID`) in `physics::PhysicsWorld`.
-   - Sets the Conductor and Editor active target to `runtimeWorld_`.
-2. **During Play Mode:**
-   - ECS systems, scripts, and physics execute exclusively against `runtimeWorld_`.
-   - Any spawned projectiles, destroyed entities, or mutated transforms affect only `runtimeWorld_`.
-3. **On Exiting Play Mode (`RuntimeSession::stop()`):**
-   - Destroys all Jolt physics bodies associated with `runtimeWorld_`.
-   - Destroys `runtimeWorld_` completely, freeing its Flecs tables.
-   - Points the Conductor and Editor back to the untouched `editWorld_`.
-   - Restores exact pre-simulation camera, entity hierarchy, and inspector properties.
+#### Core Invariants:
+1. **Single World Identity:** Exactly one authoritative Flecs ECS world (`world::World`) exists for gameplay states A and B. Both states operate on the same world address.
+2. **Zero World Duplication:** Transitioning between State A and State B never creates an ECS world, clones entities, serializes state to disk, or reloads the scene.
+3. **Continuous Simulation Persistence:** Systems in `SystemGroup::Continuous` (rigid-body physics integration, hierarchy transform propagation, audio streaming) remain continuously active across all transitions without interruption or reset.
+4. **StateContext Separation:** Mode-specific state context ([`framework::StateContext`](../../engine/framework/include/framework/state_context.h)) is stored separately from world entity components:
+   - Camera parameters (`activeCamera`, FOV, clipping planes)
+   - Target query candidates (`primaryTarget`, `candidateTargets`)
+   - UI presentation state (`documentPath`, active HUD masks)
+   - Input context tags and action filtering masks
+   - Speculative preparation caches (`preparedAssetIds`, `preparedEntities`)
+
+---
+
+### 4.2 SystemGroup Scheduling & Lifecycle Gating
+
+The Conductor schedules work across 4 distinct system groups without touching entity data:
+
+| System Group | Phase Tag | Active Condition | Typical Workloads |
+|---|---|---|---|
+| `SystemGroup::Continuous` | `Continuous = 0` | **Always Active** (100% of frames) | Jolt physics stepping, transform propagation, audio |
+| `SystemGroup::StateA` | `StateA = 1` | Active when `activeSlot == SlotA` | State A gameplay rules, combat actions, camera controllers |
+| `SystemGroup::StateB` | `StateB = 2` | Active when `activeSlot == SlotB` | State B gameplay rules, exploration actions, skill selectors |
+| `SystemGroup::Transition` | `Transition = 3` | Active **only** during slow motion | Camera blending, transition VFX, time dilation controllers |
+
+---
+
+### 4.3 Atomic State Transition Lifecycle
+
+Transitions proceed through an explicit 5-phase validation lifecycle:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Cond as framework::Conductor
+    participant Standby as Standby Mode (Slot B)
+    participant Active as Active Mode (Slot A)
+    participant World as Shared World (Flecs)
+
+    Note over Cond,World: Phase 1: Incremental Preparation (ConductorState::Preparing)
+    loop Each Frame (Budget-Capped <= 500 us)
+        Cond->>Standby: prepare(world, budget)
+        Standby-->>Cond: PreparationStatus::InProgress
+    end
+    Standby-->>Cond: PreparationStatus::Ready (ConductorState::Prepared)
+
+    Note over Cond,World: Phase 2: Pre-Commit Validation (ConductorState::Committing)
+    Cond->>Standby: commit(world)
+    alt Validation Fails (e.g., target entity died during standby)
+        Standby-->>Cond: Error (CommitValidationFailed)
+        Cond->>Standby: cancelPrepare()
+        Note over Cond: Rollback: Active Mode preserved with zero corruption
+    else Validation Succeeds
+        Standby-->>Cond: Result::success()
+        Note over Cond,World: Phase 3: Atomic Role Reversal
+        Cond->>Active: exit(world)
+        Cond->>World: setSystemGroupActive(StateA, false)
+        Cond->>World: setSystemGroupActive(StateB, true)
+        Cond->>World: setSystemGroupActive(Transition, true)
+        Cond->>Standby: enter(world) (Now Active Role)
+        
+        Note over Cond,World: Phase 4: Slow-Motion Transition Curve
+        loop Transition Duration (e.g., 300 ms)
+            Cond->>Cond: Scale ActionClock (0.2 -> 1.0)
+            Note over World: Fixed physics steps continuously at normal speed!
+        end
+        Cond->>World: setSystemGroupActive(Transition, false)
+        Note over Cond: ConductorState becomes Active (Steady-State)
+    end
+```
+
+---
+
+### 4.4 Disambiguation: Editor Play-in-Editor (PIE) Session
+
+To prevent confusing gameplay mode transitions with level authoring workflows:
+
+- **The Gameplay Architecture:** The Two-State Conductor operating over the Single Shared World is the core runtime architecture of Hikari Engine. It is used in all standalone builds and during gameplay execution.
+- **The Editor Workflow ([`framework::RuntimeSession`](../../engine/framework/include/framework/runtime_session.h)):** `RuntimeSession` is an **Editor-only authoring tool**. When an artist or designer clicks "Play" in the Editor toolbar to test a level, `RuntimeSession` (with `isolateWorld = true`) stages the authoring `editWorld` in memory and executes a temporary preview instance, guaranteeing that when they click "Stop", the level authoring state returns to its exact pre-test state without lingering physics displacements.
+- **Independence:** The gameplay Conductor's State A/B transitions are 100% independent of `RuntimeSession` and never duplicate the shared world. When `RuntimeSessionConfig::isolateWorld == false`, `RuntimeSession` also executes directly on the shared world.
 
 ---
 

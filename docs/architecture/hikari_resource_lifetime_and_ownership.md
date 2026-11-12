@@ -23,7 +23,7 @@ The following matrix documents the complete lifecycle, ownership, invalidation t
 
 | Resource Type | Creator | Primary Owner | Non-Owning Borrowers | Invalidation Triggers | Destroyer | Strategy | GPU Sync Required |
 |---|---|---|---|---|---|---|---|
-| **ECS World** | `src/main.cpp` | `main()` / `RuntimeSession` | Systems, Panels, Renderer | Scene reload, Play/Edit switch, Shutdown | Scope termination | Immediate | None |
+| **ECS World** | `src/main.cpp` | `main()` / `world::World` | `framework::Conductor`, Systems, Panels, Renderer | Engine shutdown, Scene clear | Scope termination | Immediate | None |
 | **ECS Entities** | `SceneSerializer` / Importers | `world::World` (Flecs) | `EntityHandle` references | Scene clear, entity destruction | `World::destroyEntity()` | Deferred (end of tick) | None |
 | **Vulkan Device & Instance** | `rhi::createVulkanDevice` | `main()` (`std::unique_ptr`) | All RHI resources | Engine shutdown | `VulkanDevice::~VulkanDevice` | Immediate at exit | `device->waitIdle()` |
 | **Vulkan Swapchain** | `VulkanDevice` | `VulkanDevice` | Window, ImGui presenter | Window resize, VSync toggle, display change | `VulkanDevice::recreateSwapchain` | Immediate after drain | `vkDeviceWaitIdle` |
@@ -33,7 +33,7 @@ The following matrix documents the complete lifecycle, ownership, invalidation t
 | **Vulkan Pipelines** | `SceneRenderer` | `SceneRenderer` | `CommandList` execution | Shader reload, pipeline config, shutdown | `SceneRenderer::~SceneRenderer` | Immediate | Must not be in-flight |
 | **Offscreen Render Targets** | `SceneRenderer` | `SceneRenderer` | ViewportPanel, Pass descriptors | Viewport resize, HDR/Shadow settings apply | `SceneRenderer::resizeTargets` | Immediate after drain | `vkDeviceWaitIdle` |
 | **ImGui Viewport Descriptors** | `ViewportPanel` | `editor::EditorEngine` | `ImGui::Image` drawing | Viewport resize, Target recreation | `EditorEngine` deferred queue | **Deferred** (`pendingDescriptorFrees_`) | Complete frame fence |
-| **Jolt Physics Bodies** | `RuntimeSession` | `physics::PhysicsWorld` | `PhysicsBodyComponent` | Entity removal, Play mode exit | `PhysicsWorld::destroyBody` | Immediate | None |
+| **Jolt Physics Bodies** | `physics::registerPhysicsSystems` | `physics::PhysicsWorld` | `PhysicsBodyComponent` | Entity removal, Scene clear | `PhysicsWorld::destroyBody` | Immediate | None |
 | **Lua Script State** | `ScriptEngine` | `ScriptEngine` | Script systems | Hot reload, mode reset, shutdown | `ScriptEngine::~ScriptEngine` | Immediate | None |
 
 ---
