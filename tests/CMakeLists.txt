@@ -233,6 +233,10 @@ if(HIKARI_BUILD_EDITOR)
     add_executable(capture_editor_telemetry ${CMAKE_SOURCE_DIR}/tools/capture_editor_telemetry.cpp)
     target_link_libraries(capture_editor_telemetry PRIVATE hikari::editor_lib hikari::engine_framework hikari::engine_render hikari::engine_physics hikari::engine_world hikari::engine_rhi imgui_static)
     target_include_directories(capture_editor_telemetry PRIVATE ${imgui_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/editor/src)
+
+    add_executable(profile_gpu_serialization ${CMAKE_SOURCE_DIR}/tools/profile_gpu_serialization.cpp)
+    target_link_libraries(profile_gpu_serialization PRIVATE hikari::editor_lib hikari::engine_framework hikari::engine_render hikari::engine_physics hikari::engine_world hikari::engine_rhi imgui_static)
+    target_include_directories(profile_gpu_serialization PRIVATE ${imgui_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/editor/src)
 endif()
 
 
