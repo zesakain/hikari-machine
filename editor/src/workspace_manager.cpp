@@ -15,6 +15,8 @@
 #include "framework/simulation_state.h"
 #include "imgui_utils.h"
 #include "physics/physics_components.h"
+#include "render/gltf_scene_importer.h"
+#include "render/light_components.h"
 #include "render/mesh_component.h"
 #include "rhi/rhi_device.h"
 #include "script/script_components.h"
@@ -129,6 +131,57 @@ struct WorkspaceManager::Impl {
         isSceneDirty = false;
 
         ENG_LOG_INFO("Editor", "Scene successfully opened and loaded into World");
+        return true;
+    }
+
+    bool loadBenchmarkScene(world::World& world, const char* filepath,
+                            SelectionModel* selection = nullptr,
+                            render::AssetManager* assetManager = nullptr) {
+        if (filepath == nullptr || filepath[0] == '\0' || !std::filesystem::exists(filepath)) {
+            lastSceneError = "Benchmark scene file does not exist on disk: ";
+            if (filepath != nullptr) {
+                lastSceneError += filepath;
+            }
+            showSceneErrorModal = true;
+            ENG_LOG_ERROR("Editor", "Benchmark scene file not found");
+            return false;
+        }
+
+        newScene(world, selection);
+
+        auto importRes = render::GltfSceneImporter::importScene(filepath, world, assetManager);
+        if (!importRes.success) {
+            lastSceneError = "Failed to import benchmark scene: " + importRes.errorMessage;
+            showSceneErrorModal = true;
+            ENG_LOG_ERROR("Editor", "Benchmark scene import failed");
+            return false;
+        }
+
+        // Ensure default directional sunlight exists if none is in the scene
+        flecs::world& ecs = world.getRawWorld();
+        bool hasSun = false;
+        ecs.query<const render::DirectionalLightComponent>().each(
+            [&](flecs::entity, const render::DirectionalLightComponent&) { hasSun = true; });
+
+        if (!hasSun) {
+            auto sun = world.createEntity("Sunlight");
+            render::DirectionalLightComponent sunLight{};
+            sunLight.enabled = true;
+            sunLight.direction = Vec3(0.4F, 0.85F, 0.3F).normalized();
+            sunLight.color = Vec3(1.0F, 0.96F, 0.90F);
+            sunLight.intensity = 3.5F;
+            sunLight.castShadows = true;
+            sunLight.shadowBias = 0.0025F;
+            world.setComponent(sun, sunLight);
+        }
+
+        world::updateHierarchyTransforms(world);
+
+        currentScenePath = filepath;
+        currentSceneName = std::filesystem::path(filepath).stem().string();
+        isSceneDirty = false;
+
+        ENG_LOG_INFO("Editor", "Benchmark scene loaded successfully: " + std::string(filepath));
         return true;
     }
 
@@ -466,7 +519,34 @@ struct WorkspaceManager::Impl {
                 ImGui::EndMenu();
             }
 
-            // 8. Help Menu
+            // 8. Benchmarks Menu (Milestone 10G)
+            if (ImGui::BeginMenu("Benchmarks")) {
+                if (ImGui::MenuItem("Khronos Sponza Atrium (10G)")) {
+                    if (ctx.world != nullptr) {
+                        loadBenchmarkScene(*ctx.world, "test-assets/benchmark/sponza/Sponza.gltf",
+                                           ctx.selection, ctx.assetManager);
+                        ctx.selectedEntityId = 0;
+                    }
+                }
+                if (ImGui::MenuItem("Khronos Flight Helmet")) {
+                    if (ctx.world != nullptr) {
+                        loadBenchmarkScene(*ctx.world,
+                                           "test-assets/benchmark/flight_helmet/FlightHelmet.gltf",
+                                           ctx.selection, ctx.assetManager);
+                        ctx.selectedEntityId = 0;
+                    }
+                }
+                if (ImGui::MenuItem("Damaged Helmet PBR")) {
+                    if (ctx.world != nullptr) {
+                        loadBenchmarkScene(*ctx.world, "test-assets/DamagedHelmet.glb",
+                                           ctx.selection, ctx.assetManager);
+                        ctx.selectedEntityId = 0;
+                    }
+                }
+                ImGui::EndMenu();
+            }
+
+            // 9. Help Menu
             if (ImGui::BeginMenu("Help")) {
                 if (ImGui::MenuItem("About Hikari Editor...")) {
                     showAboutModal = true;
@@ -1100,6 +1180,12 @@ bool WorkspaceManager::saveScene(world::World& world, const char* customPath) {
 bool WorkspaceManager::openScene(world::World& world, const char* filepath,
                                  SelectionModel* selection) {
     return impl_->openScene(world, filepath, selection);
+}
+
+bool WorkspaceManager::loadBenchmarkScene(world::World& world, const char* filepath,
+                                          SelectionModel* selection,
+                                          render::AssetManager* assetManager) {
+    return impl_->loadBenchmarkScene(world, filepath, selection, assetManager);
 }
 
 std::string_view WorkspaceManager::getCurrentScenePath() const noexcept {

@@ -11,6 +11,8 @@
 #include "physics/physics_world.h"
 #include "platform/platform.h"
 #include "render/asset_manager.h"
+#include "render/gltf_scene_importer.h"
+#include "render/light_components.h"
 #include "render/mesh_component.h"
 #include "render/render_graph.h"
 #include "rhi/command_list.h"
@@ -137,6 +139,17 @@ int main(int argc, char* argv[]) {
             windowHeight = static_cast<uint32_t>(std::atoi(argv[++i]));
         } else if (arg == "--scene" && i + 1 < argc) {
             scenePath = argv[++i];
+        } else if (arg == "--benchmark" && i + 1 < argc) {
+            std::string benchName = argv[++i];
+            if (benchName == "sponza") {
+                scenePath = "test-assets/benchmark/sponza/Sponza.gltf";
+            } else if (benchName == "flight_helmet" || benchName == "helmet") {
+                scenePath = "test-assets/benchmark/flight_helmet/FlightHelmet.gltf";
+            } else if (benchName == "damaged_helmet") {
+                scenePath = "test-assets/DamagedHelmet.glb";
+            } else {
+                scenePath = benchName;
+            }
         } else if (arg == "--version") {
             std::cout << "hikari version 0.1.0 (Phase 6 Architecture Complete)\n";
             std::cout << "Architecture: Two-State Conductor over Shared World (C++20)\n";
@@ -149,6 +162,9 @@ int main(int argc, char* argv[]) {
             std::cout << "  --frames <count>   Execute for <count> simulation frames then exit\n";
             std::cout << "  --width <pixels>   Set window width in pixels (default: 1280)\n";
             std::cout << "  --height <pixels>  Set window height in pixels (default: 720)\n";
+            std::cout << "  --scene <path>     Load scene or glTF model (.hikari, .gltf, .glb)\n";
+            std::cout << "  --benchmark <name> Load benchmark scene (sponza, flight_helmet, "
+                         "damaged_helmet)\n";
             std::cout << "  --version          Display engine build version\n";
             std::cout << "  --help             Display command-line options\n";
             return 0;
@@ -238,17 +254,6 @@ end
         script::registerScriptComponents(world);
         script::registerScriptSystems(world, scriptEngine);
 
-#if defined(HIKARI_BUILD_EDITOR)
-        if (!scenePath.empty()) {
-            auto loadRes = framework::SceneSerializer::deserializeFromFile(world, scenePath);
-            if (loadRes.hasValue()) {
-                ENG_LOG_INFO("Core", "Successfully loaded startup scene: " + scenePath);
-            } else {
-                ENG_LOG_WARN("Core", "Failed to load startup scene: " + scenePath);
-            }
-        }
-#endif
-
         ui::UiSystem uiSystem;
         (void)uiSystem.initialize({.width = 1280, .height = 720}, *rhiDevice);
 
@@ -316,6 +321,48 @@ body {
             editorEngine.bindConductor(&conductor);
             ENG_LOG_INFO("Editor",
                          "EditorEngine successfully initialized and bound to World & Conductor");
+
+            if (!scenePath.empty()) {
+                if (scenePath.ends_with(".gltf") || scenePath.ends_with(".glb")) {
+                    auto importRes = render::GltfSceneImporter::importScene(
+                        scenePath, world, &editorEngine.getAssetManager());
+                    if (importRes.success) {
+                        ENG_LOG_INFO("Core",
+                                     "Successfully imported glTF startup scene: " + scenePath +
+                                         " (" + std::to_string(importRes.nodeCount) + " entities)");
+                        // Ensure directional sunlight exists if none is in the scene
+                        flecs::world& ecs = world.getRawWorld();
+                        bool hasSun = false;
+                        ecs.query<const render::DirectionalLightComponent>().each(
+                            [&](flecs::entity, const render::DirectionalLightComponent&) {
+                                hasSun = true;
+                            });
+                        if (!hasSun) {
+                            auto sun = world.createEntity("Sunlight");
+                            render::DirectionalLightComponent sunLight{};
+                            sunLight.enabled = true;
+                            sunLight.direction = Vec3(0.4F, 0.85F, 0.3F).normalized();
+                            sunLight.color = Vec3(1.0F, 0.96F, 0.90F);
+                            sunLight.intensity = 3.5F;
+                            sunLight.castShadows = true;
+                            sunLight.shadowBias = 0.0025F;
+                            world.setComponent(sun, sunLight);
+                        }
+                        world::updateHierarchyTransforms(world);
+                    } else {
+                        ENG_LOG_WARN("Core", "Failed to import glTF startup scene: " + scenePath +
+                                                 " (" + importRes.errorMessage + ")");
+                    }
+                } else {
+                    auto loadRes =
+                        framework::SceneSerializer::deserializeFromFile(world, scenePath);
+                    if (loadRes.hasValue()) {
+                        ENG_LOG_INFO("Core", "Successfully loaded startup scene: " + scenePath);
+                    } else {
+                        ENG_LOG_WARN("Core", "Failed to load startup scene: " + scenePath);
+                    }
+                }
+            }
         }
 #endif
 

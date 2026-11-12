@@ -73,6 +73,11 @@ public:
     /// Loads a scene from disk into the world. Returns true on success.
     bool openScene(world::World& world, const char* filepath, SelectionModel* selection = nullptr);
 
+    /// Loads a glTF benchmark scene into the world. Returns true on success.
+    bool loadBenchmarkScene(world::World& world, const char* filepath,
+                            SelectionModel* selection = nullptr,
+                            render::AssetManager* assetManager = nullptr);
+
     /// Returns the active scene filesystem path.
     [[nodiscard]] std::string_view getCurrentScenePath() const noexcept;
 

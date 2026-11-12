@@ -11,8 +11,10 @@
 #include "editor/selection_model.h"
 #include "physics/physics_components.h"
 #include "render/asset_manager.h"
+#include "render/gltf_scene_importer.h"
 #include "render/mesh_component.h"
 #include "world/components.h"
+#include "world/hierarchy_systems.h"
 #include "world/world.h"
 
 #include <SDL3/SDL.h>
@@ -569,6 +571,32 @@ void ContentBrowserPanel::drawListView(EditorContext& ctx) {
                             }
                             ctx.selectedEntityId = h.id;
                             ctx.markDirty();
+                        }
+                    }
+
+                    if (item.name.ends_with(".gltf") || item.name.ends_with(".glb")) {
+                        if (ImGui::MenuItem("Import Full Scene Hierarchy")) {
+                            if (ctx.world != nullptr) {
+                                auto importRes = render::GltfSceneImporter::importScene(
+                                    item.fullPath, *ctx.world, ctx.assetManager);
+                                if (importRes.success) {
+                                    world::updateHierarchyTransforms(*ctx.world);
+                                    if (importRes.rootEntity.isValid()) {
+                                        if (ctx.selection != nullptr) {
+                                            ctx.selection->select(importRes.rootEntity);
+                                        }
+                                        ctx.selectedEntityId = importRes.rootEntity.id;
+                                    }
+                                    ctx.markDirty();
+                                    ENG_LOG_INFO("Editor", "Imported glTF scene hierarchy (" +
+                                                               std::to_string(importRes.nodeCount) +
+                                                               " entities)");
+                                } else {
+                                    errorMessage_ =
+                                        "Failed to import glTF scene: " + importRes.errorMessage;
+                                    showErrorModal_ = true;
+                                }
+                            }
                         }
                     }
                     ImGui::Separator();
