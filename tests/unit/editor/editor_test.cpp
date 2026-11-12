@@ -3516,6 +3516,58 @@ static void testEditorVulkanTransformManipulationScenarios() {
     std::cout << "[PASS] testEditorVulkanTransformManipulationScenarios\n";
 }
 
+static void testEditorBenchmarkSceneLoading() {
+    std::cout << "Testing Editor Benchmark Scene Loading & Sunlight Synthesis...\n";
+    auto devRes = rhi::createNullDevice();
+    TEST_CHECK(devRes.hasValue());
+    auto nullDev = std::move(devRes.value());
+    EditorEngine editor;
+    TEST_CHECK(editor.initialize(*nullDev));
+
+    world::World world;
+    physics::registerPhysicsComponents(world);
+    editor.bindWorld(&world);
+
+    WorkspaceManager wm;
+    SelectionModel sel;
+
+    // 1. Missing benchmark file returns false cleanly with error state
+    TEST_CHECK(
+        !wm.loadBenchmarkScene(world, "nonexistent_scene.gltf", &sel, &editor.getAssetManager()));
+
+    // 2. Load fixture glTF file as benchmark scene
+    const std::string fixturePath = "tests/fixtures/gltf/hierarchy_test.gltf";
+    TEST_CHECK(std::filesystem::exists(fixturePath));
+    bool loadOk =
+        wm.loadBenchmarkScene(world, fixturePath.c_str(), &sel, &editor.getAssetManager());
+    TEST_CHECK(loadOk);
+    TEST_CHECK(wm.getCurrentScenePath() == fixturePath);
+    TEST_CHECK(!wm.isSceneDirty());
+
+    // Verify entities were created and sunlight was synthesized
+    flecs::world& ecs = world.getRawWorld();
+    bool foundSun = false;
+    ecs.query<const render::DirectionalLightComponent>().each(
+        [&](flecs::entity, const render::DirectionalLightComponent& light) {
+            foundSun = true;
+            TEST_CHECK(light.enabled);
+            TEST_CHECK(light.castShadows);
+        });
+    TEST_CHECK(foundSun);
+
+    // 3. If benchmark Sponza is present, test loading through workspace manager
+    const std::string sponzaPath = "test-assets/benchmark/sponza/Sponza.gltf";
+    if (std::filesystem::exists(sponzaPath)) {
+        bool sponzaOk =
+            wm.loadBenchmarkScene(world, sponzaPath.c_str(), &sel, &editor.getAssetManager());
+        TEST_CHECK(sponzaOk);
+        TEST_CHECK(wm.getCurrentScenePath() == sponzaPath);
+    }
+
+    editor.shutdown();
+    std::cout << "[PASS] testEditorBenchmarkSceneLoading\n";
+}
+
 int main() {
     std::cout << "Running Editor subsystem unit tests...\n";
     const std::filesystem::path candidates[] = {"assets/models", "../../../assets/models",
@@ -3580,6 +3632,9 @@ int main() {
     // Critical Bug Fix: Transform Manipulation in Edit Mode and Runtime Scene Isolation
     testEditModeTransformManipulationRegression();
     testEditorVulkanTransformManipulationScenarios();
+
+    // Milestone 10G: Sponza Benchmark Scene Loading in Editor
+    testEditorBenchmarkSceneLoading();
 
     std::cout << "All Editor subsystem tests PASSED!\n";
     return 0;
