@@ -13,6 +13,7 @@
 #include "render/mesh_component.h"
 #include "render/scene_renderer.h"
 #include "script/script_components.h"
+#include "world/hierarchy_systems.h"
 #include "world/world.h"
 
 #include <cmath>
@@ -40,14 +41,13 @@ inline void setEntityLocalTransform(flecs::entity e, const Transform& tr) {
         tc->transform = tr;
         tc->isDirty = true;
         e.modified<world::TransformComponent>();
+    } else {
+        e.set<world::TransformComponent>(world::TransformComponent{tr});
     }
     if (e.has<physics::PhysicsTransformComponent>()) {
         auto* ptc = e.get_mut<physics::PhysicsTransformComponent>();
         ptc->transform = tr;
         e.modified<physics::PhysicsTransformComponent>();
-    }
-    if (!e.has<world::TransformComponent>() && !e.has<physics::PhysicsTransformComponent>()) {
-        e.set<world::TransformComponent>(world::TransformComponent{tr});
     }
 }
 
@@ -779,6 +779,10 @@ void InspectorPanel::draw(EditorContext& ctx) {
                     if (ImGui::BeginPopupContextItem("TransformHeaderCtx")) {
                         if (ImGui::MenuItem("Reset Transform")) {
                             resetEntityTransform(e);
+                            if (ctx.world != nullptr) {
+                                world::updateHierarchyTransforms(*ctx.world);
+                            }
+                            ctx.markDirty();
                         }
                         ImGui::Separator();
                         if (ImGui::MenuItem("Remove Component")) {
@@ -824,6 +828,9 @@ void InspectorPanel::draw(EditorContext& ctx) {
 
                         if (changed) {
                             setEntityLocalTransform(e, curTr);
+                            if (ctx.world != nullptr) {
+                                world::updateHierarchyTransforms(*ctx.world);
+                            }
                             ctx.markDirty();
                         }
 
@@ -835,6 +842,9 @@ void InspectorPanel::draw(EditorContext& ctx) {
                 }
                 if (removeTransform) {
                     removeEntityTransform(e);
+                    if (ctx.world != nullptr) {
+                        world::updateHierarchyTransforms(*ctx.world);
+                    }
                     ctx.markDirty();
                 }
 

@@ -16,6 +16,7 @@
 #include "render/mesh_component.h"
 #include "render/scene_renderer.h"
 #include "world/components.h"
+#include "world/hierarchy_systems.h"
 
 #include <algorithm>
 #include <cmath>
@@ -70,6 +71,13 @@ Vec3 s_dragStartEntityPos{Vec3::zero()};
 Quat s_dragStartEntityRot{Quat::identity()};
 Vec3 s_dragStartEntityScale{Vec3::one()};
 Vec3 s_dragStartHitPoint{Vec3::zero()};
+
+struct DragStartRecord {
+    world::EntityHandle handle;
+    Transform localTr;
+    Transform worldTr;
+};
+std::vector<DragStartRecord> s_dragStartEntities;
 
 // Camera navigation tracking
 bool s_isFlying = false;
@@ -1096,6 +1104,38 @@ void ViewportPanel::draw(EditorContext& ctx) {
                     if (tPlane.has_value()) {
                         s_dragStartHitPoint = mouseRay.getPoint(*tPlane);
                     }
+
+                    s_dragStartEntities.clear();
+                    if (ctx.selection != nullptr) {
+                        for (auto h : ctx.selection->getSelectedEntities()) {
+                            if (ctx.world->isAlive(h)) {
+                                Transform localTr = Transform::identity();
+                                if (ctx.world->hasComponent<world::TransformComponent>(h)) {
+                                    localTr = ctx.world->getComponent<world::TransformComponent>(h)
+                                                  ->transform;
+                                } else if (ctx.world
+                                               ->hasComponent<physics::PhysicsTransformComponent>(
+                                                   h)) {
+                                    localTr =
+                                        ctx.world
+                                            ->getComponent<physics::PhysicsTransformComponent>(h)
+                                            ->transform;
+                                }
+                                Transform worldTr = localTr;
+                                if (ctx.world->hasComponent<world::WorldTransformComponent>(h)) {
+                                    worldTr =
+                                        ctx.world->getComponent<world::WorldTransformComponent>(h)
+                                            ->worldTransform;
+                                }
+                                s_dragStartEntities.push_back({h, localTr, worldTr});
+                            }
+                        }
+                    }
+                    if (s_dragStartEntities.empty()) {
+                        s_dragStartEntities.push_back({primarySelectedHandle,
+                                                       primarySelectedTransform,
+                                                       primarySelectedTransform});
+                    }
                 }
 
                 // Handle Gizmo Dragging Execution
@@ -1114,8 +1154,6 @@ void ViewportPanel::draw(EditorContext& ctx) {
                         const Vec3 hitDelta = currentHit - s_dragStartHitPoint;
                         const float snapStep = getSnapStep(s_snappingMode, s_transformMode);
 
-                        auto selectedEntities = ctx.selection->getSelectedEntities();
-
                         if (s_transformMode == 0) { // Translate
                             float projectedDelta = Vec3::dot(hitDelta, constraintAxis);
                             if (snapStep > 0.0F) {
@@ -1123,27 +1161,64 @@ void ViewportPanel::draw(EditorContext& ctx) {
                             }
                             const Vec3 moveVec = constraintAxis * projectedDelta;
 
-                            for (auto h : selectedEntities) {
-                                if (ctx.world->isAlive(h)) {
-                                    if (ctx.world->hasComponent<world::TransformComponent>(h)) {
-                                        auto* tc =
+                            for (const auto& entry : s_dragStartEntities) {
+                                if (!ctx.world->isAlive(entry.handle)) {
+                                    continue;
+                                }
+                                const Vec3 targetWorldPos = entry.worldTr.position + moveVec;
+                                Vec3 newLocalPos = targetWorldPos;
+
+                                world::EntityHandle parent = ctx.world->getParent(entry.handle);
+                                if (parent.isValid() && ctx.world->isAlive(parent)) {
+                                    Transform parentWorldTr = Transform::identity();
+                                    if (ctx.world->hasComponent<world::WorldTransformComponent>(
+                                            parent)) {
+                                        parentWorldTr =
                                             ctx.world
-                                                ->getMutableComponent<world::TransformComponent>(h);
-                                        if (tc != nullptr) {
-                                            tc->transform.position = s_dragStartEntityPos + moveVec;
-                                            tc->isDirty = true;
-                                        }
+                                                ->getComponent<world::WorldTransformComponent>(
+                                                    parent)
+                                                ->worldTransform;
+                                    } else if (ctx.world->hasComponent<world::TransformComponent>(
+                                                   parent)) {
+                                        parentWorldTr =
+                                            ctx.world
+                                                ->getComponent<world::TransformComponent>(parent)
+                                                ->transform;
                                     }
-                                    if (ctx.world->hasComponent<physics::PhysicsTransformComponent>(
-                                            h)) {
-                                        auto* tc = ctx.world->getMutableComponent<
-                                            physics::PhysicsTransformComponent>(h);
-                                        if (tc != nullptr) {
-                                            tc->transform.position = s_dragStartEntityPos + moveVec;
-                                        }
+                                    const Vec3 relPos = targetWorldPos - parentWorldTr.position;
+                                    const Vec3 unrotPos =
+                                        parentWorldTr.rotation.inverse().rotate(relPos);
+                                    const Vec3 pScale = parentWorldTr.scale;
+                                    newLocalPos = Vec3{
+                                        std::abs(pScale.x) > 1e-5F ? unrotPos.x / pScale.x
+                                                                   : unrotPos.x,
+                                        std::abs(pScale.y) > 1e-5F ? unrotPos.y / pScale.y
+                                                                   : unrotPos.y,
+                                        std::abs(pScale.z) > 1e-5F ? unrotPos.z / pScale.z
+                                                                   : unrotPos.z,
+                                    };
+                                }
+
+                                if (ctx.world->hasComponent<world::TransformComponent>(
+                                        entry.handle)) {
+                                    auto* tc =
+                                        ctx.world->getMutableComponent<world::TransformComponent>(
+                                            entry.handle);
+                                    if (tc != nullptr) {
+                                        tc->transform.position = newLocalPos;
+                                        tc->isDirty = true;
+                                    }
+                                }
+                                if (ctx.world->hasComponent<physics::PhysicsTransformComponent>(
+                                        entry.handle)) {
+                                    auto* ptc = ctx.world->getMutableComponent<
+                                        physics::PhysicsTransformComponent>(entry.handle);
+                                    if (ptc != nullptr) {
+                                        ptc->transform.position = newLocalPos;
                                     }
                                 }
                             }
+                            world::updateHierarchyTransforms(*ctx.world);
                             ctx.markDirty();
                         } else if (s_transformMode == 1) { // Rotate
                             float rotAngle = (io.MouseDelta.x + io.MouseDelta.y) * 0.02F;
@@ -1152,29 +1227,56 @@ void ViewportPanel::draw(EditorContext& ctx) {
                             }
                             const Quat deltaRot = Quat::fromAxisAngle(constraintAxis, rotAngle);
 
-                            for (auto h : selectedEntities) {
-                                if (ctx.world->isAlive(h)) {
-                                    if (ctx.world->hasComponent<world::TransformComponent>(h)) {
-                                        auto* tc =
+                            for (const auto& entry : s_dragStartEntities) {
+                                if (!ctx.world->isAlive(entry.handle)) {
+                                    continue;
+                                }
+                                const Quat targetWorldRot =
+                                    (deltaRot * entry.worldTr.rotation).normalized();
+                                Quat newLocalRot = targetWorldRot;
+
+                                world::EntityHandle parent = ctx.world->getParent(entry.handle);
+                                if (parent.isValid() && ctx.world->isAlive(parent)) {
+                                    Transform parentWorldTr = Transform::identity();
+                                    if (ctx.world->hasComponent<world::WorldTransformComponent>(
+                                            parent)) {
+                                        parentWorldTr =
                                             ctx.world
-                                                ->getMutableComponent<world::TransformComponent>(h);
-                                        if (tc != nullptr) {
-                                            tc->transform.rotation =
-                                                (deltaRot * s_dragStartEntityRot).normalized();
-                                            tc->isDirty = true;
-                                        }
+                                                ->getComponent<world::WorldTransformComponent>(
+                                                    parent)
+                                                ->worldTransform;
+                                    } else if (ctx.world->hasComponent<world::TransformComponent>(
+                                                   parent)) {
+                                        parentWorldTr =
+                                            ctx.world
+                                                ->getComponent<world::TransformComponent>(parent)
+                                                ->transform;
                                     }
-                                    if (ctx.world->hasComponent<physics::PhysicsTransformComponent>(
-                                            h)) {
-                                        auto* tc = ctx.world->getMutableComponent<
-                                            physics::PhysicsTransformComponent>(h);
-                                        if (tc != nullptr) {
-                                            tc->transform.rotation =
-                                                (deltaRot * s_dragStartEntityRot).normalized();
-                                        }
+                                    newLocalRot =
+                                        (parentWorldTr.rotation.inverse() * targetWorldRot)
+                                            .normalized();
+                                }
+
+                                if (ctx.world->hasComponent<world::TransformComponent>(
+                                        entry.handle)) {
+                                    auto* tc =
+                                        ctx.world->getMutableComponent<world::TransformComponent>(
+                                            entry.handle);
+                                    if (tc != nullptr) {
+                                        tc->transform.rotation = newLocalRot;
+                                        tc->isDirty = true;
+                                    }
+                                }
+                                if (ctx.world->hasComponent<physics::PhysicsTransformComponent>(
+                                        entry.handle)) {
+                                    auto* ptc = ctx.world->getMutableComponent<
+                                        physics::PhysicsTransformComponent>(entry.handle);
+                                    if (ptc != nullptr) {
+                                        ptc->transform.rotation = newLocalRot;
                                     }
                                 }
                             }
+                            world::updateHierarchyTransforms(*ctx.world);
                             ctx.markDirty();
                         } else if (s_transformMode == 2) { // Scale
                             float scaleDelta = Vec3::dot(hitDelta, constraintAxis) * 0.5F;
@@ -1182,42 +1284,46 @@ void ViewportPanel::draw(EditorContext& ctx) {
                                 scaleDelta = snapValue(scaleDelta, snapStep);
                             }
 
-                            for (auto h : selectedEntities) {
-                                if (ctx.world->isAlive(h)) {
-                                    Vec3 newScale = s_dragStartEntityScale;
-                                    if (s_activeGizmoAxis == GizmoAxis::X) {
-                                        newScale.x = std::max(0.05F, newScale.x + scaleDelta);
-                                    } else if (s_activeGizmoAxis == GizmoAxis::Y) {
-                                        newScale.y = std::max(0.05F, newScale.y + scaleDelta);
-                                    } else {
-                                        newScale.z = std::max(0.05F, newScale.z + scaleDelta);
-                                    }
+                            for (const auto& entry : s_dragStartEntities) {
+                                if (!ctx.world->isAlive(entry.handle)) {
+                                    continue;
+                                }
+                                Vec3 newScale = entry.localTr.scale;
+                                if (s_activeGizmoAxis == GizmoAxis::X) {
+                                    newScale.x = std::max(0.05F, newScale.x + scaleDelta);
+                                } else if (s_activeGizmoAxis == GizmoAxis::Y) {
+                                    newScale.y = std::max(0.05F, newScale.y + scaleDelta);
+                                } else {
+                                    newScale.z = std::max(0.05F, newScale.z + scaleDelta);
+                                }
 
-                                    if (ctx.world->hasComponent<world::TransformComponent>(h)) {
-                                        auto* tc =
-                                            ctx.world
-                                                ->getMutableComponent<world::TransformComponent>(h);
-                                        if (tc != nullptr) {
-                                            tc->transform.scale = newScale;
-                                            tc->isDirty = true;
-                                        }
+                                if (ctx.world->hasComponent<world::TransformComponent>(
+                                        entry.handle)) {
+                                    auto* tc =
+                                        ctx.world->getMutableComponent<world::TransformComponent>(
+                                            entry.handle);
+                                    if (tc != nullptr) {
+                                        tc->transform.scale = newScale;
+                                        tc->isDirty = true;
                                     }
-                                    if (ctx.world->hasComponent<physics::PhysicsTransformComponent>(
-                                            h)) {
-                                        auto* tc = ctx.world->getMutableComponent<
-                                            physics::PhysicsTransformComponent>(h);
-                                        if (tc != nullptr) {
-                                            tc->transform.scale = newScale;
-                                        }
+                                }
+                                if (ctx.world->hasComponent<physics::PhysicsTransformComponent>(
+                                        entry.handle)) {
+                                    auto* ptc = ctx.world->getMutableComponent<
+                                        physics::PhysicsTransformComponent>(entry.handle);
+                                    if (ptc != nullptr) {
+                                        ptc->transform.scale = newScale;
                                     }
                                 }
                             }
+                            world::updateHierarchyTransforms(*ctx.world);
                             ctx.markDirty();
                         }
                     }
                 } else if (s_isDraggingGizmo && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
                     s_isDraggingGizmo = false;
                     s_activeGizmoAxis = GizmoAxis::None;
+                    s_dragStartEntities.clear();
                 }
 
                 // Render Gizmo Visual Handles

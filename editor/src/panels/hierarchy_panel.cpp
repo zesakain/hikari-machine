@@ -13,6 +13,7 @@
 #include "render/mesh_component.h"
 #include "script/script_components.h"
 #include "world/components.h"
+#include "world/hierarchy_systems.h"
 #include "world/world.h"
 
 #include <algorithm>
@@ -52,6 +53,8 @@ bool HierarchyPanel::reparentEntity(world::World& world, world::EntityHandle chi
     if (!ok) {
         ENG_LOG_WARN("Editor",
                      "Reparenting rejected: cycle detected or target parent has singular matrix");
+    } else {
+        world::updateHierarchyTransforms(world);
     }
     return ok;
 }
@@ -147,6 +150,10 @@ world::EntityHandle HierarchyPanel::duplicateEntity(world::World& world, world::
     auto children = world.getChildren(source);
     for (const auto& child : children) {
         duplicateEntity(world, child, clone);
+    }
+
+    if (!parent.isValid()) {
+        world::updateHierarchyTransforms(world);
     }
 
     return clone;

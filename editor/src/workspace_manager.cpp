@@ -19,6 +19,7 @@
 #include "rhi/rhi_device.h"
 #include "script/script_components.h"
 #include "world/components.h"
+#include "world/hierarchy_systems.h"
 #include "world/world.h"
 
 #include <cstdio>
@@ -295,6 +296,8 @@ struct WorkspaceManager::Impl {
                                 ctx.selection->select(h, false);
                             }
                             ctx.selectedEntityId = h.id;
+                            world::updateHierarchyTransforms(*ctx.world);
+                            ctx.markDirty();
                         }
                     }
                     if (ImGui::MenuItem("Physics Sphere")) {
@@ -318,6 +321,8 @@ struct WorkspaceManager::Impl {
                                 ctx.selection->select(h, false);
                             }
                             ctx.selectedEntityId = h.id;
+                            world::updateHierarchyTransforms(*ctx.world);
+                            ctx.markDirty();
                         }
                     }
                     ImGui::EndMenu();
