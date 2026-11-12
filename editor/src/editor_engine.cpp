@@ -16,9 +16,11 @@
 #include "panels/content_browser_panel.h"
 #include "panels/inspector_panel.h"
 #include "panels/metrics_panel.h"
+#include "panels/project_settings_panel.h"
 #include "panels/viewport_panel.h"
 #include "platform/input_snapshot.h"
 #include "render/asset_manager.h"
+#include "render/graphics_settings_serializer.h"
 #include "render/scene_renderer.h"
 #include "rhi/command_list.h"
 #include "rhi/rhi_device.h"
@@ -30,6 +32,7 @@
 #include <bitset>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <imgui.h>
 #include <imgui_impl_vulkan.h>
 #include <string>
@@ -413,6 +416,7 @@ bool EditorEngine::initialize(rhi::RhiDevice& rhiDevice, const EditorConfig& con
     impl_->workspaceManager.registerPanel(std::make_unique<MetricsPanel>());
     impl_->workspaceManager.registerPanel(std::make_unique<ConductorPanel>());
     impl_->workspaceManager.registerPanel(std::make_unique<ContentBrowserPanel>());
+    impl_->workspaceManager.registerPanel(std::make_unique<ProjectSettingsPanel>());
 
     impl_->workspaceManager.setLayoutFilePath(config.layoutFilePath);
 
@@ -495,6 +499,9 @@ bool EditorEngine::initialize(rhi::RhiDevice& rhiDevice, const EditorConfig& con
     if (sRes.hasValue()) {
         impl_->viewportSampler = sRes.value();
     }
+
+    // Restore persisted graphics settings if available
+    (void)loadGraphicsSettings();
 
     // Initialize viewport renderer with initial baseline dimensions
     (void)impl_->resizeViewport(1280, 720);
@@ -923,6 +930,54 @@ render::SceneRenderer& EditorEngine::getSceneRenderer() noexcept {
 
 const render::SceneRenderer& EditorEngine::getSceneRenderer() const noexcept {
     return impl_->sceneRenderer;
+}
+
+const render::GraphicsSettings& EditorEngine::getGraphicsSettings() const noexcept {
+    return impl_->sceneRenderer.getGraphicsSettings();
+}
+
+bool EditorEngine::applyGraphicsSettings(const render::GraphicsSettings& settings) {
+    auto res = impl_->sceneRenderer.applyGraphicsSettings(settings);
+    if (!res.hasValue()) {
+        ENG_LOG_ERROR("Editor",
+                      "Failed to apply graphics settings: " + std::string(res.error().message));
+        return false;
+    }
+    impl_->updateViewportTextureRegistration();
+    return true;
+}
+
+bool EditorEngine::saveGraphicsSettings(const char* filepath) {
+    std::filesystem::path path =
+        (filepath != nullptr && filepath[0] != '\0')
+            ? std::filesystem::path(filepath)
+            : std::filesystem::path("assets/config/graphics_settings.json");
+    auto res = render::GraphicsSettingsSerializer::serializeToFile(
+        impl_->sceneRenderer.getGraphicsSettings(), path);
+    if (!res.hasValue()) {
+        ENG_LOG_ERROR("Editor", "Failed to save graphics settings to " + path.string() + ": " +
+                                    std::string(res.error().message));
+        return false;
+    }
+    ENG_LOG_INFO("Editor", "Graphics settings saved to " + path.string());
+    return true;
+}
+
+bool EditorEngine::loadGraphicsSettings(const char* filepath) {
+    std::filesystem::path path =
+        (filepath != nullptr && filepath[0] != '\0')
+            ? std::filesystem::path(filepath)
+            : std::filesystem::path("assets/config/graphics_settings.json");
+    if (!std::filesystem::exists(path)) {
+        return false;
+    }
+    auto res = render::GraphicsSettingsSerializer::deserializeFromFile(path);
+    if (!res.hasValue()) {
+        ENG_LOG_ERROR("Editor", "Failed to load graphics settings from " + path.string() + ": " +
+                                    std::string(res.error().message));
+        return false;
+    }
+    return applyGraphicsSettings(res.value());
 }
 
 const render::PostProcessSettings& EditorEngine::getPostProcessSettings() const noexcept {

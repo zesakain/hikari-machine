@@ -19,6 +19,7 @@
 #pragma once
 
 #include "core/time/duration.h"
+#include "render/graphics_settings.h"
 #include "render/post_process_types.h"
 
 #include <memory>
@@ -180,6 +181,18 @@ public:
 
     /// Returns the internal SceneRenderer subsystem (const).
     [[nodiscard]] const render::SceneRenderer& getSceneRenderer() const noexcept;
+
+    /// Returns the central graphics and scalability configuration.
+    [[nodiscard]] const render::GraphicsSettings& getGraphicsSettings() const noexcept;
+
+    /// Validates and applies a modified graphics configuration across renderer subsystems.
+    bool applyGraphicsSettings(const render::GraphicsSettings& settings);
+
+    /// Saves graphics settings to disk.
+    bool saveGraphicsSettings(const char* filepath = nullptr);
+
+    /// Loads graphics settings from disk.
+    bool loadGraphicsSettings(const char* filepath = nullptr);
 
     /// Returns the current post-processing settings configured on the internal SceneRenderer.
     [[nodiscard]] const render::PostProcessSettings& getPostProcessSettings() const noexcept;

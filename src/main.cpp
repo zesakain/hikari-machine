@@ -492,6 +492,21 @@ body {
                 (void)rhiDevice->present();
             }
 
+#if defined(HIKARI_BUILD_EDITOR)
+            if (editorEngine.isInitialized()) {
+                uint32_t fpsCap = editorEngine.getGraphicsSettings().performance.frameRateLimit;
+                if (fpsCap > 0) {
+                    Duration targetFrameDuration =
+                        Duration::fromSeconds(1.0 / static_cast<double>(fpsCap));
+                    Duration elapsed = Timestamp::now() - currentFrameTimestamp;
+                    if (elapsed < targetFrameDuration) {
+                        std::this_thread::sleep_for(std::chrono::microseconds(
+                            (targetFrameDuration - elapsed).asMicroseconds()));
+                    }
+                }
+            }
+#endif
+
             frameCount++;
 
             // Periodic telemetry logging (on frame 1 and every 300 frames)

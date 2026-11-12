@@ -461,6 +461,15 @@ struct WorkspaceManager::Impl {
                         }
                     }
                 }
+                ImGui::Separator();
+                if (ImGui::MenuItem("Project Settings...", "Ctrl+Shift+P")) {
+                    for (auto& panel : panels) {
+                        if (panel->getId() == "ProjectSettings") {
+                            panel->setOpen(true);
+                            break;
+                        }
+                    }
+                }
                 ImGui::EndMenu();
             }
 

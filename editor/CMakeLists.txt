@@ -57,6 +57,7 @@ add_library(editor_lib STATIC
     src/panels/metrics_panel.cpp
     src/panels/conductor_panel.cpp
     src/panels/content_browser_panel.cpp
+    src/panels/project_settings_panel.cpp
 )
 add_library(hikari::editor_lib ALIAS editor_lib)
 
