@@ -1481,6 +1481,18 @@ Result<uint32_t> VulkanDevice::acquireNextImage() {
     if (!swapchain_) {
         return 0;
     }
+    if (pendingVsync_.has_value()) {
+        const bool targetVsync = *pendingVsync_;
+        pendingVsync_ = std::nullopt;
+        if (swapchain_->isVsyncEnabled() != targetVsync) {
+            waitIdle();
+            const auto ext = swapchain_->getExtent();
+            auto recRes = swapchain_->recreate(ext.width, ext.height, targetVsync);
+            if (!recRes.hasValue()) {
+                return recRes.error();
+            }
+        }
+    }
     const Timestamp tAcqStart = Timestamp::now();
     auto acqRes = swapchain_->acquireNextImage();
     const Timestamp tAcqEnd = Timestamp::now();
@@ -1561,22 +1573,29 @@ Result<void> VulkanDevice::resize(uint32_t width, uint32_t height) {
     if (!swapchain_) {
         return Result<void>::success();
     }
-    return swapchain_->recreate(width, height, isVsyncEnabled());
+    const bool vsync = isVsyncEnabled();
+    pendingVsync_ = std::nullopt;
+    return swapchain_->recreate(width, height, vsync);
 }
 
 Result<void> VulkanDevice::setVsync(bool enabled) {
     if (!swapchain_) {
         return Result<void>::success();
     }
-    if (swapchain_->isVsyncEnabled() == enabled) {
+    if (isVsyncEnabled() == enabled) {
+        pendingVsync_ = std::nullopt;
         return Result<void>::success();
     }
-    waitIdle();
-    const auto ext = swapchain_->getExtent();
-    return swapchain_->recreate(ext.width, ext.height, enabled);
+    // Defer swapchain recreation to the next acquireNextImage call at frame boundary
+    // to avoid destroying the active swapchain while an acquired image is in flight.
+    pendingVsync_ = enabled;
+    return Result<void>::success();
 }
 
 bool VulkanDevice::isVsyncEnabled() const noexcept {
+    if (pendingVsync_.has_value()) {
+        return *pendingVsync_;
+    }
     return swapchain_ ? swapchain_->isVsyncEnabled() : false;
 }
 

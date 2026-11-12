@@ -174,6 +174,7 @@ private:
     std::unique_ptr<VulkanMemoryManager> memoryManager_;
     std::unique_ptr<VulkanSwapchain> swapchain_;
     uint32_t currentSwapchainImageIndex_{0};
+    std::optional<bool> pendingVsync_{std::nullopt};
     VkQueryPool queryPool_{VK_NULL_HANDLE};
     static constexpr uint32_t kMaxTimestampQueries = 64;
     QueueTimingStats queueTimingStats_{};
