@@ -255,6 +255,11 @@ if(HIKARI_BUILD_EDITOR)
     add_executable(verify_editor_settings ${CMAKE_SOURCE_DIR}/tools/verify_editor_settings.cpp)
     target_link_libraries(verify_editor_settings PRIVATE hikari::editor_lib hikari::engine_framework hikari::engine_render hikari::engine_physics hikari::engine_world hikari::engine_rhi imgui_static)
     target_include_directories(verify_editor_settings PRIVATE ${imgui_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/editor/src)
+
+    add_executable(graphics_settings_apply_test ${CMAKE_SOURCE_DIR}/tools/graphics_settings_apply_test.cpp)
+    target_link_libraries(graphics_settings_apply_test PRIVATE hikari::editor_lib hikari::engine_framework hikari::engine_render hikari::engine_physics hikari::engine_world hikari::engine_rhi imgui_static)
+    target_include_directories(graphics_settings_apply_test PRIVATE ${imgui_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/editor/src)
+    add_test(NAME graphics_settings_apply_test COMMAND graphics_settings_apply_test)
 endif()
 
 
