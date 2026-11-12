@@ -242,6 +242,9 @@ struct EditorEngine::Impl {
     render::SceneRenderer sceneRenderer{};
     rhi::SamplerHandle viewportSampler{};
     VkDescriptorSet viewportDescriptorSet{VK_NULL_HANDLE};
+    void* registeredColorTargetView_{nullptr};
+    void* registeredSampler_{nullptr};
+    std::vector<VkDescriptorSet> pendingDescriptorFrees_{};
     uint32_t viewportWidth{0};
     uint32_t viewportHeight{0};
     Mat4 viewportCameraViewProj{Mat4::identity()};
@@ -264,14 +267,6 @@ struct EditorEngine::Impl {
             return;
         }
 
-        if (viewportDescriptorSet != VK_NULL_HANDLE) {
-            rhiDevice->waitIdle();
-            ImGui_ImplVulkan_RemoveTexture(viewportDescriptorSet);
-            viewportDescriptorSet = VK_NULL_HANDLE;
-            context.viewportTextureId = nullptr;
-            context.gpuRenderingActive = false;
-        }
-
         if (!sceneRenderer.isInitialized() || viewportWidth == 0 || viewportHeight == 0) {
             return;
         }
@@ -283,13 +278,34 @@ struct EditorEngine::Impl {
 
         void* nativeView = rhiDevice->getNativeTextureView(colorTarget);
         void* nativeSampler = rhiDevice->getNativeSampler(viewportSampler);
-        if (nativeView != nullptr && nativeSampler != nullptr) {
-            viewportDescriptorSet = ImGui_ImplVulkan_AddTexture(
-                static_cast<VkSampler>(nativeSampler), static_cast<VkImageView>(nativeView),
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-            context.viewportTextureId = static_cast<void*>(viewportDescriptorSet);
-            context.gpuRenderingActive = (viewportDescriptorSet != VK_NULL_HANDLE);
+        if (nativeView == nullptr || nativeSampler == nullptr) {
+            return;
         }
+
+        // Avoid mid-frame descriptor destruction if already registered with active view and sampler
+        if (registeredColorTargetView_ == nativeView && registeredSampler_ == nativeSampler &&
+            viewportDescriptorSet != VK_NULL_HANDLE) {
+            context.viewportTextureId = static_cast<void*>(viewportDescriptorSet);
+            context.gpuRenderingActive = true;
+            return;
+        }
+
+        // Queue previous descriptor for safe deferred release at frame boundary
+        // to prevent invalidating in-flight draw commands that already reference it.
+        if (viewportDescriptorSet != VK_NULL_HANDLE) {
+            pendingDescriptorFrees_.push_back(viewportDescriptorSet);
+            viewportDescriptorSet = VK_NULL_HANDLE;
+            context.viewportTextureId = nullptr;
+            context.gpuRenderingActive = false;
+        }
+
+        viewportDescriptorSet = ImGui_ImplVulkan_AddTexture(
+            static_cast<VkSampler>(nativeSampler), static_cast<VkImageView>(nativeView),
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        registeredColorTargetView_ = nativeView;
+        registeredSampler_ = nativeSampler;
+        context.viewportTextureId = static_cast<void*>(viewportDescriptorSet);
+        context.gpuRenderingActive = (viewportDescriptorSet != VK_NULL_HANDLE);
     }
 
     bool resizeViewport(uint32_t width, uint32_t height) {
@@ -302,15 +318,6 @@ struct EditorEngine::Impl {
 
         if (rhiDevice == nullptr) {
             return false;
-        }
-
-        // Wait for GPU idle and remove previous descriptor before recreating render targets
-        if (vulkanBackendInitialized && viewportDescriptorSet != VK_NULL_HANDLE) {
-            rhiDevice->waitIdle();
-            ImGui_ImplVulkan_RemoveTexture(viewportDescriptorSet);
-            viewportDescriptorSet = VK_NULL_HANDLE;
-            context.viewportTextureId = nullptr;
-            context.gpuRenderingActive = false;
         }
 
         viewportWidth = width;
@@ -535,6 +542,12 @@ void EditorEngine::shutdown() {
                 ImGui_ImplVulkan_RemoveTexture(impl_->viewportDescriptorSet);
                 impl_->viewportDescriptorSet = VK_NULL_HANDLE;
             }
+            for (VkDescriptorSet ds : impl_->pendingDescriptorFrees_) {
+                if (ds != VK_NULL_HANDLE) {
+                    ImGui_ImplVulkan_RemoveTexture(ds);
+                }
+            }
+            impl_->pendingDescriptorFrees_.clear();
             ImGui_ImplVulkan_Shutdown();
             impl_->vulkanBackendInitialized = false;
         }
@@ -662,6 +675,17 @@ void EditorEngine::beginFrame(Duration dt, uint32_t width, uint32_t height) {
     impl_->context.requestViewportResize = false;
 
     if (impl_->vulkanBackendInitialized) {
+        // Safely reclaim superseded viewport descriptor sets at frame boundary
+        // after the previous frame's GPU execution has completed.
+        if (!impl_->pendingDescriptorFrees_.empty() && impl_->rhiDevice != nullptr) {
+            impl_->rhiDevice->waitIdle();
+            for (VkDescriptorSet ds : impl_->pendingDescriptorFrees_) {
+                if (ds != VK_NULL_HANDLE) {
+                    ImGui_ImplVulkan_RemoveTexture(ds);
+                }
+            }
+            impl_->pendingDescriptorFrees_.clear();
+        }
         ImGui_ImplVulkan_NewFrame();
     }
     ImGui::NewFrame();
@@ -996,6 +1020,7 @@ EditorPreferences& EditorEngine::getEditorPreferences() noexcept {
 bool EditorEngine::applyEditorPreferences(const EditorPreferences& prefs) {
     impl_->preferences = prefs;
     impl_->preferences.validateAndClamp();
+    applyEditorTheme(themeTypeFromName(impl_->preferences.appearance.themeName));
     return true;
 }
 
@@ -1018,10 +1043,12 @@ bool EditorEngine::loadEditorPreferences() {
         ENG_LOG_WARN("Editor", "Failed to load editor preferences from " + path.string() + ": " +
                                    std::string(res.error().message) + "; using defaults");
         impl_->preferences.resetToDefaults();
+        applyEditorTheme(ThemeType::Dark);
         return false;
     }
     impl_->preferences = res.value();
     impl_->preferences.validateAndClamp();
+    applyEditorTheme(themeTypeFromName(impl_->preferences.appearance.themeName));
     ENG_LOG_INFO("Editor", "Loaded editor preferences from " + path.string());
     return true;
 }
