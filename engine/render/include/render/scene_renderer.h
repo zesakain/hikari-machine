@@ -122,8 +122,19 @@ public:
     [[nodiscard]] rhi::TextureHandle getDepthTarget() const noexcept { return depthTarget_; }
     [[nodiscard]] rhi::TextureHandle getHdrTarget() const noexcept { return hdrTarget_; }
     [[nodiscard]] rhi::TextureFormat getHdrFormat() const noexcept { return hdrFormat_; }
+    /// Returns true if genuine floating-point HDR rendering is active (RGBA16_FLOAT or
+    /// RGBA32_FLOAT). Returns false if post-processing is disabled or operating in SDR fallback
+    /// mode (RGBA8_UNORM).
     [[nodiscard]] bool isHdrActive() const noexcept {
-        return postProcessSettings_.enabled && hdrTarget_.isValid();
+        return postProcessSettings_.enabled && hdrTarget_.isValid() &&
+               (hdrFormat_ == rhi::TextureFormat::RGBA16_FLOAT ||
+                hdrFormat_ == rhi::TextureFormat::RGBA32_FLOAT);
+    }
+
+    /// Returns true if post-processing is enabled but falling back to an SDR format (e.g.
+    /// RGBA8_UNORM).
+    [[nodiscard]] bool isSdrFallbackActive() const noexcept {
+        return postProcessSettings_.enabled && !isHdrActive();
     }
 
     [[nodiscard]] const PostProcessSettings& getPostProcessSettings() const noexcept {

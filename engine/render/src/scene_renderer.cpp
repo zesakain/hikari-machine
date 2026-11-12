@@ -36,15 +36,19 @@ struct ToneMappingPushConstants {
     int32_t toneMapOp;
     float bloomIntensity;
     int32_t bloomEnabled;
+    float whitePoint;
+    float padding[3];
 };
 
 rhi::TextureFormat selectHdrFormat(const rhi::RhiDevice& device) {
     const auto requiredUsage =
         rhi::TextureUsageFlags::ColorAttachment | rhi::TextureUsageFlags::Sampled;
-    if (device.isTextureFormatSupported(rhi::TextureFormat::RGBA16_FLOAT, requiredUsage)) {
+    if (device.isTextureFormatSupported(rhi::TextureFormat::RGBA16_FLOAT, requiredUsage) &&
+        device.isTextureFormatFilterable(rhi::TextureFormat::RGBA16_FLOAT)) {
         return rhi::TextureFormat::RGBA16_FLOAT;
     }
-    if (device.isTextureFormatSupported(rhi::TextureFormat::RGBA32_FLOAT, requiredUsage)) {
+    if (device.isTextureFormatSupported(rhi::TextureFormat::RGBA32_FLOAT, requiredUsage) &&
+        device.isTextureFormatFilterable(rhi::TextureFormat::RGBA32_FLOAT)) {
         return rhi::TextureFormat::RGBA32_FLOAT;
     }
     return rhi::TextureFormat::RGBA8_UNORM;
@@ -1782,6 +1786,8 @@ void SceneRenderer::renderPostProcess(rhi::RhiCommandList& cmdList) {
             .bloomIntensity =
                 postProcessSettings_.bloomEnabled ? postProcessSettings_.bloomIntensity : 0.0F,
             .bloomEnabled = postProcessSettings_.bloomEnabled ? 1 : 0,
+            .whitePoint = postProcessSettings_.reinhardWhitePoint,
+            .padding = {0.0F, 0.0F, 0.0F},
         };
         cmdList.pushConstants(toneMappingPipelineLayout_, rhi::ShaderStageFlags::Fragment, 0,
                               sizeof(ToneMappingPushConstants), &pc);

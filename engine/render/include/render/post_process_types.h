@@ -50,6 +50,10 @@ struct PostProcessSettings {
     /// Range: [0.0, 2.0], default: 0.5.
     float bloomKnee{0.5F};
 
+    /// Configurable white point luminance for Filmic Reinhard tone mapping.
+    /// Range: [1.0, 50.0], default: 4.0.
+    float reinhardWhitePoint{4.0F};
+
     /// Scale factor applied to the blurred bloom pyramid during final composite.
     /// Range: [0.0, 1.0], default: 0.04.
     float bloomIntensity{0.04F};

@@ -11,6 +11,7 @@ layout(push_constant) uniform ToneMappingPushConstants {
     int toneMapOp; // 0 = ACES, 1 = FilmicReinhard, 2 = Neutral, 3 = Bypass
     float bloomIntensity;
     int bloomEnabled;
+    float whitePoint;
 } pc;
 
 vec3 acesFitted(vec3 x) {
@@ -22,9 +23,9 @@ vec3 acesFitted(vec3 x) {
     return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
 }
 
-vec3 filmicReinhard(vec3 color) {
-    const float white = 4.0;
-    return clamp(color * (1.0 + color / (white * white)) / (1.0 + color), 0.0, 1.0);
+vec3 filmicReinhard(vec3 color, float white) {
+    float w = max(white, 0.01);
+    return clamp(color * (1.0 + color / (w * w)) / (1.0 + color), 0.0, 1.0);
 }
 
 // Khronos PBR Neutral Tone Mapper
@@ -76,7 +77,7 @@ void main() {
     if (pc.toneMapOp == 0) {
         mappedColor = acesFitted(color);
     } else if (pc.toneMapOp == 1) {
-        mappedColor = filmicReinhard(color);
+        mappedColor = filmicReinhard(color, pc.whitePoint);
     } else if (pc.toneMapOp == 2) {
         mappedColor = neutralToneMapping(color);
     } else {
