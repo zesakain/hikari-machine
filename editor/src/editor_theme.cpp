@@ -171,6 +171,16 @@ const char* getThemeName(ThemeType type) noexcept {
     }
 }
 
+ThemeType themeTypeFromName(std::string_view name) noexcept {
+    if (name == "Hikari Midnight" || name == "Midnight") {
+        return ThemeType::Midnight;
+    }
+    if (name == "Hikari Light" || name == "Light") {
+        return ThemeType::Light;
+    }
+    return ThemeType::Dark;
+}
+
 bool loadEditorFonts(float fontScale) {
     ImGuiIO& io = ImGui::GetIO();
     io.Fonts->Clear();

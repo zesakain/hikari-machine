@@ -16,6 +16,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string_view>
 
 namespace eng::editor {
 
@@ -281,6 +282,10 @@ void applyEditorTheme(const ThemeColors& colors);
 
 /// Returns the human-readable display name of a theme preset.
 [[nodiscard]] const char* getThemeName(ThemeType type) noexcept;
+
+/// Returns the theme preset type corresponding to the given display or config name.
+/// Falls back to ThemeType::Dark if unrecognized.
+[[nodiscard]] ThemeType themeTypeFromName(std::string_view name) noexcept;
 
 /// Loads crisp modern desktop typography if available on the host system.
 bool loadEditorFonts(float fontScale = 1.0F);
