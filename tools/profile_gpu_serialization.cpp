@@ -63,12 +63,29 @@ struct PassTimingStats {
     }
 };
 
+struct RawQuerySample {
+    uint64_t rawTicks[12]{};
+    float passTimeMs[6]{}; // 0: total, 1: shadow, 2: main, 3: bloomDown, 4: bloomUp, 5: toneMap
+    bool valid{false};
+};
+
 struct WorkloadBenchmarkResult {
     std::string name;
     uint32_t warmUpFrames{30};
     uint32_t steadyStateFrames{120};
-    uint32_t drawCalls{0};
-    uint32_t vertices{0};
+
+    // 3D Scene Geometry
+    uint32_t mainPbrDrawCalls{0};
+    uint32_t shadowDrawCalls{0};
+    uint32_t sceneTriangles{0};
+    uint32_t shadowTriangles{0};
+    uint32_t sceneVertices{0};
+    uint32_t culledPrimitives{0};
+    uint32_t loadedEntities{0};
+
+    // Dear ImGui UI Overlay Geometry
+    uint32_t imguiDrawCalls{0};
+    uint32_t imguiVertices{0};
 
     PassTimingStats frameInterval;
     PassTimingStats cpuRecord;
@@ -84,15 +101,17 @@ struct WorkloadBenchmarkResult {
     PassTimingStats gpuBloomUp;
     PassTimingStats gpuToneMapping;
 
-    std::string nvidiaSmiTelemetry;
+    RawQuerySample sampleQueries;
+    std::string gpu0Telemetry;
+    std::string gpu1Telemetry;
 };
 
-static std::string captureNvidiaSmi() {
-    FILE* pipe =
-        popen("nvidia-smi "
-              "--query-gpu=name,utilization.gpu,utilization.memory,clocks.current.graphics,power."
-              "draw,temperature.gpu --format=csv,noheader,nounits 2>/dev/null",
-              "r");
+static std::string captureNvidiaSmi(uint32_t gpuId) {
+    std::string cmd =
+        "nvidia-smi --id=" + std::to_string(gpuId) +
+        " --query-gpu=name,utilization.gpu,utilization.memory,clocks.current.graphics,"
+        "power.draw,temperature.gpu --format=csv,noheader,nounits 2>/dev/null";
+    FILE* pipe = popen(cmd.c_str(), "r");
     if (!pipe) {
         return "N/A";
     }
@@ -221,6 +240,7 @@ static WorkloadBenchmarkResult runWorkload(platform::Platform& platform, platfor
             const float intervalMs = static_cast<float>(frameDuration.asMilliseconds());
             const auto qStats = device.getQueueTimingStats();
             const auto& gpuTimings = editor.getGpuPassTimings();
+            const auto& sceneStats = editor.lastSceneRenderStats();
 
             res.frameInterval.add(intervalMs);
             res.cpuRecord.add(recordMs);
@@ -238,12 +258,37 @@ static WorkloadBenchmarkResult runWorkload(platform::Platform& platform, platfor
                 res.gpuToneMapping.add(gpuTimings.toneMappingMs);
             }
 
-            res.drawCalls = editor.lastDrawCallCount();
-            res.vertices = editor.lastVertexCount();
+            res.mainPbrDrawCalls = sceneStats.drawCalls;
+            res.shadowDrawCalls = sceneStats.shadowDrawCalls;
+            res.sceneTriangles = sceneStats.triangles;
+            res.shadowTriangles = sceneStats.shadowTriangles;
+            res.sceneVertices = sceneStats.vertices;
+            res.culledPrimitives = sceneStats.culledPrimitives;
+            res.loadedEntities = sceneStats.meshesRendered;
+
+            res.imguiDrawCalls = editor.lastDrawCallCount();
+            res.imguiVertices = editor.lastVertexCount();
+
+            // Capture raw query sample during steady-state
+            if (f == warmUpCount + 10 && !res.sampleQueries.valid) {
+                const uint32_t readbackBase = (((f) % 2)) * 16;
+                uint64_t rawTimestamps[16]{};
+                if (device.getQueryResults(readbackBase, 12, rawTimestamps)) {
+                    std::memcpy(res.sampleQueries.rawTicks, rawTimestamps, sizeof(uint64_t) * 12);
+                    res.sampleQueries.passTimeMs[0] = gpuTimings.totalSceneMs;
+                    res.sampleQueries.passTimeMs[1] = gpuTimings.shadowPassMs;
+                    res.sampleQueries.passTimeMs[2] = gpuTimings.mainPbrPassMs;
+                    res.sampleQueries.passTimeMs[3] = gpuTimings.bloomDownsampleMs;
+                    res.sampleQueries.passTimeMs[4] = gpuTimings.bloomUpsampleMs;
+                    res.sampleQueries.passTimeMs[5] = gpuTimings.toneMappingMs;
+                    res.sampleQueries.valid = true;
+                }
+            }
         }
     }
 
-    res.nvidiaSmiTelemetry = captureNvidiaSmi();
+    res.gpu0Telemetry = captureNvidiaSmi(0);
+    res.gpu1Telemetry = captureNvidiaSmi(1);
     return res;
 }
 
@@ -292,7 +337,8 @@ int main(int, char**) {
     std::cout << "Selected GPU: " << device->getCaps().deviceName.data() << "\n";
     std::cout << "Timestamp Period: " << device->getCaps().limits.timestampPeriod
               << " ns | Valid Bits: " << device->getCaps().limits.timestampValidBits << "\n";
-    std::cout << "Initial NVIDIA GPU Telemetry: " << captureNvidiaSmi() << "\n\n";
+    std::cout << "Initial GPU 0 (P106-100) Telemetry: " << captureNvidiaSmi(0) << "\n";
+    std::cout << "Initial GPU 1 (GT 1030) Telemetry:   " << captureNvidiaSmi(1) << "\n\n";
 
     std::vector<WorkloadBenchmarkResult> results;
 
@@ -330,10 +376,24 @@ int main(int, char**) {
     for (const auto& r : results) {
         float fps = (r.frameInterval.avg() > 0.0F) ? (1000.0F / r.frameInterval.avg()) : 0.0F;
         std::cout << "\n--- " << r.name << " ---\n";
-        std::cout << "  Draw Calls: " << r.drawCalls << " | Vertices: " << r.vertices << "\n";
-        std::cout << "  FPS: " << fps << " (Frame Interval: Avg " << r.frameInterval.avg()
-                  << " ms, Min " << r.frameInterval.min() << " ms, Max " << r.frameInterval.max()
-                  << " ms, p99 " << r.frameInterval.p99() << " ms)\n";
+        std::cout << "  3D Scene Geometry:\n";
+        std::cout << "    - Main PBR Draw Calls:   " << r.mainPbrDrawCalls << " calls\n";
+        std::cout << "    - Shadow Pass Draw Calls:" << r.shadowDrawCalls << " calls\n";
+        std::cout << "    - Total Scene Draw Calls:" << (r.mainPbrDrawCalls + r.shadowDrawCalls)
+                  << " calls\n";
+        std::cout << "    - Main Pass Triangles:   " << r.sceneTriangles << " triangles\n";
+        std::cout << "    - Shadow Pass Triangles: " << r.shadowTriangles << " triangles\n";
+        std::cout << "    - Total Scene Vertices:  " << r.sceneVertices << " vertices\n";
+        std::cout << "    - Culled / Skipped:      " << r.culledPrimitives << " primitives\n";
+        std::cout << "    - Evaluated ECS Meshes:  " << r.loadedEntities << " entities\n";
+        std::cout << "  UI Overlay Geometry (Dear ImGui):\n";
+        std::cout << "    - ImGui Draw Calls:      " << r.imguiDrawCalls << " calls\n";
+        std::cout << "    - ImGui Vertices:        " << r.imguiVertices << " vertices\n";
+        std::cout << "  Frame Latency & FPS:\n";
+        std::cout << "    - FPS:                   " << fps
+                  << " (Avg Interval: " << r.frameInterval.avg()
+                  << " ms, Min: " << r.frameInterval.min() << " ms, Max: " << r.frameInterval.max()
+                  << " ms, p99: " << r.frameInterval.p99() << " ms)\n";
         std::cout << "  CPU Breakdown:\n";
         std::cout << "    - CPU Command Recording: Avg " << r.cpuRecord.avg() << " ms (Min "
                   << r.cpuRecord.min() << ", Max " << r.cpuRecord.max() << ")\n";
@@ -343,14 +403,63 @@ int main(int, char**) {
         std::cout << "    - CPU Swapchain Acquire: Avg " << r.swapchainAcquire.avg() << " ms\n";
         std::cout << "    - CPU Swapchain Present: Avg " << r.swapchainPresent.avg() << " ms\n";
         std::cout << "  GPU Hardware Pass Breakdown:\n";
+        const float totalPassSum = r.gpuShadowPass.avg() + r.gpuMainPbrPass.avg() +
+                                   r.gpuBloomDown.avg() + r.gpuBloomUp.avg() +
+                                   r.gpuToneMapping.avg();
         std::cout << "    - Total Scene GPU:       Avg " << r.gpuTotalScene.avg() << " ms (Min "
                   << r.gpuTotalScene.min() << ", Max " << r.gpuTotalScene.max() << ")\n";
-        std::cout << "    - Shadow Pass:           Avg " << r.gpuShadowPass.avg() << " ms\n";
-        std::cout << "    - Main PBR Pass:         Avg " << r.gpuMainPbrPass.avg() << " ms\n";
+        std::cout << "    - Shadow Pass:           Avg " << r.gpuShadowPass.avg() << " ms ("
+                  << (r.gpuTotalScene.avg() > 0
+                          ? (r.gpuShadowPass.avg() / r.gpuTotalScene.avg() * 100.0F)
+                          : 0.0F)
+                  << "%)\n";
+        std::cout << "    - Main PBR Pass:         Avg " << r.gpuMainPbrPass.avg() << " ms ("
+                  << (r.gpuTotalScene.avg() > 0
+                          ? (r.gpuMainPbrPass.avg() / r.gpuTotalScene.avg() * 100.0F)
+                          : 0.0F)
+                  << "%)\n";
         std::cout << "    - Bloom Downsample:      Avg " << r.gpuBloomDown.avg() << " ms\n";
         std::cout << "    - Bloom Upsample:        Avg " << r.gpuBloomUp.avg() << " ms\n";
         std::cout << "    - Tone Mapping Pass:     Avg " << r.gpuToneMapping.avg() << " ms\n";
-        std::cout << "  NVIDIA Driver Telemetry:   " << r.nvidiaSmiTelemetry << "\n";
+        std::cout << "    - Pass Sum vs Total:     Sum " << totalPassSum << " ms vs Total "
+                  << r.gpuTotalScene.avg()
+                  << " ms (Delta: " << (r.gpuTotalScene.avg() - totalPassSum)
+                  << " ms barrier gap)\n";
+        if (r.sampleQueries.valid) {
+            std::cout << "  Raw Timestamp Sample (Steady-State Frame):\n";
+            std::cout << "    - Query 0  (Scene Start TopOfPipe):    "
+                      << r.sampleQueries.rawTicks[0] << "\n";
+            std::cout << "    - Query 2  (Shadow Start TopOfPipe):   "
+                      << r.sampleQueries.rawTicks[2] << "\n";
+            std::cout << "    - Query 3  (Shadow End BottomOfPipe):  "
+                      << r.sampleQueries.rawTicks[3]
+                      << " (Delta: " << (r.sampleQueries.rawTicks[3] - r.sampleQueries.rawTicks[2])
+                      << " ticks, " << r.sampleQueries.passTimeMs[1] << " ms)\n";
+            std::cout << "    - Query 4  (Main PBR Start TopOfPipe): "
+                      << r.sampleQueries.rawTicks[4] << "\n";
+            std::cout << "    - Query 5  (Main PBR End BottomOfPipe):"
+                      << r.sampleQueries.rawTicks[5]
+                      << " (Delta: " << (r.sampleQueries.rawTicks[5] - r.sampleQueries.rawTicks[4])
+                      << " ticks, " << r.sampleQueries.passTimeMs[2] << " ms)\n";
+            std::cout << "    - Query 6  (Bloom Down Start):         "
+                      << r.sampleQueries.rawTicks[6] << "\n";
+            std::cout << "    - Query 7  (Bloom Down End):           "
+                      << r.sampleQueries.rawTicks[7] << "\n";
+            std::cout << "    - Query 8  (Bloom Up Start):           "
+                      << r.sampleQueries.rawTicks[8] << "\n";
+            std::cout << "    - Query 9  (Bloom Up End):             "
+                      << r.sampleQueries.rawTicks[9] << "\n";
+            std::cout << "    - Query 10 (Tone Map Start):           "
+                      << r.sampleQueries.rawTicks[10] << "\n";
+            std::cout << "    - Query 11 (Tone Map End):             "
+                      << r.sampleQueries.rawTicks[11] << "\n";
+            std::cout << "    - Query 1  (Scene End BottomOfPipe):   "
+                      << r.sampleQueries.rawTicks[1] << " (Total Delta: "
+                      << (r.sampleQueries.rawTicks[1] - r.sampleQueries.rawTicks[0]) << " ticks, "
+                      << r.sampleQueries.passTimeMs[0] << " ms)\n";
+        }
+        std::cout << "  NVIDIA GPU 0 (P106-100 Render):  " << r.gpu0Telemetry << "\n";
+        std::cout << "  NVIDIA GPU 1 (GT 1030 Display):   " << r.gpu1Telemetry << "\n";
     }
 
     std::cout << "\n=========================================================================\n";
