@@ -597,7 +597,7 @@ Result<void> SceneRenderer::init(rhi::RhiDevice& device, uint32_t width, uint32_
         .pushConstants = {{
             .stageFlags = rhi::ShaderStageFlags::Vertex,
             .offset = 0,
-            .size = 128,
+            .size = sizeof(Mat4),
         }},
         .descriptorSetLayoutHandles = {},
         .descriptorSetLayouts = {},
@@ -627,30 +627,6 @@ Result<void> SceneRenderer::init(rhi::RhiDevice& device, uint32_t width, uint32_
                             .binding = 0,
                             .format = rhi::VertexFormat::Float3,
                             .offset = static_cast<uint32_t>(offsetof(Vertex, position)),
-                        },
-                        {
-                            .location = 1,
-                            .binding = 0,
-                            .format = rhi::VertexFormat::Float3,
-                            .offset = static_cast<uint32_t>(offsetof(Vertex, normal)),
-                        },
-                        {
-                            .location = 2,
-                            .binding = 0,
-                            .format = rhi::VertexFormat::Float2,
-                            .offset = static_cast<uint32_t>(offsetof(Vertex, uv)),
-                        },
-                        {
-                            .location = 3,
-                            .binding = 0,
-                            .format = rhi::VertexFormat::Float4,
-                            .offset = static_cast<uint32_t>(offsetof(Vertex, color)),
-                        },
-                        {
-                            .location = 4,
-                            .binding = 0,
-                            .format = rhi::VertexFormat::Float4,
-                            .offset = static_cast<uint32_t>(offsetof(Vertex, tangent)),
                         },
                     },
             },
@@ -1208,9 +1184,9 @@ void SceneRenderer::recordShadowPass(rhi::RhiCommandList& cmdList) {
         }
 
         if (shadowPipelineLayout_.isValid()) {
-            alignas(16) float pushData[32];
-            std::memcpy(&pushData[0], currentLightSpaceMatrix_.m, 64);
-            std::memcpy(&pushData[16], model.m, 64);
+            alignas(16) float pushData[16];
+            const Mat4 mvp = currentLightSpaceMatrix_ * model;
+            std::memcpy(pushData, mvp.m, sizeof(pushData));
             cmdList.pushConstants(shadowPipelineLayout_, rhi::ShaderStageFlags::Vertex, 0,
                                   sizeof(pushData), pushData);
         }
@@ -1324,11 +1300,13 @@ void SceneRenderer::recordDepthPrepass(rhi::RhiCommandList& cmdList) {
             }
         }
 
-        alignas(16) float pushData[32];
-        std::memcpy(&pushData[0], currentViewProj_.m, 64);
-        std::memcpy(&pushData[16], model.m, 64);
-        cmdList.pushConstants(shadowPipelineLayout_, rhi::ShaderStageFlags::Vertex, 0,
-                              sizeof(pushData), pushData);
+        if (shadowPipelineLayout_.isValid()) {
+            alignas(16) float pushData[16];
+            const Mat4 mvp = currentViewProj_ * model;
+            std::memcpy(pushData, mvp.m, sizeof(pushData));
+            cmdList.pushConstants(shadowPipelineLayout_, rhi::ShaderStageFlags::Vertex, 0,
+                                  sizeof(pushData), pushData);
+        }
 
         cmdList.bindVertexBuffer(0, gpuMesh->getVertexBuffer(), 0);
         if (gpuMesh->getIndexBuffer().isValid() && gpuMesh->getIndexCount() > 0) {

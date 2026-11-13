@@ -122,6 +122,11 @@ vec3 evaluateDirectLight(vec3 L, vec3 radiance, vec3 N, vec3 V, vec3 albedo, flo
 
 // Sample directional shadow map with 3x3 PCF and slope-scaled depth bias
 float calculateShadow(vec4 lightSpacePos, vec3 N, vec3 L, float baseBias) {
+    float NdotL = dot(N, L);
+    if (NdotL <= 0.0) {
+        return 0.0;
+    }
+
     vec3 projCoords = lightSpacePos.xyz / lightSpacePos.w;
     if (projCoords.z > 1.0 || projCoords.z < 0.0 ||
         projCoords.x < -1.0 || projCoords.x > 1.0 ||
@@ -134,7 +139,6 @@ float calculateShadow(vec4 lightSpacePos, vec3 N, vec3 L, float baseBias) {
         return 1.0;
     }
 
-    float NdotL = max(dot(N, L), 0.0);
     float bias = max(baseBias * (1.0 - NdotL), baseBias * 0.2);
     float currentDepth = projCoords.z;
 

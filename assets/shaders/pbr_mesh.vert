@@ -22,18 +22,16 @@ void main() {
     vec4 worldPos = pc.model * vec4(inPosition, 1.0);
     gl_Position = pc.viewProj * worldPos;
 
-    mat3 normalMatrix = transpose(inverse(mat3(pc.model)));
+    mat3 normalMatrix = mat3(pc.model);
     outWorldPos = worldPos.xyz;
     outNormal = normalize(normalMatrix * inNormal);
     outUV = inUV;
     outColor = inColor;
 
     // Transform tangent vector by model matrix (excluding translation)
-    vec3 worldTan = normalize(mat3(pc.model) * inTangent.xyz);
+    vec3 worldTan = normalize(normalMatrix * inTangent.xyz);
     outTangent = vec4(worldTan, inTangent.w);
 
-    // Extract world-space camera position from viewProj
-    mat4 invVP = inverse(pc.viewProj);
-    vec4 camH = invVP * vec4(0.0, 0.0, -1.0, 0.0);
-    outCameraPos = (abs(camH.w) > 1e-6) ? (camH.xyz / camH.w) : vec3(0.0, 0.0, 5.0);
+    // Camera position is provided uniformly via LightingData UBO in fragment stage
+    outCameraPos = vec3(0.0, 0.0, 0.0);
 }
