@@ -100,46 +100,59 @@ Certified via `tools/benchmark_scalability.cpp` across all benchmark scenes and 
 
 ---
 
-## 5. Native 1080p (1920×1080) Sponza Benchmark Certification
+## 5. Native 1080p (1920×1080) Sponza Worst-Case Benchmark Certification
 
 ### 5.1 Overview and Performance Target
 - **Target:** Native 1920×1080 resolution, full complex Khronos Sponza Atrium scene (254,750 triangles, 103 submeshes, 25 materials, 2048×2048 directional shadow map, ACES tone mapping, Bloom HDR).
 - **Target Hardware Floor:** NVIDIA Pascal (P106-100 6GB).
-- **Success Criteria:** Stable $\ge 60\text{ FPS}$ ($\le 16.67\text{ ms}$ average and P95 frame time) across 5 realistic dynamic camera trajectories and a 10,000-frame continuous sustained stress run. Zero dynamic resolution downscaling; zero geometric decimation.
+- **Success Criteria:** Stable $\ge 60\text{ FPS}$ ($\le 16.67\text{ ms}$ average and P95 frame time) across all 9 required worst-case scenarios, including dynamic moving sun and continuous shadow map updates, plus a 10,000-frame continuous sustained stress run. Zero dynamic resolution downscaling; zero geometric decimation.
 
-### 5.2 Technical Innovations and Root-Cause Breakthroughs
-1. **Device-Local Host-Visible BAR Memory (`VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT`):**
-   - *Root Cause:* Buffer allocations using `MemoryUsage::CpuToGpu` previously resolved to host system RAM (`Heap 1` over PCIe), forcing GPU vertex fetch and index fetch across PCIe 3.0 on every frame (~12.5 ms geometry overhead).
-   - *Fix:* Prioritized selecting memory types matching `DEVICE_LOCAL_BIT | HOST_VISIBLE_BIT | HOST_COHERENT_BIT` (NVIDIA 256 MiB BAR / ReBAR `Heap 2`).
-   - *Result:* Geometry and vertex buffer fetch shifted into high-speed on-card GDDR5 VRAM (192 GB/s), dropping geometry setup overhead from 12.5 ms to 0.05 ms.
-2. **Karis Smith-GGX Fused BRDF & SFU Contention Elimination:**
-   - *Root Cause:* Evaluating `sqrt` in visibility, `log2/exp2` in power Fresnel, and multiple divisions inside the Cook-Torrance inner loop caused severe Special Function Unit (SFU) pipeline stalls on Pascal SMs.
-   - *Fix:* Fused the GGX Normal Distribution Function and Karis correlated Smith-GGX visibility into a single scalar term computed with a single floating-point division; adopted 5th-order polynomial Schlick Fresnel; pre-calculated $N \cdot L$ in the main fragment flow.
-3. **Vertex-Stage Directional Shadow Coordinate Projection:**
-   - Replaced redundant per-fragment 4×4 matrix-vector multiplication (`lightSpaceMatrix * worldPos`) with vertex-stage calculation (`outShadowCoord`), interpolated linearly across the rasterized primitives.
-4. **Push-Constant MVP Matrix & State Change Caching:**
-   - Pre-multiplied $MVP = ViewProj \times Model$ on CPU and passed via 128-byte push constants to eliminate 255,000 matrix multiplies per frame on GPU; cached push constants and pipeline bindings across submeshes sharing identical transforms.
-5. **Static Directional Shadow Map Caching:**
-   - Added directional shadow map cache validation in `SceneRenderer`: when sun orientation and light-space matrices remain stationary, redundant shadow pass recording is skipped, reducing shadow pass cost from 14.8 ms to 0.001 ms without altering visual fidelity by a single bit.
-6. **Dedicated Opaque Graphics Pipeline (`layout(early_fragment_tests) in;`):**
-   - Created specialized opaque shaders and pipelines with early fragment depth tests, ensuring occluded geometry is culled at hardware rasterizer level before running expensive PBR shading.
+### 5.2 Work Package Solutions & Technical Innovations
+1. **WP-A (Geometry & Visibility):**
+   - Main pass camera frustum culling accurately prunes off-camera submeshes.
+   - Guarded AABB bounds calculation against uninitialized/inverted min/max bounds to guarantee numerical stability across arbitrary imported submeshes.
+2. **WP-B (Overdraw & Fragment Processing):**
+   - Front-to-back sorting of opaque submeshes coupled with hardware early fragment depth tests (`layout(early_fragment_tests) in;` in `pbr_mesh_opaque.frag`).
+   - Alpha-masked geometry (ivy foliage and banners) drawn after all opaque geometry, allowing early-Z to discard hidden vegetation before executing expensive PBR shaders.
+   - Fused Karis Smith-GGX BRDF and 5th-order polynomial Schlick Fresnel ($fc^2 \cdot fc^2 \cdot fc$) eliminates SFU pipeline bottlenecks on Pascal SMs.
+3. **WP-C (Shadow Rendering & Invalidation):**
+   - Preserved offscreen shadow casters by removing conservative camera-frustum culling from directional shadow recording, ensuring correct shadows from offscreen casters across all camera orientations.
+   - Added automatic caster checksum tracking (monitoring transform translations and caster count across `WorldTransformComponent`, `TransformComponent`, and `PhysicsTransformComponent`), plus light direction and light-space matrix tracking.
+   - Shadow pass is automatically re-rendered whenever casters move, entities are added/removed, the light rotates, or `invalidateShadowMap()` is called.
+   - Even during continuous per-frame dynamic shadow updates (Scenario 8: 93 shadow draws, 254k triangles into 2048×2048 depth target), shadow pass execution requires only **0.355 ms** on Pascal hardware.
+4. **WP-D (Memory & Texture Efficiency):**
+   - Prioritized high-speed on-card device-local host-visible BAR memory (`Heap 2`, 192 GB/s) strictly for `CpuToGpu` geometry buffers, dropping vertex fetch from 12.5 ms to 0.05 ms.
+   - Routed `GpuToCpu` readback and staging buffers to system host memory (`Heap 1`), preventing exhaustion of the 246 MiB BAR budget.
+   - Added automatic graceful fallback to host system memory if BAR allocation fails.
+5. **WP-E (CPU & RHI Submission):**
+   - Pre-multiplied $MVP = ViewProj \times Model$ in 128-byte push constants to eliminate 255,000 vertex matrix multiplies per frame on GPU.
+   - State-change caching in `SceneRenderer`: pipeline bindings, push constants, and vertex/index buffers are bound only when actually changing across submeshes, minimizing CPU recording overhead to 0.25–0.40 ms.
+6. **WP-F (Post-Processing):**
+   - Multi-stage 13-tap tent filter downsampling and 9-tap upsampling bloom pyramid with soft-knee thresholding.
+   - Direct ACES tone mapping pass executes in 0.32 ms, maintaining peak visual fidelity.
 
-### 5.3 5 Dynamic Camera Paths Benchmark Results (Native 1080p, High Preset)
+### 5.3 9 Worst-Case Scenarios Benchmark Results (Native 1080p, High Preset)
 
-Measured via `tools/benchmark_sponza_1080p.cpp` on NVIDIA P106-100:
+Measured via `tools/benchmark_sponza_1080p.cpp` on NVIDIA P106-100 (100 frames per scenario, 900 frames total):
 
-| Camera Path | Avg Frame Time | Median | P95 | P99 | Avg FPS | P95 FPS Floor | Status |
+| Worst-Case Scenario | Avg Frame Time | Median | P95 | P99 | Avg FPS | P95 FPS Floor | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **1. Central Atrium Traverse** (105k tris) | **1.532 ms** | 1.479 ms | 2.147 ms | 2.228 ms | **652.7 FPS** | **465.7 FPS** | **PASSED** |
-| **2. Side Corridor Colonnade Walk** (101k tris) | **1.527 ms** | 1.466 ms | 2.133 ms | 2.192 ms | **655.0 FPS** | **468.8 FPS** | **PASSED** |
-| **3. Upper Gallery Balcony Walk** (110k tris) | **1.500 ms** | 1.536 ms | 1.892 ms | 1.923 ms | **666.7 FPS** | **528.6 FPS** | **PASSED** |
-| **4. Rapid 360-Degree Rotation** (150k tris) | **1.969 ms** | 1.987 ms | 2.082 ms | 2.170 ms | **507.8 FPS** | **480.4 FPS** | **PASSED** |
-| **5. Worst-Case Corner Diagonal** (255k tris) | **1.508 ms** | 1.589 ms | 1.600 ms | 1.845 ms | **663.0 FPS** | **624.8 FPS** | **PASSED** |
-| **All 5 Camera Paths Combined** (145k tris avg) | **1.607 ms** | **1.597 ms** | **2.078 ms** | **2.170 ms** | **622.2 FPS** | **481.3 FPS** | **PASSED** |
+| **1. Central Atrium, dense geometry** (102k tris) | **1.682 ms** | 1.852 ms | 2.243 ms | 2.275 ms | **594.5 FPS** | **445.8 FPS** | **PASSED** |
+| **2. Complex columns & architectural details** (171k tris) | **2.037 ms** | 2.068 ms | 2.303 ms | 2.365 ms | **491.0 FPS** | **434.2 FPS** | **PASSED** |
+| **3. Dense overlapping geometry & overdraw** (245k tris) | **1.933 ms** | 1.939 ms | 1.950 ms | 1.953 ms | **517.3 FPS** | **512.7 FPS** | **PASSED** |
+| **4. Upper balcony looking down into atrium** (122k tris) | **1.539 ms** | 1.728 ms | 1.900 ms | 1.920 ms | **650.0 FPS** | **526.3 FPS** | **PASSED** |
+| **5. Long corridor with many visible submeshes** (101k tris) | **1.513 ms** | 1.455 ms | 2.103 ms | 2.215 ms | **661.1 FPS** | **475.5 FPS** | **PASSED** |
+| **6. Rapid 360-degree camera rotation** (150k tris) | **1.945 ms** | 1.983 ms | 2.059 ms | 2.146 ms | **514.3 FPS** | **485.7 FPS** | **PASSED** |
+| **7. Worst-case diagonal view** (255k tris, 103 submeshes) | **1.501 ms** | 1.582 ms | 1.593 ms | 1.832 ms | **666.2 FPS** | **627.6 FPS** | **PASSED** |
+| **8. Dynamic scene with moving shadow casters** (352k tris) | **2.048 ms** | 2.213 ms | 2.622 ms | 2.680 ms | **488.2 FPS** | **381.3 FPS** | **PASSED** |
+| **9. Repeated visibility & shadow-cache states** (364k tris) | **1.967 ms** | 1.935 ms | 2.522 ms | 2.559 ms | **508.3 FPS** | **396.5 FPS** | **PASSED** |
+| **All 9 Worst-Case Scenarios Combined** (207k tris avg) | **1.796 ms** | **1.900 ms** | **2.322 ms** | **2.596 ms** | **556.8 FPS** | **430.6 FPS** | **PASSED** |
+
+*(Per-frame raw telemetry dataset exported to `test-assets/sponza_1080p_worst_case.csv`).*
 
 ### 5.4 10,000-Frame Continuous Sustained Stress Benchmark Certification
 
-Executed via `./build/editor/tests/benchmark_sponza_1080p --sustained 10000` on NVIDIA P106-100:
+Executed via `./build/editor/tests/benchmark_sponza_1080p --sustained 10000` on NVIDIA P106-100 across all 9 scenarios:
 
 ```
 ======================================================================
@@ -147,21 +160,21 @@ Executed via `./build/editor/tests/benchmark_sponza_1080p --sustained 10000` on 
 ======================================================================
 Path: 10,000-Frame Sustained Run (10000 frames)
 ----------------------------------------------------------------------
-Average Frame Time:        1.602 ms   <= 16.67 ms   PASSED
-Median Frame Time:         1.597 ms   <= 16.67 ms   PASSED
-P95 Frame Time:            2.079 ms   <= 16.67 ms   PASSED
-P99 Frame Time:            2.174 ms   <= 16.67 ms   PASSED
-Min / Max Frame Time:      0.755 ms / 2.244 ms
-Frame Time Std Dev:        0.372 ms   <=  0.50 ms   EXCELLENT
-Average FPS:              624.073 FPS  >=  60.0 FPS  PASSED
-P95 FPS Floor:            480.976 FPS  >=  60.0 FPS  PASSED
-Draw Calls:               45 (45 main + 0 shadow)
-Triangles:                143,891
+Average Frame Time:        1.761 ms   <= 16.67 ms   PASSED
+Median Frame Time:         1.878 ms   <= 16.67 ms   PASSED
+P95 Frame Time:            2.283 ms   <= 16.67 ms   PASSED
+P99 Frame Time:            2.563 ms   <= 16.67 ms   PASSED
+Min / Max Frame Time:      0.756 ms / 2.684 ms
+Frame Time Std Dev:        0.380 ms   <=  0.50 ms   EXCELLENT
+Average FPS:              567.731 FPS  >=  60.0 FPS  PASSED
+P95 FPS Floor:            438.000 FPS  >=  60.0 FPS  PASSED
+Draw Calls:               62 (49 main + 13 shadow)
+Triangles:                195,845
 Pass Breakdown (Averages):
-  Shadow Pass:             0.001 ms (0.064%)
-  Main PBR Pass:           0.981 ms (61.238%)
+  Shadow Pass:             0.055 ms (3.102%)
+  Main PBR Pass:           1.086 ms (61.634%)
   Post-Processing:         0.598 ms
-  CPU Recording Overhead:  0.354 ms
+  CPU Recording Overhead:  0.416 ms
 ======================================================================
 ```
 
