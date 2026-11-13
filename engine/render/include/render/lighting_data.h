@@ -96,8 +96,8 @@ struct alignas(16) GpuLightingData {
     /// Whether directional light is active (1 = active, 0 = inactive).
     uint32_t dirLightActive{1};
 
-    /// Explicit 4-byte padding to maintain 16-byte struct alignment.
-    uint32_t _pad{0};
+    /// Packed shadow parameters: lower 16 bits = resolution, upper 16 bits = PCF quality.
+    uint32_t shadowPackedParams{0};
 };
 
 static_assert(sizeof(GpuLightingData) == 1680,

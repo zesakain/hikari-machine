@@ -64,6 +64,7 @@ SceneRenderer::~SceneRenderer() {
 SceneRenderer::SceneRenderer(SceneRenderer&& other) noexcept
     : device_(other.device_), colorTarget_(other.colorTarget_), depthTarget_(other.depthTarget_),
       vertexShader_(other.vertexShader_), fragmentShader_(other.fragmentShader_),
+      fragmentShaderOpaque_(other.fragmentShaderOpaque_),
       materialDescriptorSetLayout_(other.materialDescriptorSetLayout_),
       sceneDescriptorSetLayout_(other.sceneDescriptorSetLayout_),
       sceneDescriptorPool_(other.sceneDescriptorPool_),
@@ -73,9 +74,13 @@ SceneRenderer::SceneRenderer(SceneRenderer&& other) noexcept
       shadowVertexShader_(other.shadowVertexShader_),
       shadowPipelineLayout_(other.shadowPipelineLayout_), shadowPipeline_(other.shadowPipeline_),
       depthPrepassPipeline_(other.depthPrepassPipeline_), pipelineLayout_(other.pipelineLayout_),
-      pipeline_(other.pipeline_), pipelineDepthPrepass_(other.pipelineDepthPrepass_),
-      hdrPipelineDepthPrepass_(other.hdrPipelineDepthPrepass_), hdrTarget_(other.hdrTarget_),
-      hdrFormat_(other.hdrFormat_), postProcessSettings_(other.postProcessSettings_),
+      pipeline_(other.pipeline_), pipelineOpaque_(other.pipelineOpaque_),
+      pipelineDepthPrepass_(other.pipelineDepthPrepass_),
+      pipelineDepthPrepassOpaque_(other.pipelineDepthPrepassOpaque_),
+      hdrPipelineDepthPrepass_(other.hdrPipelineDepthPrepass_),
+      hdrPipelineDepthPrepassOpaque_(other.hdrPipelineDepthPrepassOpaque_),
+      hdrTarget_(other.hdrTarget_), hdrFormat_(other.hdrFormat_),
+      postProcessSettings_(other.postProcessSettings_),
       postProcessSampler_(other.postProcessSampler_),
       fullscreenVertexShader_(other.fullscreenVertexShader_),
       bloomDownFragmentShader_(other.bloomDownFragmentShader_),
@@ -90,9 +95,10 @@ SceneRenderer::SceneRenderer(SceneRenderer&& other) noexcept
       toneMappingPipelineLayout_(other.toneMappingPipelineLayout_),
       bloomDownPipeline_(other.bloomDownPipeline_), bloomUpPipeline_(other.bloomUpPipeline_),
       toneMappingPipeline_(other.toneMappingPipeline_), hdrPipeline_(other.hdrPipeline_),
-      width_(other.width_), height_(other.height_), shadowResolution_(other.shadowResolution_),
-      colorFormat_(other.colorFormat_), depthFormat_(other.depthFormat_),
-      settings_(other.settings_), wireframePipeline_(other.wireframePipeline_),
+      hdrPipelineOpaque_(other.hdrPipelineOpaque_), width_(other.width_), height_(other.height_),
+      shadowResolution_(other.shadowResolution_), colorFormat_(other.colorFormat_),
+      depthFormat_(other.depthFormat_), settings_(other.settings_),
+      wireframePipeline_(other.wireframePipeline_),
       wireframeLdrPipeline_(other.wireframeLdrPipeline_),
       renderGraph_(std::move(other.renderGraph_)),
       postProcessGraph_(std::move(other.postProcessGraph_)) {
@@ -114,6 +120,7 @@ SceneRenderer::SceneRenderer(SceneRenderer&& other) noexcept
     other.depthTarget_ = {};
     other.vertexShader_ = {};
     other.fragmentShader_ = {};
+    other.fragmentShaderOpaque_ = {};
     other.materialDescriptorSetLayout_ = {};
     other.sceneDescriptorSetLayout_ = {};
     other.sceneDescriptorPool_ = {};
@@ -127,8 +134,11 @@ SceneRenderer::SceneRenderer(SceneRenderer&& other) noexcept
     other.depthPrepassPipeline_ = {};
     other.pipelineLayout_ = {};
     other.pipeline_ = {};
+    other.pipelineOpaque_ = {};
     other.pipelineDepthPrepass_ = {};
+    other.pipelineDepthPrepassOpaque_ = {};
     other.hdrPipelineDepthPrepass_ = {};
+    other.hdrPipelineDepthPrepassOpaque_ = {};
     other.hdrTarget_ = {};
     other.postProcessSampler_ = {};
     other.fullscreenVertexShader_ = {};
@@ -146,6 +156,7 @@ SceneRenderer::SceneRenderer(SceneRenderer&& other) noexcept
     other.bloomUpPipeline_ = {};
     other.toneMappingPipeline_ = {};
     other.hdrPipeline_ = {};
+    other.hdrPipelineOpaque_ = {};
     other.wireframePipeline_ = {};
     other.wireframeLdrPipeline_ = {};
     other.width_ = 0;
@@ -161,6 +172,7 @@ SceneRenderer& SceneRenderer::operator=(SceneRenderer&& other) noexcept {
         depthTarget_ = other.depthTarget_;
         vertexShader_ = other.vertexShader_;
         fragmentShader_ = other.fragmentShader_;
+        fragmentShaderOpaque_ = other.fragmentShaderOpaque_;
         materialDescriptorSetLayout_ = other.materialDescriptorSetLayout_;
         sceneDescriptorSetLayout_ = other.sceneDescriptorSetLayout_;
         sceneDescriptorPool_ = other.sceneDescriptorPool_;
@@ -174,8 +186,11 @@ SceneRenderer& SceneRenderer::operator=(SceneRenderer&& other) noexcept {
         depthPrepassPipeline_ = other.depthPrepassPipeline_;
         pipelineLayout_ = other.pipelineLayout_;
         pipeline_ = other.pipeline_;
+        pipelineOpaque_ = other.pipelineOpaque_;
         pipelineDepthPrepass_ = other.pipelineDepthPrepass_;
+        pipelineDepthPrepassOpaque_ = other.pipelineDepthPrepassOpaque_;
         hdrPipelineDepthPrepass_ = other.hdrPipelineDepthPrepass_;
+        hdrPipelineDepthPrepassOpaque_ = other.hdrPipelineDepthPrepassOpaque_;
 
         hdrTarget_ = other.hdrTarget_;
         hdrFormat_ = other.hdrFormat_;
@@ -209,6 +224,7 @@ SceneRenderer& SceneRenderer::operator=(SceneRenderer&& other) noexcept {
         bloomUpPipeline_ = other.bloomUpPipeline_;
         toneMappingPipeline_ = other.toneMappingPipeline_;
         hdrPipeline_ = other.hdrPipeline_;
+        hdrPipelineOpaque_ = other.hdrPipelineOpaque_;
         settings_ = other.settings_;
         wireframePipeline_ = other.wireframePipeline_;
         wireframeLdrPipeline_ = other.wireframeLdrPipeline_;
@@ -226,6 +242,7 @@ SceneRenderer& SceneRenderer::operator=(SceneRenderer&& other) noexcept {
         other.depthTarget_ = {};
         other.vertexShader_ = {};
         other.fragmentShader_ = {};
+        other.fragmentShaderOpaque_ = {};
         other.materialDescriptorSetLayout_ = {};
         other.sceneDescriptorSetLayout_ = {};
         other.sceneDescriptorPool_ = {};
@@ -239,8 +256,11 @@ SceneRenderer& SceneRenderer::operator=(SceneRenderer&& other) noexcept {
         other.depthPrepassPipeline_ = {};
         other.pipelineLayout_ = {};
         other.pipeline_ = {};
+        other.pipelineOpaque_ = {};
         other.pipelineDepthPrepass_ = {};
+        other.pipelineDepthPrepassOpaque_ = {};
         other.hdrPipelineDepthPrepass_ = {};
+        other.hdrPipelineDepthPrepassOpaque_ = {};
         other.hdrTarget_ = {};
         other.postProcessSampler_ = {};
         other.fullscreenVertexShader_ = {};
@@ -258,6 +278,7 @@ SceneRenderer& SceneRenderer::operator=(SceneRenderer&& other) noexcept {
         other.bloomUpPipeline_ = {};
         other.toneMappingPipeline_ = {};
         other.hdrPipeline_ = {};
+        other.hdrPipelineOpaque_ = {};
         other.wireframePipeline_ = {};
         other.wireframeLdrPipeline_ = {};
         other.width_ = 0;
@@ -454,6 +475,19 @@ Result<void> SceneRenderer::init(rhi::RhiDevice& device, uint32_t width, uint32_
     }
     fragmentShader_ = fragRes.value();
 
+    rhi::ShaderDesc fragOpaqueDesc{
+        .stage = rhi::ShaderStageFlags::Fragment,
+        .spirvCode = kGltfMaterialOpaqueFragmentShaderSpirv,
+        .entryPoint = "main",
+        .debugName = "PbrMaterialOpaqueFragmentShader",
+    };
+    auto fragOpaqueRes = device_->createShader(fragOpaqueDesc);
+    if (!fragOpaqueRes.hasValue()) {
+        shutdown();
+        return fragOpaqueRes.error();
+    }
+    fragmentShaderOpaque_ = fragOpaqueRes.value();
+
     // 5. Create pipeline layout specifying 128 bytes of push constants for vertex stage
     rhi::PipelineLayoutDesc layoutDesc{
         .pushConstants = {{
@@ -559,6 +593,31 @@ Result<void> SceneRenderer::init(rhi::RhiDevice& device, uint32_t width, uint32_
         hdrPipeline_ = pipeline_;
     }
 
+    // 6b. Build Opaque Pipelines (using pbr_mesh_opaque.frag with early_fragment_tests)
+    auto pipeOpaqueDesc = pipeDesc;
+    pipeOpaqueDesc.fragmentShader = fragmentShaderOpaque_;
+    pipeOpaqueDesc.colorAttachmentFormats = {colorFormat_};
+    pipeOpaqueDesc.debugName = "MeshGraphicsPipelineOpaque";
+    auto pipeOpaqueRes = device_->createGraphicsPipeline(pipeOpaqueDesc);
+    if (!pipeOpaqueRes.hasValue()) {
+        shutdown();
+        return pipeOpaqueRes.error();
+    }
+    pipelineOpaque_ = pipeOpaqueRes.value();
+
+    if (hdrFormat_ != colorFormat_) {
+        pipeOpaqueDesc.colorAttachmentFormats = {hdrFormat_};
+        pipeOpaqueDesc.debugName = "MeshHdrGraphicsPipelineOpaque";
+        auto hdrPipeOpaqueRes = device_->createGraphicsPipeline(pipeOpaqueDesc);
+        if (!hdrPipeOpaqueRes.hasValue()) {
+            shutdown();
+            return hdrPipeOpaqueRes.error();
+        }
+        hdrPipelineOpaque_ = hdrPipeOpaqueRes.value();
+    } else {
+        hdrPipelineOpaque_ = pipelineOpaque_;
+    }
+
     // Optional wireframe rasterization pipelines (requires fillModeNonSolid GPU feature)
     if (device_->getCaps().features.fillModeNonSolid) {
         auto wireDesc = pipeDesc;
@@ -641,7 +700,7 @@ Result<void> SceneRenderer::init(rhi::RhiDevice& device, uint32_t width, uint32_
             {
                 .depthTestEnable = true,
                 .depthWriteEnable = true,
-                .depthCompareOp = rhi::CompareOp::LessOrEqual,
+                .depthCompareOp = rhi::CompareOp::Less,
             },
         .colorBlendAttachments = {},
         .layout = shadowPipelineLayout_,
@@ -686,6 +745,27 @@ Result<void> SceneRenderer::init(rhi::RhiDevice& device, uint32_t width, uint32_
         }
     } else {
         hdrPipelineDepthPrepass_ = pipelineDepthPrepass_;
+    }
+
+    // 7d. Opaque Main PBR Pipelines for Depth Prepass (with early_fragment_tests)
+    auto pipeDepthPrepassOpaqueDesc = pipeDepthPrepassDesc;
+    pipeDepthPrepassOpaqueDesc.fragmentShader = fragmentShaderOpaque_;
+    pipeDepthPrepassOpaqueDesc.colorAttachmentFormats = {colorFormat_};
+    pipeDepthPrepassOpaqueDesc.debugName = "MeshGraphicsPipeline_DepthPrepassOpaque";
+    auto pipeDpOpaqueRes = device_->createGraphicsPipeline(pipeDepthPrepassOpaqueDesc);
+    if (pipeDpOpaqueRes.hasValue()) {
+        pipelineDepthPrepassOpaque_ = pipeDpOpaqueRes.value();
+    }
+
+    if (hdrFormat_ != colorFormat_) {
+        pipeDepthPrepassOpaqueDesc.colorAttachmentFormats = {hdrFormat_};
+        pipeDepthPrepassOpaqueDesc.debugName = "MeshHdrGraphicsPipeline_DepthPrepassOpaque";
+        auto hdrDpOpaqueRes = device_->createGraphicsPipeline(pipeDepthPrepassOpaqueDesc);
+        if (hdrDpOpaqueRes.hasValue()) {
+            hdrPipelineDepthPrepassOpaque_ = hdrDpOpaqueRes.value();
+        }
+    } else {
+        hdrPipelineDepthPrepassOpaque_ = pipelineDepthPrepassOpaque_;
     }
 
     // 8. Initialize Post-Processing & HDR Resources
@@ -782,6 +862,16 @@ void SceneRenderer::shutdown() {
         }
         hdrPipeline_ = {};
 
+        if (hdrPipelineOpaque_.isValid() && hdrPipelineOpaque_ != pipelineOpaque_) {
+            device_->destroyGraphicsPipeline(hdrPipelineOpaque_);
+        }
+        hdrPipelineOpaque_ = {};
+
+        if (pipelineOpaque_.isValid()) {
+            device_->destroyGraphicsPipeline(pipelineOpaque_);
+            pipelineOpaque_ = {};
+        }
+
         if (wireframePipeline_.isValid()) {
             device_->destroyGraphicsPipeline(wireframePipeline_);
             wireframePipeline_ = {};
@@ -799,10 +889,21 @@ void SceneRenderer::shutdown() {
             device_->destroyGraphicsPipeline(pipelineDepthPrepass_);
             pipelineDepthPrepass_ = {};
         }
+        if (pipelineDepthPrepassOpaque_.isValid() &&
+            pipelineDepthPrepassOpaque_ != pipelineDepthPrepass_) {
+            device_->destroyGraphicsPipeline(pipelineDepthPrepassOpaque_);
+            pipelineDepthPrepassOpaque_ = {};
+        }
         if (hdrPipelineDepthPrepass_.isValid() &&
             hdrPipelineDepthPrepass_ != pipelineDepthPrepass_) {
             device_->destroyGraphicsPipeline(hdrPipelineDepthPrepass_);
             hdrPipelineDepthPrepass_ = {};
+        }
+        if (hdrPipelineDepthPrepassOpaque_.isValid() &&
+            hdrPipelineDepthPrepassOpaque_ != pipelineDepthPrepassOpaque_ &&
+            hdrPipelineDepthPrepassOpaque_ != hdrPipelineDepthPrepass_) {
+            device_->destroyGraphicsPipeline(hdrPipelineDepthPrepassOpaque_);
+            hdrPipelineDepthPrepassOpaque_ = {};
         }
 
         if (shadowPipeline_.isValid()) {
@@ -853,6 +954,10 @@ void SceneRenderer::shutdown() {
         if (fragmentShader_.isValid()) {
             device_->destroyShader(fragmentShader_);
             fragmentShader_ = {};
+        }
+        if (fragmentShaderOpaque_.isValid()) {
+            device_->destroyShader(fragmentShaderOpaque_);
+            fragmentShaderOpaque_ = {};
         }
         if (vertexShader_.isValid()) {
             device_->destroyShader(vertexShader_);
@@ -907,6 +1012,7 @@ Result<void> SceneRenderer::resize(uint32_t width, uint32_t height) {
 
     width_ = width;
     height_ = height;
+    shadowDirty_ = true;
 
     rhi::TextureDesc colorDesc{
         .type = rhi::TextureType::Texture2D,
@@ -1017,6 +1123,10 @@ Result<void> SceneRenderer::applyGraphicsSettings(const GraphicsSettings& newSet
     // 5. Hardware VSync toggle
     device_->setVsync(validated.performance.vsync);
 
+    if (!(settings_.shadows == validated.shadows)) {
+        shadowDirty_ = true;
+    }
+
     settings_ = validated;
     buildRenderGraph();
     buildPostProcessGraph();
@@ -1110,6 +1220,14 @@ void SceneRenderer::recordShadowPass(rhi::RhiCommandList& cmdList) {
         return;
     }
 
+    if (!shadowDirty_) {
+        if (currentHasTimestamps_) {
+            cmdList.writeTimestamp(currentBaseQuery_ + 2, rhi::GpuTimestampStage::TopOfPipe);
+            cmdList.writeTimestamp(currentBaseQuery_ + 3, rhi::GpuTimestampStage::TopOfPipe);
+        }
+        return;
+    }
+
     if (currentHasTimestamps_) {
         cmdList.writeTimestamp(currentBaseQuery_ + 2, rhi::GpuTimestampStage::TopOfPipe);
     }
@@ -1135,9 +1253,7 @@ void SceneRenderer::recordShadowPass(rhi::RhiCommandList& cmdList) {
     const Frustum cameraFrustum =
         hasCameraView ? Frustum::fromViewProjection(currentViewProj_) : Frustum{};
 
-    rhi::BufferHandle lastBoundVb{};
-    rhi::BufferHandle lastBoundIb{};
-
+    shadowCasters_.clear();
     auto& ecs = currentWorld_->getRawWorld();
     auto shadowMeshQuery = ecs.query<const MeshComponent>();
     shadowMeshQuery.each([&](flecs::entity e, const MeshComponent& meshComp) {
@@ -1178,11 +1294,12 @@ void SceneRenderer::recordShadowPass(rhi::RhiCommandList& cmdList) {
             }
         }
 
+        const AABB localBounds = (meshComp.submeshIndex < gpuMesh->getSubmeshes().size())
+                                     ? gpuMesh->getSubmeshes()[meshComp.submeshIndex].bounds
+                                     : gpuMesh->getBounds();
+        const AABB worldBounds = localBounds.transform(model);
+
         if (applyLightCulling) {
-            const AABB localBounds = (meshComp.submeshIndex < gpuMesh->getSubmeshes().size())
-                                         ? gpuMesh->getSubmeshes()[meshComp.submeshIndex].bounds
-                                         : gpuMesh->getBounds();
-            const AABB worldBounds = localBounds.transform(model);
             if (!lightFrustum.intersectsAABB(worldBounds)) {
                 lastRenderStats_.culledPrimitives++;
                 return;
@@ -1208,33 +1325,59 @@ void SceneRenderer::recordShadowPass(rhi::RhiCommandList& cmdList) {
             }
         }
 
+        const Vec3 center = (worldBounds.minBound + worldBounds.maxBound) * 0.5F;
+        const float distToLight = Vec3::dot(center, currentLightDir_);
+        shadowCasters_.push_back({
+            .gpuMesh = gpuMesh,
+            .model = model,
+            .submeshIndex = meshComp.submeshIndex,
+            .distanceToLight = distToLight,
+        });
+    });
+
+    // Sort shadow casters front-to-back from the directional light source for Z-cull efficiency
+    std::sort(shadowCasters_.begin(), shadowCasters_.end(),
+              [](const ShadowCasterItem& a, const ShadowCasterItem& b) {
+                  return a.distanceToLight > b.distanceToLight;
+              });
+
+    rhi::BufferHandle lastBoundVb{};
+    rhi::BufferHandle lastBoundIb{};
+    bool hasPushedMvp = false;
+    Mat4 lastMvp{};
+
+    for (const auto& caster : shadowCasters_) {
         if (shadowPipelineLayout_.isValid()) {
-            alignas(16) float pushData[16];
-            const Mat4 mvp = currentLightSpaceMatrix_ * model;
-            std::memcpy(pushData, mvp.m, sizeof(pushData));
-            cmdList.pushConstants(shadowPipelineLayout_, rhi::ShaderStageFlags::Vertex, 0,
-                                  sizeof(pushData), pushData);
+            const Mat4 mvp = currentLightSpaceMatrix_ * caster.model;
+            if (!hasPushedMvp || std::memcmp(lastMvp.m, mvp.m, sizeof(mvp.m)) != 0) {
+                alignas(16) float pushData[16];
+                std::memcpy(pushData, mvp.m, sizeof(pushData));
+                cmdList.pushConstants(shadowPipelineLayout_, rhi::ShaderStageFlags::Vertex, 0,
+                                      sizeof(pushData), pushData);
+                lastMvp = mvp;
+                hasPushedMvp = true;
+            }
         }
 
-        if (lastBoundVb != gpuMesh->getVertexBuffer()) {
-            cmdList.bindVertexBuffer(0, gpuMesh->getVertexBuffer(), 0);
-            lastBoundVb = gpuMesh->getVertexBuffer();
+        if (lastBoundVb != caster.gpuMesh->getVertexBuffer()) {
+            cmdList.bindVertexBuffer(0, caster.gpuMesh->getVertexBuffer(), 0);
+            lastBoundVb = caster.gpuMesh->getVertexBuffer();
         }
-        if (gpuMesh->getIndexBuffer().isValid() && gpuMesh->getIndexCount() > 0) {
-            if (lastBoundIb != gpuMesh->getIndexBuffer()) {
-                cmdList.bindIndexBuffer(gpuMesh->getIndexBuffer(), 0, true);
-                lastBoundIb = gpuMesh->getIndexBuffer();
+        if (caster.gpuMesh->getIndexBuffer().isValid() && caster.gpuMesh->getIndexCount() > 0) {
+            if (lastBoundIb != caster.gpuMesh->getIndexBuffer()) {
+                cmdList.bindIndexBuffer(caster.gpuMesh->getIndexBuffer(), 0, true);
+                lastBoundIb = caster.gpuMesh->getIndexBuffer();
             }
-            const auto& submeshes = gpuMesh->getSubmeshes();
-            if (meshComp.submeshIndex < submeshes.size()) {
-                const auto& sub = submeshes[meshComp.submeshIndex];
+            const auto& submeshes = caster.gpuMesh->getSubmeshes();
+            if (caster.submeshIndex < submeshes.size()) {
+                const auto& sub = submeshes[caster.submeshIndex];
                 cmdList.drawIndexed(sub.indexCount, 1, sub.firstIndex, sub.vertexOffset, 0);
                 lastRenderStats_.shadowDrawCalls++;
                 lastRenderStats_.shadowTriangles += sub.indexCount / 3;
             } else if (submeshes.empty()) {
-                cmdList.drawIndexed(gpuMesh->getIndexCount(), 1, 0, 0, 0);
+                cmdList.drawIndexed(caster.gpuMesh->getIndexCount(), 1, 0, 0, 0);
                 lastRenderStats_.shadowDrawCalls++;
-                lastRenderStats_.shadowTriangles += gpuMesh->getIndexCount() / 3;
+                lastRenderStats_.shadowTriangles += caster.gpuMesh->getIndexCount() / 3;
             } else {
                 for (const auto& sub : submeshes) {
                     cmdList.drawIndexed(sub.indexCount, 1, sub.firstIndex, sub.vertexOffset, 0);
@@ -1242,17 +1385,18 @@ void SceneRenderer::recordShadowPass(rhi::RhiCommandList& cmdList) {
                     lastRenderStats_.shadowTriangles += sub.indexCount / 3;
                 }
             }
-        } else if (gpuMesh->getVertexCount() > 0) {
-            cmdList.draw(gpuMesh->getVertexCount(), 1, 0, 0);
+        } else if (caster.gpuMesh->getVertexCount() > 0) {
+            cmdList.draw(caster.gpuMesh->getVertexCount(), 1, 0, 0);
             lastRenderStats_.shadowDrawCalls++;
-            lastRenderStats_.shadowTriangles += gpuMesh->getVertexCount() / 3;
+            lastRenderStats_.shadowTriangles += caster.gpuMesh->getVertexCount() / 3;
         }
-    });
+    }
 
     cmdList.endRenderPass();
     if (currentHasTimestamps_) {
         cmdList.writeTimestamp(currentBaseQuery_ + 3, rhi::GpuTimestampStage::BottomOfPipe);
     }
+    shadowDirty_ = false;
 }
 
 void SceneRenderer::recordDepthPrepass(rhi::RhiCommandList& cmdList) {
@@ -1284,6 +1428,8 @@ void SceneRenderer::recordDepthPrepass(rhi::RhiCommandList& cmdList) {
 
     rhi::BufferHandle lastBoundVb{};
     rhi::BufferHandle lastBoundIb{};
+    bool hasPushedModel = false;
+    Mat4 lastModel{};
 
     auto& ecs = currentWorld_->getRawWorld();
     auto query = ecs.query<const MeshComponent>();
@@ -1304,6 +1450,15 @@ void SceneRenderer::recordDepthPrepass(rhi::RhiCommandList& cmdList) {
         GpuMesh* gpuMesh = currentAssetManager_->getGpuMesh(meshId);
         if (gpuMesh == nullptr || !gpuMesh->isValid()) {
             return;
+        }
+
+        const auto& submeshes = gpuMesh->getSubmeshes();
+        uint32_t matIdx = (meshComp.submeshIndex < submeshes.size())
+                              ? submeshes[meshComp.submeshIndex].materialIndex
+                              : 0;
+        GpuMaterial* mat = currentAssetManager_->getGpuMaterial(meshId, matIdx);
+        if (mat != nullptr && mat->getUniformData().alphaMode != 0) {
+            return; // Skip alpha masked geometry in depth prepass
         }
 
         Mat4 model = Mat4::identity();
@@ -1335,11 +1490,15 @@ void SceneRenderer::recordDepthPrepass(rhi::RhiCommandList& cmdList) {
         }
 
         if (shadowPipelineLayout_.isValid()) {
-            alignas(16) float pushData[16];
-            const Mat4 mvp = currentViewProj_ * model;
-            std::memcpy(pushData, mvp.m, sizeof(pushData));
-            cmdList.pushConstants(shadowPipelineLayout_, rhi::ShaderStageFlags::Vertex, 0,
-                                  sizeof(pushData), pushData);
+            if (!hasPushedModel || std::memcmp(lastModel.m, model.m, sizeof(lastModel.m)) != 0) {
+                alignas(16) float pushData[16];
+                const Mat4 mvp = currentViewProj_ * model;
+                std::memcpy(pushData, mvp.m, sizeof(pushData));
+                cmdList.pushConstants(shadowPipelineLayout_, rhi::ShaderStageFlags::Vertex, 0,
+                                      sizeof(pushData), pushData);
+                lastModel = model;
+                hasPushedModel = true;
+            }
         }
 
         if (lastBoundVb != gpuMesh->getVertexBuffer()) {
@@ -1351,7 +1510,6 @@ void SceneRenderer::recordDepthPrepass(rhi::RhiCommandList& cmdList) {
                 cmdList.bindIndexBuffer(gpuMesh->getIndexBuffer(), 0, true);
                 lastBoundIb = gpuMesh->getIndexBuffer();
             }
-            const auto& submeshes = gpuMesh->getSubmeshes();
             if (meshComp.submeshIndex < submeshes.size()) {
                 const auto& sub = submeshes[meshComp.submeshIndex];
                 cmdList.drawIndexed(sub.indexCount, 1, sub.firstIndex, sub.vertexOffset, 0);
@@ -1439,9 +1597,7 @@ void SceneRenderer::recordMainPbrPass(rhi::RhiCommandList& cmdList) {
         settings_.performance.frustumCulling && !currentViewProj_.isNearlyEqual(Mat4::identity());
     const Frustum cameraFrustum = Frustum::fromViewProjection(currentViewProj_);
 
-    rhi::BufferHandle lastBoundVb{};
-    rhi::BufferHandle lastBoundIb{};
-
+    visibleItems_.clear();
     auto& ecs = currentWorld_->getRawWorld();
     auto query = ecs.query<const MeshComponent>();
     query.each([&](flecs::entity e, const MeshComponent& meshComp) {
@@ -1498,33 +1654,25 @@ void SceneRenderer::recordMainPbrPass(rhi::RhiCommandList& cmdList) {
             }
         }
 
+        const AABB localBounds = (meshComp.submeshIndex < gpuMesh->getSubmeshes().size())
+                                     ? gpuMesh->getSubmeshes()[meshComp.submeshIndex].bounds
+                                     : gpuMesh->getBounds();
+        const AABB worldBounds = localBounds.transform(model);
+
         if (applyCameraCulling) {
-            const AABB localBounds = (meshComp.submeshIndex < gpuMesh->getSubmeshes().size())
-                                         ? gpuMesh->getSubmeshes()[meshComp.submeshIndex].bounds
-                                         : gpuMesh->getBounds();
-            const AABB worldBounds = localBounds.transform(model);
             if (!cameraFrustum.intersectsAABB(worldBounds)) {
                 lastRenderStats_.culledPrimitives++;
                 return;
             }
         }
 
-        // Pack 128-byte push constants (64B viewProj + 64B model)
-        if (pipelineLayout_.isValid()) {
-            alignas(16) float pushData[32];
-            std::memcpy(&pushData[0], currentViewProj_.m, 64);
-            std::memcpy(&pushData[16], model.m, 64);
-            cmdList.pushConstants(pipelineLayout_, rhi::ShaderStageFlags::Vertex, 0,
-                                  sizeof(pushData), pushData);
-        }
+        const Vec3 closestPoint{
+            std::clamp(currentCameraPos_.x, worldBounds.minBound.x, worldBounds.maxBound.x),
+            std::clamp(currentCameraPos_.y, worldBounds.minBound.y, worldBounds.maxBound.y),
+            std::clamp(currentCameraPos_.z, worldBounds.minBound.z, worldBounds.maxBound.z)};
+        const float depthSq = (closestPoint - currentCameraPos_).lengthSq();
 
-        // Bind vertex buffer
-        if (lastBoundVb != gpuMesh->getVertexBuffer()) {
-            cmdList.bindVertexBuffer(0, gpuMesh->getVertexBuffer(), 0);
-            lastBoundVb = gpuMesh->getVertexBuffer();
-        }
-
-        auto bindMaterial = [&](uint32_t matIndex) {
+        auto resolveMaterial = [&](uint32_t matIndex) -> std::pair<rhi::DescriptorSetHandle, bool> {
             if (pipelineLayout_.isValid() && materialDescriptorSetLayout_.isValid()) {
                 GpuMaterial* mat = currentAssetManager_->getGpuMaterial(meshId, matIndex);
                 if (mat == nullptr) {
@@ -1541,52 +1689,146 @@ void SceneRenderer::recordMainPbrPass(rhi::RhiCommandList& cmdList) {
                     }
                 }
                 if (mat != nullptr && mat->isValid()) {
-                    const std::array<rhi::DescriptorSetHandle, 1> sets = {mat->getDescriptorSet()};
-                    cmdList.bindDescriptorSets(pipelineLayout_, 0, sets);
+                    const bool isMasked = (mat->getUniformData().alphaMode != 0);
+                    return {mat->getDescriptorSet(), isMasked};
                 }
             }
+            return {{}, false};
         };
 
-        // Bind index buffer if present
-        if (gpuMesh->getIndexBuffer().isValid() && gpuMesh->getIndexCount() > 0) {
-            if (lastBoundIb != gpuMesh->getIndexBuffer()) {
-                cmdList.bindIndexBuffer(gpuMesh->getIndexBuffer(), 0, true);
-                lastBoundIb = gpuMesh->getIndexBuffer();
+        const auto& submeshes = gpuMesh->getSubmeshes();
+        if (meshComp.submeshIndex < submeshes.size()) {
+            const auto [matSet, isMasked] =
+                resolveMaterial(submeshes[meshComp.submeshIndex].materialIndex);
+            visibleItems_.push_back({
+                .gpuMesh = gpuMesh,
+                .materialSet = matSet,
+                .model = model,
+                .submeshIndex = meshComp.submeshIndex,
+                .depthSq = depthSq,
+                .isAlphaMasked = isMasked,
+            });
+        } else if (submeshes.empty()) {
+            const auto [matSet, isMasked] = resolveMaterial(0);
+            visibleItems_.push_back({
+                .gpuMesh = gpuMesh,
+                .materialSet = matSet,
+                .model = model,
+                .submeshIndex = 0,
+                .depthSq = depthSq,
+                .isAlphaMasked = isMasked,
+            });
+        } else {
+            for (uint32_t sIdx = 0; sIdx < submeshes.size(); ++sIdx) {
+                const auto [matSet, isMasked] = resolveMaterial(submeshes[sIdx].materialIndex);
+                visibleItems_.push_back({
+                    .gpuMesh = gpuMesh,
+                    .materialSet = matSet,
+                    .model = model,
+                    .submeshIndex = sIdx,
+                    .depthSq = depthSq,
+                    .isAlphaMasked = isMasked,
+                });
             }
-
-            const auto& submeshes = gpuMesh->getSubmeshes();
-            if (meshComp.submeshIndex < submeshes.size()) {
-                const auto& sub = submeshes[meshComp.submeshIndex];
-                bindMaterial(sub.materialIndex);
-                cmdList.drawIndexed(sub.indexCount, 1, sub.firstIndex, sub.vertexOffset, 0);
-                lastRenderStats_.drawCalls++;
-                lastRenderStats_.triangles += sub.indexCount / 3;
-                lastRenderStats_.vertices += sub.indexCount;
-            } else if (submeshes.empty()) {
-                bindMaterial(0);
-                cmdList.drawIndexed(gpuMesh->getIndexCount(), 1, 0, 0, 0);
-                lastRenderStats_.drawCalls++;
-                lastRenderStats_.triangles += gpuMesh->getIndexCount() / 3;
-                lastRenderStats_.vertices += gpuMesh->getVertexCount();
-            } else {
-                for (const auto& sub : submeshes) {
-                    bindMaterial(sub.materialIndex);
-                    cmdList.drawIndexed(sub.indexCount, 1, sub.firstIndex, sub.vertexOffset, 0);
-                    lastRenderStats_.drawCalls++;
-                    lastRenderStats_.triangles += sub.indexCount / 3;
-                    lastRenderStats_.vertices += sub.indexCount;
-                }
-            }
-        } else if (gpuMesh->getVertexCount() > 0) {
-            bindMaterial(0);
-            cmdList.draw(gpuMesh->getVertexCount(), 1, 0, 0);
-            lastRenderStats_.drawCalls++;
-            lastRenderStats_.triangles += gpuMesh->getVertexCount() / 3;
-            lastRenderStats_.vertices += gpuMesh->getVertexCount();
         }
 
         lastRenderStats_.meshesRendered++;
     });
+
+    // Sort visible submeshes: Opaque items front-to-back for Early-Z rejection; Alpha-masked items
+    // last
+    std::sort(visibleItems_.begin(), visibleItems_.end(),
+              [](const VisibleMeshItem& a, const VisibleMeshItem& b) {
+                  if (a.isAlphaMasked != b.isAlphaMasked) {
+                      return !a.isAlphaMasked; // Opaque first
+                  }
+                  return a.depthSq < b.depthSq; // Front-to-back
+              });
+
+    rhi::PipelineHandle lastBoundPipeline = scenePipeline;
+    rhi::BufferHandle lastBoundVb{};
+    rhi::BufferHandle lastBoundIb{};
+    rhi::DescriptorSetHandle lastBoundMatSet{};
+    bool hasPushedModel = false;
+    Mat4 lastModel{};
+
+    const bool isWireframe = (settings_.debug.viewMode == DebugViewMode::Wireframe);
+
+    for (const auto& item : visibleItems_) {
+        // Bind pipeline based on opaque vs alpha-masked
+        rhi::PipelineHandle targetPipeline = scenePipeline;
+        if (!isWireframe) {
+            if (useDepthPrepass) {
+                targetPipeline =
+                    item.isAlphaMasked
+                        ? (useHdr ? hdrPipelineDepthPrepass_ : pipelineDepthPrepass_)
+                        : (useHdr ? hdrPipelineDepthPrepassOpaque_ : pipelineDepthPrepassOpaque_);
+            } else {
+                targetPipeline = item.isAlphaMasked
+                                     ? (useHdr ? hdrPipeline_ : pipeline_)
+                                     : (useHdr ? hdrPipelineOpaque_ : pipelineOpaque_);
+            }
+        }
+        if (targetPipeline.isValid() && targetPipeline != lastBoundPipeline) {
+            cmdList.bindPipeline(targetPipeline);
+            lastBoundPipeline = targetPipeline;
+        }
+
+        // Pack 128-byte push constants (64B mvp + 64B model)
+        if (pipelineLayout_.isValid()) {
+            if (!hasPushedModel ||
+                std::memcmp(lastModel.m, item.model.m, sizeof(lastModel.m)) != 0) {
+                const Mat4 mvp = currentViewProj_ * item.model;
+                alignas(16) float pushData[32];
+                std::memcpy(&pushData[0], mvp.m, 64);
+                std::memcpy(&pushData[16], item.model.m, 64);
+                cmdList.pushConstants(pipelineLayout_, rhi::ShaderStageFlags::Vertex, 0,
+                                      sizeof(pushData), pushData);
+                lastModel = item.model;
+                hasPushedModel = true;
+            }
+        }
+
+        // Bind vertex buffer
+        if (lastBoundVb != item.gpuMesh->getVertexBuffer()) {
+            cmdList.bindVertexBuffer(0, item.gpuMesh->getVertexBuffer(), 0);
+            lastBoundVb = item.gpuMesh->getVertexBuffer();
+        }
+
+        // Bind material descriptor set
+        if (item.materialSet.isValid() && lastBoundMatSet != item.materialSet) {
+            const std::array<rhi::DescriptorSetHandle, 1> sets = {item.materialSet};
+            cmdList.bindDescriptorSets(pipelineLayout_, 0, sets);
+            lastBoundMatSet = item.materialSet;
+        }
+
+        // Bind index buffer if present
+        if (item.gpuMesh->getIndexBuffer().isValid() && item.gpuMesh->getIndexCount() > 0) {
+            if (lastBoundIb != item.gpuMesh->getIndexBuffer()) {
+                cmdList.bindIndexBuffer(item.gpuMesh->getIndexBuffer(), 0, true);
+                lastBoundIb = item.gpuMesh->getIndexBuffer();
+            }
+
+            const auto& submeshes = item.gpuMesh->getSubmeshes();
+            if (item.submeshIndex < submeshes.size()) {
+                const auto& sub = submeshes[item.submeshIndex];
+                cmdList.drawIndexed(sub.indexCount, 1, sub.firstIndex, sub.vertexOffset, 0);
+                lastRenderStats_.drawCalls++;
+                lastRenderStats_.triangles += sub.indexCount / 3;
+                lastRenderStats_.vertices += sub.indexCount;
+            } else {
+                cmdList.drawIndexed(item.gpuMesh->getIndexCount(), 1, 0, 0, 0);
+                lastRenderStats_.drawCalls++;
+                lastRenderStats_.triangles += item.gpuMesh->getIndexCount() / 3;
+                lastRenderStats_.vertices += item.gpuMesh->getVertexCount();
+            }
+        } else if (item.gpuMesh->getVertexCount() > 0) {
+            cmdList.draw(item.gpuMesh->getVertexCount(), 1, 0, 0);
+            lastRenderStats_.drawCalls++;
+            lastRenderStats_.triangles += item.gpuMesh->getVertexCount() / 3;
+            lastRenderStats_.vertices += item.gpuMesh->getVertexCount();
+        }
+    }
 
     if (managePass) {
         cmdList.endRenderPass();
@@ -1738,6 +1980,8 @@ RenderStats SceneRenderer::renderScene(world::World& world, AssetManager& assetM
         ++spotCount;
     });
     lightingData.numSpotLights = spotCount;
+    const uint32_t pcfQuality = static_cast<uint32_t>(settings_.shadows.pcfQuality);
+    lightingData.shadowPackedParams = (shadowResolution_ & 0xFFFFU) | ((pcfQuality & 0xFFU) << 16U);
 
     // Compute Directional Light-Space View-Projection Matrix
     Vec3 dir = Vec3(lightingData.dirLight.directionAndCastShadow.x,
@@ -1764,8 +2008,17 @@ RenderStats SceneRenderer::renderScene(world::World& world, AssetManager& assetM
     currentAssetManager_ = &assetManager;
     currentDevice_ = &device;
     currentViewProj_ = viewProjection;
+    currentCameraPos_ = Vec3(lightingData.cameraPosAndAmbientIntensity.x,
+                             lightingData.cameraPosAndAmbientIntensity.y,
+                             lightingData.cameraPosAndAmbientIntensity.z);
     currentLightSpaceMatrix_ = lightSpaceMatrix;
     currentLightDir_ = dir;
+    if (!dir.isNearlyEqual(lastLightDir_) ||
+        !lightSpaceMatrix.isNearlyEqual(lastLightSpaceMatrix_)) {
+        shadowDirty_ = true;
+        lastLightDir_ = dir;
+        lastLightSpaceMatrix_ = lightSpaceMatrix;
+    }
     lastRenderStats_ = RenderStats{};
 
     if (!renderGraph_.isCompiled()) {

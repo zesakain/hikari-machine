@@ -42,6 +42,7 @@
 
 #include <array>
 #include <cstdint>
+#include <vector>
 
 namespace eng::render {
 
@@ -231,7 +232,12 @@ public:
         return lightingUniformBuffer_;
     }
     [[nodiscard]] uint32_t getShadowResolution() const noexcept { return shadowResolution_; }
-    void setShadowResolution(uint32_t resolution) noexcept { shadowResolution_ = resolution; }
+    void setShadowResolution(uint32_t resolution) noexcept {
+        shadowResolution_ = resolution;
+        shadowDirty_ = true;
+    }
+    void markShadowDirty() noexcept { shadowDirty_ = true; }
+    [[nodiscard]] bool isShadowDirty() const noexcept { return shadowDirty_; }
     [[nodiscard]] uint32_t getWidth() const noexcept { return width_; }
     [[nodiscard]] uint32_t getHeight() const noexcept { return height_; }
     [[nodiscard]] bool isInitialized() const noexcept {
@@ -266,6 +272,7 @@ private:
     rhi::TextureHandle depthTarget_{};
     rhi::ShaderHandle vertexShader_{};
     rhi::ShaderHandle fragmentShader_{};
+    rhi::ShaderHandle fragmentShaderOpaque_{};
     rhi::DescriptorSetLayoutHandle materialDescriptorSetLayout_{};
     rhi::DescriptorSetLayoutHandle sceneDescriptorSetLayout_{};
     rhi::DescriptorPoolHandle sceneDescriptorPool_{};
@@ -279,8 +286,11 @@ private:
     rhi::PipelineHandle depthPrepassPipeline_{};
     rhi::PipelineLayoutHandle pipelineLayout_{};
     rhi::PipelineHandle pipeline_{};
+    rhi::PipelineHandle pipelineOpaque_{};
     rhi::PipelineHandle pipelineDepthPrepass_{};
+    rhi::PipelineHandle pipelineDepthPrepassOpaque_{};
     rhi::PipelineHandle hdrPipelineDepthPrepass_{};
+    rhi::PipelineHandle hdrPipelineDepthPrepassOpaque_{};
 
     // HDR and Post-Processing Resources
     rhi::TextureHandle hdrTarget_{};
@@ -306,6 +316,7 @@ private:
     rhi::PipelineHandle bloomUpPipeline_{};
     rhi::PipelineHandle toneMappingPipeline_{};
     rhi::PipelineHandle hdrPipeline_{};
+    rhi::PipelineHandle hdrPipelineOpaque_{};
 
     uint32_t width_{0};
     uint32_t height_{0};
@@ -326,10 +337,33 @@ private:
     world::World* currentWorld_{nullptr};
     AssetManager* currentAssetManager_{nullptr};
     Mat4 currentViewProj_{Mat4::identity()};
+    Vec3 currentCameraPos_{0.0F, 0.0F, 0.0F};
     Mat4 currentLightSpaceMatrix_{Mat4::identity()};
     Vec3 currentLightDir_{Vec3::unitY()};
     uint32_t currentBaseQuery_{0};
     bool currentHasTimestamps_{false};
+
+    struct VisibleMeshItem {
+        GpuMesh* gpuMesh{nullptr};
+        rhi::DescriptorSetHandle materialSet{};
+        Mat4 model{Mat4::identity()};
+        uint32_t submeshIndex{0};
+        float depthSq{0.0F};
+        bool isAlphaMasked{false};
+    };
+
+    struct ShadowCasterItem {
+        GpuMesh* gpuMesh{nullptr};
+        Mat4 model{Mat4::identity()};
+        uint32_t submeshIndex{0};
+        float distanceToLight{0.0F};
+    };
+
+    std::vector<VisibleMeshItem> visibleItems_{};
+    std::vector<ShadowCasterItem> shadowCasters_{};
+    bool shadowDirty_{true};
+    Vec3 lastLightDir_{Vec3::zero()};
+    Mat4 lastLightSpaceMatrix_{Mat4::identity()};
 };
 
 } // namespace eng::render
