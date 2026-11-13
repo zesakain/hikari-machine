@@ -327,6 +327,7 @@ private:
     AssetManager* currentAssetManager_{nullptr};
     Mat4 currentViewProj_{Mat4::identity()};
     Mat4 currentLightSpaceMatrix_{Mat4::identity()};
+    Vec3 currentLightDir_{Vec3::unitY()};
     uint32_t currentBaseQuery_{0};
     bool currentHasTimestamps_{false};
 };

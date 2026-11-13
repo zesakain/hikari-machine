@@ -1131,6 +1131,12 @@ void SceneRenderer::recordShadowPass(rhi::RhiCommandList& cmdList) {
 
     const bool applyLightCulling = settings_.performance.frustumCulling;
     const Frustum lightFrustum = Frustum::fromViewProjection(currentLightSpaceMatrix_);
+    const bool hasCameraView = !currentViewProj_.isNearlyEqual(Mat4::identity());
+    const Frustum cameraFrustum =
+        hasCameraView ? Frustum::fromViewProjection(currentViewProj_) : Frustum{};
+
+    rhi::BufferHandle lastBoundVb{};
+    rhi::BufferHandle lastBoundIb{};
 
     auto& ecs = currentWorld_->getRawWorld();
     auto shadowMeshQuery = ecs.query<const MeshComponent>();
@@ -1181,6 +1187,25 @@ void SceneRenderer::recordShadowPass(rhi::RhiCommandList& cmdList) {
                 lastRenderStats_.culledPrimitives++;
                 return;
             }
+
+            // Directional shadow volume culling: Cull casters whose extruded shadow volume
+            // cannot reach any camera-visible surface.
+            if (hasCameraView) {
+                const float yFloor = 0.0F;
+                const float height = std::max(0.2F, worldBounds.maxBound.y - yFloor);
+                const float tMax = std::min(settings_.shadows.distance,
+                                            height / std::max(0.1F, currentLightDir_.y));
+                const Vec3 ext = -currentLightDir_ * tMax;
+
+                AABB shadowBounds = worldBounds;
+                shadowBounds.expand(worldBounds.minBound + ext);
+                shadowBounds.expand(worldBounds.maxBound + ext);
+
+                if (!cameraFrustum.intersectsAABB(shadowBounds)) {
+                    lastRenderStats_.culledPrimitives++;
+                    return;
+                }
+            }
         }
 
         if (shadowPipelineLayout_.isValid()) {
@@ -1191,9 +1216,15 @@ void SceneRenderer::recordShadowPass(rhi::RhiCommandList& cmdList) {
                                   sizeof(pushData), pushData);
         }
 
-        cmdList.bindVertexBuffer(0, gpuMesh->getVertexBuffer(), 0);
+        if (lastBoundVb != gpuMesh->getVertexBuffer()) {
+            cmdList.bindVertexBuffer(0, gpuMesh->getVertexBuffer(), 0);
+            lastBoundVb = gpuMesh->getVertexBuffer();
+        }
         if (gpuMesh->getIndexBuffer().isValid() && gpuMesh->getIndexCount() > 0) {
-            cmdList.bindIndexBuffer(gpuMesh->getIndexBuffer(), 0, true);
+            if (lastBoundIb != gpuMesh->getIndexBuffer()) {
+                cmdList.bindIndexBuffer(gpuMesh->getIndexBuffer(), 0, true);
+                lastBoundIb = gpuMesh->getIndexBuffer();
+            }
             const auto& submeshes = gpuMesh->getSubmeshes();
             if (meshComp.submeshIndex < submeshes.size()) {
                 const auto& sub = submeshes[meshComp.submeshIndex];
@@ -1250,6 +1281,9 @@ void SceneRenderer::recordDepthPrepass(rhi::RhiCommandList& cmdList) {
     const bool applyCameraCulling =
         settings_.performance.frustumCulling && !currentViewProj_.isNearlyEqual(Mat4::identity());
     const Frustum cameraFrustum = Frustum::fromViewProjection(currentViewProj_);
+
+    rhi::BufferHandle lastBoundVb{};
+    rhi::BufferHandle lastBoundIb{};
 
     auto& ecs = currentWorld_->getRawWorld();
     auto query = ecs.query<const MeshComponent>();
@@ -1308,9 +1342,15 @@ void SceneRenderer::recordDepthPrepass(rhi::RhiCommandList& cmdList) {
                                   sizeof(pushData), pushData);
         }
 
-        cmdList.bindVertexBuffer(0, gpuMesh->getVertexBuffer(), 0);
+        if (lastBoundVb != gpuMesh->getVertexBuffer()) {
+            cmdList.bindVertexBuffer(0, gpuMesh->getVertexBuffer(), 0);
+            lastBoundVb = gpuMesh->getVertexBuffer();
+        }
         if (gpuMesh->getIndexBuffer().isValid() && gpuMesh->getIndexCount() > 0) {
-            cmdList.bindIndexBuffer(gpuMesh->getIndexBuffer(), 0, true);
+            if (lastBoundIb != gpuMesh->getIndexBuffer()) {
+                cmdList.bindIndexBuffer(gpuMesh->getIndexBuffer(), 0, true);
+                lastBoundIb = gpuMesh->getIndexBuffer();
+            }
             const auto& submeshes = gpuMesh->getSubmeshes();
             if (meshComp.submeshIndex < submeshes.size()) {
                 const auto& sub = submeshes[meshComp.submeshIndex];
@@ -1399,6 +1439,9 @@ void SceneRenderer::recordMainPbrPass(rhi::RhiCommandList& cmdList) {
         settings_.performance.frustumCulling && !currentViewProj_.isNearlyEqual(Mat4::identity());
     const Frustum cameraFrustum = Frustum::fromViewProjection(currentViewProj_);
 
+    rhi::BufferHandle lastBoundVb{};
+    rhi::BufferHandle lastBoundIb{};
+
     auto& ecs = currentWorld_->getRawWorld();
     auto query = ecs.query<const MeshComponent>();
     query.each([&](flecs::entity e, const MeshComponent& meshComp) {
@@ -1476,7 +1519,10 @@ void SceneRenderer::recordMainPbrPass(rhi::RhiCommandList& cmdList) {
         }
 
         // Bind vertex buffer
-        cmdList.bindVertexBuffer(0, gpuMesh->getVertexBuffer(), 0);
+        if (lastBoundVb != gpuMesh->getVertexBuffer()) {
+            cmdList.bindVertexBuffer(0, gpuMesh->getVertexBuffer(), 0);
+            lastBoundVb = gpuMesh->getVertexBuffer();
+        }
 
         auto bindMaterial = [&](uint32_t matIndex) {
             if (pipelineLayout_.isValid() && materialDescriptorSetLayout_.isValid()) {
@@ -1503,7 +1549,10 @@ void SceneRenderer::recordMainPbrPass(rhi::RhiCommandList& cmdList) {
 
         // Bind index buffer if present
         if (gpuMesh->getIndexBuffer().isValid() && gpuMesh->getIndexCount() > 0) {
-            cmdList.bindIndexBuffer(gpuMesh->getIndexBuffer(), 0, true);
+            if (lastBoundIb != gpuMesh->getIndexBuffer()) {
+                cmdList.bindIndexBuffer(gpuMesh->getIndexBuffer(), 0, true);
+                lastBoundIb = gpuMesh->getIndexBuffer();
+            }
 
             const auto& submeshes = gpuMesh->getSubmeshes();
             if (meshComp.submeshIndex < submeshes.size()) {
@@ -1716,6 +1765,7 @@ RenderStats SceneRenderer::renderScene(world::World& world, AssetManager& assetM
     currentDevice_ = &device;
     currentViewProj_ = viewProjection;
     currentLightSpaceMatrix_ = lightSpaceMatrix;
+    currentLightDir_ = dir;
     lastRenderStats_ = RenderStats{};
 
     if (!renderGraph_.isCompiled()) {
