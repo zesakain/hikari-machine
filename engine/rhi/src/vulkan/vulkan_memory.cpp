@@ -32,7 +32,17 @@ Result<VkDeviceMemory> VulkanMemoryManager::allocateBufferMemory(VkDevice device
     if (usage == MemoryUsage::GpuOnly) {
         propFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
     } else {
-        propFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        // Prioritize device-local host-visible memory (BAR / ReBAR) for high GPU throughput
+        auto devLocalHostRes =
+            findMemoryType(memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT |
+                                                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                                       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        if (devLocalHostRes.hasValue()) {
+            propFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        } else {
+            propFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        }
     }
 
     auto typeRes = findMemoryType(memReqs.memoryTypeBits, propFlags);
