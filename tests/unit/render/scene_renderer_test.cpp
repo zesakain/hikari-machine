@@ -769,6 +769,125 @@ static int testSceneRendererFrustumCulling() {
     return 0;
 }
 
+static int testSceneRendererShadowCacheInvalidationAndOffscreenCasters() {
+    VulkanDeviceDesc vkDesc{
+        .windowHandle = nullptr,
+        .enableValidation = false,
+    };
+    auto devRes = createVulkanDevice(vkDesc);
+    if (!devRes.hasValue()) {
+        std::cout << "Vulkan device unavailable; skipping shadow invalidation test\n";
+        return 0;
+    }
+    auto device = std::move(devRes.value());
+
+    world::World world;
+    registerRenderComponents(world);
+    AssetManager assetManager;
+
+    auto loadRes = assetManager.loadMesh("assets/models/cube.obj");
+    TEST_CHECK(loadRes.hasValue());
+    AssetId cubeId = loadRes.value();
+
+    auto& ecs = world.getRawWorld();
+
+    // Entity 1: in front of camera (Z = -5)
+    auto frontEntity = ecs.entity("FrontCube");
+    frontEntity.set<MeshComponent>(MeshComponent{
+        .meshAsset = cubeId,
+        .visible = true,
+        .castShadows = true,
+    });
+    frontEntity.set<physics::PhysicsTransformComponent>(physics::PhysicsTransformComponent{
+        .transform = Transform(Vec3(0.0F, 0.0F, -5.0F)),
+    });
+
+    // Entity 2: behind camera (Z = +5) - OFFSCREEN shadow caster
+    auto behindEntity = ecs.entity("BehindCube");
+    behindEntity.set<MeshComponent>(MeshComponent{
+        .meshAsset = cubeId,
+        .visible = true,
+        .castShadows = true,
+    });
+    behindEntity.set<physics::PhysicsTransformComponent>(physics::PhysicsTransformComponent{
+        .transform = Transform(Vec3(0.0F, 0.0F, 5.0F)),
+    });
+
+    // Directional light
+    auto lightEntity = ecs.entity("Sun");
+    DirectionalLightComponent sunLight{};
+    sunLight.enabled = true;
+    sunLight.castShadows = true;
+    sunLight.direction = Vec3(0.0F, 1.0F, 0.0F);
+    lightEntity.set<DirectionalLightComponent>(sunLight);
+
+    world::updateHierarchyTransforms(world);
+
+    SceneRenderer renderer;
+    auto initRes = renderer.init(*device, 64, 64);
+    TEST_CHECK(initRes.hasValue());
+
+    constexpr float kPi = 3.14159265358979323846F;
+    Mat4 view =
+        Mat4::lookAt(Vec3(0.0F, 0.0F, 0.0F), Vec3(0.0F, 0.0F, -1.0F), Vec3(0.0F, 1.0F, 0.0F));
+    Mat4 proj = Mat4::perspective(60.0F * (kPi / 180.0F), 1.0F, 0.1F, 50.0F);
+    Mat4 viewProj = proj * view;
+
+    auto renderFrame = [&](RenderStats& outStats) {
+        auto cmdRes = device->createCommandList();
+        TEST_CHECK(cmdRes.hasValue());
+        auto cmd = std::move(cmdRes.value());
+        cmd->begin();
+        outStats = renderer.renderScene(world, assetManager, *device, *cmd, viewProj);
+        cmd->end();
+        TEST_CHECK(device->submit(cmd.get()).hasValue());
+        device->waitIdle();
+        return 0;
+    };
+
+    RenderStats stats{};
+
+    // Frame 1: Initial render -> shadow map recorded. Both front and offscreen cubes must cast
+    // shadows
+    TEST_CHECK(renderFrame(stats) == 0);
+    TEST_CHECK(stats.shadowDrawCalls >= 2); // Preserves offscreen shadow casters!
+
+    // Frame 2: Unchanged scene -> shadow map cache hit (0 shadow draw calls)
+    TEST_CHECK(renderFrame(stats) == 0);
+    TEST_CHECK(stats.shadowDrawCalls == 0);
+
+    // Frame 3: Caster moves -> shadow cache invalidated
+    frontEntity.set<physics::PhysicsTransformComponent>(physics::PhysicsTransformComponent{
+        .transform = Transform(Vec3(1.0F, 0.0F, -5.0F)),
+    });
+    world::updateHierarchyTransforms(world);
+    TEST_CHECK(renderFrame(stats) == 0);
+    TEST_CHECK(stats.shadowDrawCalls >= 2);
+
+    // Frame 4: Unchanged -> cache hit
+    TEST_CHECK(renderFrame(stats) == 0);
+    TEST_CHECK(stats.shadowDrawCalls == 0);
+
+    // Frame 5: Directional light moves -> shadow cache invalidated
+    sunLight.direction = Vec3(0.05F, 1.0F, 0.0F).normalized();
+    lightEntity.set<DirectionalLightComponent>(sunLight);
+    TEST_CHECK(renderFrame(stats) == 0);
+    TEST_CHECK(stats.shadowDrawCalls >= 2);
+
+    // Frame 6: Unchanged -> cache hit
+    TEST_CHECK(renderFrame(stats) == 0);
+    TEST_CHECK(stats.shadowDrawCalls == 0);
+
+    // Frame 7: Explicit invalidateShadowMap() call -> shadow cache invalidated
+    renderer.invalidateShadowMap();
+    TEST_CHECK(renderFrame(stats) == 0);
+    TEST_CHECK(stats.shadowDrawCalls >= 2);
+
+    renderer.shutdown();
+    std::cout << "SceneRenderer shadow cache invalidation and offscreen casters verified!\n";
+    return 0;
+}
+
 int main() {
     std::cout << "Running SceneRenderer Tests...\n";
 
@@ -794,6 +913,9 @@ int main() {
         return 1;
     }
     if (testSceneRendererFrustumCulling() != 0) {
+        return 1;
+    }
+    if (testSceneRendererShadowCacheInvalidationAndOffscreenCasters() != 0) {
         return 1;
     }
 
