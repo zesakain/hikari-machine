@@ -256,6 +256,10 @@ if(HIKARI_BUILD_EDITOR)
     target_link_libraries(benchmark_scalability PRIVATE hikari::editor_lib hikari::engine_framework hikari::engine_render hikari::engine_physics hikari::engine_world hikari::engine_rhi imgui_static)
     target_include_directories(benchmark_scalability PRIVATE ${imgui_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/editor/src)
 
+    add_executable(sponza_sustained_benchmark ${CMAKE_SOURCE_DIR}/tools/sponza_sustained_benchmark.cpp)
+    target_link_libraries(sponza_sustained_benchmark PRIVATE hikari::editor_lib hikari::engine_framework hikari::engine_render hikari::engine_physics hikari::engine_world hikari::engine_rhi imgui_static)
+    target_include_directories(sponza_sustained_benchmark PRIVATE ${imgui_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/editor/src)
+
     add_executable(verify_editor_settings ${CMAKE_SOURCE_DIR}/tools/verify_editor_settings.cpp)
     target_link_libraries(verify_editor_settings PRIVATE hikari::editor_lib hikari::engine_framework hikari::engine_render hikari::engine_physics hikari::engine_world hikari::engine_rhi imgui_static)
     target_include_directories(verify_editor_settings PRIVATE ${imgui_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/editor/src)
