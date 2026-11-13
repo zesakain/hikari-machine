@@ -7,6 +7,7 @@ shader_mappings = [
     ("kTexturedMeshFragmentShaderSpirv", "assets/shaders/textured_mesh.frag"),
     ("kPbrMeshVertexShaderSpirv", "assets/shaders/pbr_mesh.vert"),
     ("kGltfMaterialFragmentShaderSpirv", "assets/shaders/pbr_mesh.frag"),
+    ("kGltfMaterialOpaqueFragmentShaderSpirv", "assets/shaders/pbr_mesh_opaque.frag"),
     ("kShadowDepthVertexShaderSpirv", "assets/shaders/shadow_depth.vert"),
     ("kFullscreenVertexShaderSpirv", "assets/shaders/fullscreen.vert"),
     ("kBloomDownsampleFragmentShaderSpirv", "assets/shaders/bloom_downsample.frag"),

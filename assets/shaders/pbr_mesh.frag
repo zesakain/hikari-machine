@@ -5,7 +5,7 @@ layout(location = 1) in vec3 inNormal;
 layout(location = 2) in vec2 inUV;
 layout(location = 3) in vec4 inColor;
 layout(location = 4) in vec4 inTangent;
-layout(location = 5) flat in vec3 inCameraPos;
+layout(location = 5) in vec3 inShadowCoord;
 
 layout(location = 0) out vec4 outColor;
 
@@ -61,95 +61,83 @@ layout(std140, set = 1, binding = 0) uniform LightingData {
     uint numPointLights;
     uint numSpotLights;
     uint dirLightActive;
-    uint _pad;
+    uint shadowPackedParams;
 } uLighting;
 
 layout(set = 1, binding = 1) uniform sampler2DShadow uShadowMap;
 
 const float PI = 3.141592653589793;
+const float INV_PI = 0.31830988618379067;
 
-// GGX / Trowbridge-Reitz Normal Distribution Function
-float distributionGGX(vec3 N, vec3 H, float roughness) {
-    float a = roughness * roughness;
-    float a2 = a * a;
-    float NdotH = max(dot(N, H), 0.0);
-    float NdotH2 = NdotH * NdotH;
-
-    float num = a2;
-    float denom = (NdotH2 * (a2 - 1.0) + 1.0);
-    denom = PI * denom * denom;
-
-    return num / max(denom, 0.0000001);
-}
-
-// Smith Joint / GGX Correlated Visibility Function (V = G / (4 * NdotV * NdotL))
-float visibilitySmithGGXCorrelated(float NdotV, float NdotL, float roughness) {
-    float a = roughness * roughness;
-    float a2 = a * a;
-
-    float gv = NdotL * sqrt(NdotV * NdotV * (1.0 - a2) + a2);
-    float gl = NdotV * sqrt(NdotL * NdotL * (1.0 - a2) + a2);
-
-    return 0.5 / max(gv + gl, 0.0000001);
-}
-
-// Schlick Fresnel Approximation
+// Fast Schlick Fresnel Approximation - eliminates log2/exp2 SFU instructions
 vec3 fresnelSchlick(float VdotH, vec3 F0) {
-    return F0 + (vec3(1.0) - F0) * pow(clamp(1.0 - VdotH, 0.0, 1.0), 5.0);
+    float fc = clamp(1.0 - VdotH, 0.0, 1.0);
+    float fc2 = fc * fc;
+    float fc5 = fc2 * fc2 * fc;
+    return F0 + (vec3(1.0) - F0) * fc5;
 }
 
-// Evaluate Cook-Torrance BRDF for a single incident light
-vec3 evaluateDirectLight(vec3 L, vec3 radiance, vec3 N, vec3 V, vec3 albedo, float metallic, float roughness, vec3 F0) {
+// Fused Cook-Torrance BRDF (Single-Division Karis Smith-GGX + GGX NDF)
+vec3 evaluateDirectLight(vec3 L, vec3 radiance, vec3 N, vec3 V, vec3 albedo, float metallic, float roughness, vec3 F0, float NdotL) {
     vec3 H = normalize(V + L);
-    float NdotL = max(dot(N, L), 0.0);
-    if (NdotL <= 0.0) {
-        return vec3(0.0);
-    }
     float NdotV = max(dot(N, V), 0.0001);
     float NdotH = max(dot(N, H), 0.0);
     float VdotH = max(dot(V, H), 0.0);
 
-    float D = distributionGGX(N, H, roughness);
-    float Vis = visibilitySmithGGXCorrelated(NdotV, NdotL, roughness);
+    float a = roughness * roughness;
+    float a2 = a * a;
+    float NdotH2 = NdotH * NdotH;
+    float denom = NdotH2 * (a2 - 1.0) + 1.0;
+
+    float k = (roughness + 1.0) * (roughness + 1.0) * 0.125;
+    float gv = NdotV * (1.0 - k) + k;
+    float gl = NdotL * (1.0 - k) + k;
+
+    float specScalar = (0.5 * INV_PI * a2) / max(denom * denom * gv * gl, 0.0000001);
     vec3 F = fresnelSchlick(VdotH, F0);
 
-    vec3 specTerm = D * Vis * F;
     vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
-    vec3 diffTerm = kD * (albedo / PI);
+    vec3 diffTerm = kD * (albedo * INV_PI);
+    vec3 specTerm = specScalar * F;
 
     return (diffTerm + specTerm) * radiance * NdotL;
 }
 
-// Sample directional shadow map with 3x3 PCF and slope-scaled depth bias
-float calculateShadow(vec4 lightSpacePos, vec3 N, vec3 L, float baseBias) {
-    float NdotL = dot(N, L);
-    if (NdotL <= 0.0) {
-        return 0.0;
-    }
-
-    vec3 projCoords = lightSpacePos.xyz / lightSpacePos.w;
-    if (projCoords.z > 1.0 || projCoords.z < 0.0 ||
-        projCoords.x < -1.0 || projCoords.x > 1.0 ||
-        projCoords.y < -1.0 || projCoords.y > 1.0) {
-        return 1.0;
-    }
-
-    vec2 shadowUV = vec2(projCoords.x * 0.5 + 0.5, projCoords.y * -0.5 + 0.5);
-    if (shadowUV.x < 0.0 || shadowUV.x > 1.0 || shadowUV.y < 0.0 || shadowUV.y > 1.0) {
+// Sample directional shadow map with multi-tap PCF and slope-scaled depth bias
+float calculateShadow(vec3 shadowCoord, float NdotL, float baseBias) {
+    if (shadowCoord.z > 1.0 || shadowCoord.z < 0.0 ||
+        shadowCoord.x < 0.0 || shadowCoord.x > 1.0 ||
+        shadowCoord.y < 0.0 || shadowCoord.y > 1.0) {
         return 1.0;
     }
 
     float bias = max(baseBias * (1.0 - NdotL), baseBias * 0.2);
-    float currentDepth = projCoords.z;
+    float currentDepth = shadowCoord.z - bias;
 
-    float shadow = 0.0;
-    vec2 texelSize = 1.0 / textureSize(uShadowMap, 0);
-    for (int x = -1; x <= 1; ++x) {
-        for (int y = -1; y <= 1; ++y) {
-            shadow += texture(uShadowMap, vec3(shadowUV + vec2(x, y) * texelSize, currentDepth - bias));
+    uint shadowRes = uLighting.shadowPackedParams & 0xFFFFu;
+    uint pcfQuality = (uLighting.shadowPackedParams >> 16u) & 0xFFu;
+    float invRes = (shadowRes > 0u) ? (1.0 / float(shadowRes)) : 0.00048828125;
+    vec2 texelSize = vec2(invRes);
+
+    if (pcfQuality == 0u) {
+        return texture(uShadowMap, vec3(shadowCoord.xy, currentDepth));
+    } else if (pcfQuality == 1u) {
+        // 4-tap rotated bilinear filter (each tap performs 2x2 bilinear comparison covering 16 texels)
+        vec2 h = 0.5 * texelSize;
+        float s0 = texture(uShadowMap, vec3(shadowCoord.xy - h, currentDepth));
+        float s1 = texture(uShadowMap, vec3(shadowCoord.xy + vec2(h.x, -h.y), currentDepth));
+        float s2 = texture(uShadowMap, vec3(shadowCoord.xy + vec2(-h.x, h.y), currentDepth));
+        float s3 = texture(uShadowMap, vec3(shadowCoord.xy + h, currentDepth));
+        return (s0 + s1 + s2 + s3) * 0.25;
+    } else {
+        float shadow = 0.0;
+        for (int x = -1; x <= 1; ++x) {
+            for (int y = -1; y <= 1; ++y) {
+                shadow += texture(uShadowMap, vec3(shadowCoord.xy + vec2(x, y) * texelSize, currentDepth));
+            }
         }
+        return shadow / 9.0;
     }
-    return shadow / 9.0;
 }
 
 void main() {
@@ -179,25 +167,19 @@ void main() {
 
     // 3. Normal Mapping & TBN Basis
     vec3 N = normalize(inNormal);
-    vec3 T = normalize(inTangent.xyz);
-    T = normalize(T - dot(T, N) * N);
-    vec3 B = cross(N, T) * inTangent.w;
-    mat3 TBN = mat3(T, B, N);
-
     if (material.hasNormalTex != 0u) {
+        vec3 T = normalize(inTangent.xyz - dot(inTangent.xyz, N) * N);
+        vec3 B = cross(N, T) * inTangent.w;
         vec3 normalSample = texture(uNormalMap, inUV).xyz * 2.0 - 1.0;
         normalSample.xy *= material.normalScale;
-        N = normalize(TBN * normalSample);
+        N = normalize(mat3(T, B, N) * normalSample);
     }
     if (material.doubleSided != 0u && !gl_FrontFacing) {
         N = -N;
     }
 
     // 4. View vector and Specular F0
-    vec3 camPos = (length(uLighting.cameraPosAndAmbientIntensity.xyz) > 0.0)
-                      ? uLighting.cameraPosAndAmbientIntensity.xyz
-                      : inCameraPos;
-    vec3 V = normalize(camPos - inWorldPos);
+    vec3 V = normalize(uLighting.cameraPosAndAmbientIntensity.xyz - inWorldPos);
     vec3 F0 = mix(vec3(0.04), baseColor.rgb, metallic);
 
     // 5. Direct Light Accumulation
@@ -205,59 +187,73 @@ void main() {
 
     // 5a. Directional Light
     if (uLighting.dirLightActive != 0u) {
-        vec3 L = normalize(uLighting.dirLight.directionAndCastShadow.xyz);
-        vec3 radiance = uLighting.dirLight.colorAndIntensity.rgb * uLighting.dirLight.colorAndIntensity.w;
-        float shadow = 1.0;
-        if (uLighting.dirLight.directionAndCastShadow.w > 0.5) {
-            vec4 lightSpacePos = uLighting.lightSpaceMatrix * vec4(inWorldPos, 1.0);
-            shadow = calculateShadow(lightSpacePos, N, L, uLighting.ambientColorAndShadowBias.w);
+        vec3 L = uLighting.dirLight.directionAndCastShadow.xyz;
+        float NdotL = dot(N, L);
+        if (NdotL > 0.0) {
+            float shadow = 1.0;
+            if (uLighting.dirLight.directionAndCastShadow.w > 0.5) {
+                shadow = calculateShadow(inShadowCoord, NdotL, uLighting.ambientColorAndShadowBias.w);
+            }
+            if (shadow > 0.001) {
+                vec3 radiance = uLighting.dirLight.colorAndIntensity.rgb * uLighting.dirLight.colorAndIntensity.w;
+                directLighting += shadow * evaluateDirectLight(L, radiance, N, V, baseColor.rgb, metallic, roughness, F0, NdotL);
+            }
         }
-        directLighting += shadow * evaluateDirectLight(L, radiance, N, V, baseColor.rgb, metallic, roughness, F0);
     }
 
     // 5b. Point Lights
-    for (uint i = 0u; i < uLighting.numPointLights && i < 16u; ++i) {
-        vec3 lightPos = uLighting.pointLights[i].positionAndRange.xyz;
-        float range = uLighting.pointLights[i].positionAndRange.w;
-        vec3 toLight = lightPos - inWorldPos;
-        float dist = length(toLight);
-        if (dist < range && dist > 0.0001) {
-            vec3 L = toLight / dist;
-            float atten = 1.0 / (dist * dist + 1.0);
-            float window = clamp(1.0 - pow(dist / range, 4.0), 0.0, 1.0);
-            atten *= (window * window);
+    if (uLighting.numPointLights > 0u) {
+        for (uint i = 0u; i < uLighting.numPointLights && i < 16u; ++i) {
+            vec3 lightPos = uLighting.pointLights[i].positionAndRange.xyz;
+            float range = uLighting.pointLights[i].positionAndRange.w;
+            vec3 toLight = lightPos - inWorldPos;
+            float dist = length(toLight);
+            if (dist < range && dist > 0.0001) {
+                vec3 L = toLight / dist;
+                float NdotL = max(dot(N, L), 0.0);
+                if (NdotL > 0.0) {
+                    float atten = 1.0 / (dist * dist + 1.0);
+                    float window = clamp(1.0 - pow(dist / range, 4.0), 0.0, 1.0);
+                    atten *= (window * window);
 
-            vec3 radiance = uLighting.pointLights[i].colorAndIntensity.rgb *
-                            uLighting.pointLights[i].colorAndIntensity.w * atten;
-            directLighting += evaluateDirectLight(L, radiance, N, V, baseColor.rgb, metallic, roughness, F0);
+                    vec3 radiance = uLighting.pointLights[i].colorAndIntensity.rgb *
+                                    uLighting.pointLights[i].colorAndIntensity.w * atten;
+                    directLighting += evaluateDirectLight(L, radiance, N, V, baseColor.rgb, metallic, roughness, F0, NdotL);
+                }
+            }
         }
     }
 
     // 5c. Spot Lights
-    for (uint i = 0u; i < uLighting.numSpotLights && i < 16u; ++i) {
-        vec3 lightPos = uLighting.spotLights[i].positionAndRange.xyz;
-        float range = uLighting.spotLights[i].positionAndRange.w;
-        vec3 toLight = lightPos - inWorldPos;
-        float dist = length(toLight);
-        if (dist < range && dist > 0.0001) {
-            vec3 L = toLight / dist;
-            vec3 spotDir = normalize(uLighting.spotLights[i].directionAndIntensity.xyz);
-            float cosAngle = dot(-L, spotDir);
-            float cosInner = uLighting.spotLights[i].coneAngles.x;
-            float cosOuter = uLighting.spotLights[i].coneAngles.y;
+    if (uLighting.numSpotLights > 0u) {
+        for (uint i = 0u; i < uLighting.numSpotLights && i < 16u; ++i) {
+            vec3 lightPos = uLighting.spotLights[i].positionAndRange.xyz;
+            float range = uLighting.spotLights[i].positionAndRange.w;
+            vec3 toLight = lightPos - inWorldPos;
+            float dist = length(toLight);
+            if (dist < range && dist > 0.0001) {
+                vec3 L = toLight / dist;
+                float NdotL = max(dot(N, L), 0.0);
+                if (NdotL > 0.0) {
+                    vec3 spotDir = normalize(uLighting.spotLights[i].directionAndIntensity.xyz);
+                    float cosAngle = dot(-L, spotDir);
+                    float cosInner = uLighting.spotLights[i].coneAngles.x;
+                    float cosOuter = uLighting.spotLights[i].coneAngles.y;
 
-            float spotAtten = clamp((cosAngle - cosOuter) / max(cosInner - cosOuter, 0.0001), 0.0, 1.0);
-            spotAtten = spotAtten * spotAtten;
+                    float spotAtten = clamp((cosAngle - cosOuter) / max(cosInner - cosOuter, 0.0001), 0.0, 1.0);
+                    spotAtten = spotAtten * spotAtten;
 
-            if (spotAtten > 0.0) {
-                float distAtten = 1.0 / (dist * dist + 1.0);
-                float window = clamp(1.0 - pow(dist / range, 4.0), 0.0, 1.0);
-                distAtten *= (window * window);
+                    if (spotAtten > 0.0) {
+                        float distAtten = 1.0 / (dist * dist + 1.0);
+                        float window = clamp(1.0 - pow(dist / range, 4.0), 0.0, 1.0);
+                        distAtten *= (window * window);
 
-                vec3 radiance = uLighting.spotLights[i].colorAndCastShadow.rgb *
-                                uLighting.spotLights[i].directionAndIntensity.w *
-                                distAtten * spotAtten;
-                directLighting += evaluateDirectLight(L, radiance, N, V, baseColor.rgb, metallic, roughness, F0);
+                        vec3 radiance = uLighting.spotLights[i].colorAndCastShadow.rgb *
+                                        uLighting.spotLights[i].directionAndIntensity.w *
+                                        distAtten * spotAtten;
+                        directLighting += evaluateDirectLight(L, radiance, N, V, baseColor.rgb, metallic, roughness, F0, NdotL);
+                    }
+                }
             }
         }
     }
@@ -270,15 +266,17 @@ void main() {
 
     // 7. Ambient Term (environment fallback scaled by ambient parameters)
     float ambIntensity = uLighting.cameraPosAndAmbientIntensity.w;
-    vec3 ambColor = uLighting.ambientColorAndShadowBias.rgb;
-    vec3 ambientDiffuse = baseColor.rgb * (1.0 - metallic) * ambIntensity * ambColor * occlusion;
-    vec3 ambientSpecular = mix(F0, baseColor.rgb, metallic) * (1.0 - roughness) * ambIntensity * ambColor * occlusion;
+    vec3 ambLight = (ambIntensity * occlusion) * uLighting.ambientColorAndShadowBias.rgb;
+    vec3 ambientDiffuse = baseColor.rgb * (1.0 - metallic) * ambLight;
+    vec3 ambientSpecular = mix(F0, baseColor.rgb, metallic) * (1.0 - roughness) * ambLight;
     vec3 ambient = ambientDiffuse + ambientSpecular;
 
     // 8. Emissive Term
-    vec3 emissive = material.emissiveFactorAndAlphaCutoff.xyz;
+    vec3 emissive = vec3(0.0);
     if (material.hasEmissiveTex != 0u) {
-        emissive *= texture(uEmissiveMap, inUV).rgb;
+        emissive = material.emissiveFactorAndAlphaCutoff.xyz * texture(uEmissiveMap, inUV).rgb;
+    } else if (dot(material.emissiveFactorAndAlphaCutoff.xyz, material.emissiveFactorAndAlphaCutoff.xyz) > 0.0) {
+        emissive = material.emissiveFactorAndAlphaCutoff.xyz;
     }
 
     // 9. Final Radiance Output
