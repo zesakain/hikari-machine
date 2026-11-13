@@ -14,6 +14,8 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <numeric>
@@ -259,64 +261,149 @@ int main(int argc, char** argv) {
     struct CameraPathDef {
         std::string name;
         int frameCount;
-        std::function<Mat4(float t)> computeView;
+        std::function<Mat4(float t, world::World& world)> computeView;
     };
 
     std::vector<CameraPathDef> paths;
 
-    // Path 1: Central Atrium Longitudinal Traverse (Z: -9.0 -> +9.0)
-    paths.push_back({"1. Central Atrium Traverse", framesPerPath, [](float t) {
-                         float z = -9.0F + t * 18.0F;
-                         Vec3 pos(0.0F, 2.0F, z);
-                         Vec3 target(0.0F, 2.0F, z + 5.0F);
+    // 1. Central Atrium, dense geometry
+    paths.push_back(
+        {"1. Central Atrium, dense geometry", framesPerPath, [](float t, world::World& /*world*/) {
+             float z = -8.0F + t * 16.0F;
+             Vec3 pos(0.0F, 1.8F, z);
+             Vec3 target(0.0F, 1.8F, z + 5.0F);
+             return Mat4::lookAt(pos, target, Vec3::unitY());
+         }});
+
+    // 2. Complex columns and architectural details
+    paths.push_back({"2. Complex columns and architectural details", framesPerPath,
+                     [](float t, world::World& /*world*/) {
+                         float angle = t * 6.2831853F;
+                         Vec3 center(-4.5F, 1.8F, -2.5F);
+                         Vec3 offset(std::sin(angle) * 1.5F, 0.2F * std::sin(angle * 2.0F),
+                                     std::cos(angle) * 1.5F);
+                         Vec3 pos = center + offset;
+                         return Mat4::lookAt(pos, center, Vec3::unitY());
+                     }});
+
+    // 3. Dense overlapping geometry and high-overdraw areas
+    paths.push_back({"3. Dense overlapping geometry and high-overdraw areas", framesPerPath,
+                     [](float t, world::World& /*world*/) {
+                         float p = (std::sin(t * 3.14159265F) + 1.0F) * 0.5F;
+                         Vec3 pos = Vec3(-3.8F, 1.6F, -6.5F) + Vec3(0.4F, 0.2F, 0.4F) * p;
+                         Vec3 target(3.8F, 3.5F, 6.5F);
                          return Mat4::lookAt(pos, target, Vec3::unitY());
                      }});
 
-    // Path 2: Ground Floor Side Corridor Walk (Colonnade Arches)
-    paths.push_back({"2. Side Corridor Colonnade Walk", framesPerPath, [](float t) {
+    // 4. Upper balcony looking down into the atrium
+    paths.push_back({"4. Upper balcony looking down into the atrium", framesPerPath,
+                     [](float t, world::World& /*world*/) {
+                         float z = -7.5F + t * 15.0F;
+                         Vec3 pos(0.0F, 5.8F, z);
+                         Vec3 target(0.0F, 1.2F, z + 4.0F);
+                         return Mat4::lookAt(pos, target, Vec3::unitY());
+                     }});
+
+    // 5. Long corridor with many visible submeshes
+    paths.push_back({"5. Long corridor with many visible submeshes", framesPerPath,
+                     [](float t, world::World& /*world*/) {
                          float z = -9.0F + t * 18.0F;
                          Vec3 pos(-3.5F, 1.8F, z);
                          Vec3 target(-3.5F, 1.8F, z + 4.0F);
                          return Mat4::lookAt(pos, target, Vec3::unitY());
                      }});
 
-    // Path 3: Upper Gallery Balcony View
-    paths.push_back({"3. Upper Gallery Balcony Walk", framesPerPath, [](float t) {
-                         float z = -8.0F + t * 16.0F;
-                         Vec3 pos(0.0F, 5.5F, z);
-                         Vec3 target(0.0F, 1.5F, z + 6.0F);
-                         return Mat4::lookAt(pos, target, Vec3::unitY());
-                     }});
-
-    // Path 4: Rapid 360-Degree Atrium Yaw Rotation
-    paths.push_back({"4. Rapid 360-Degree Rotation", framesPerPath, [](float t) {
+    // 6. Rapid 360-degree camera rotation
+    paths.push_back({"6. Rapid 360-degree camera rotation", framesPerPath,
+                     [](float t, world::World& /*world*/) {
                          float angle = t * 6.283185307F;
                          Vec3 pos(0.0F, 2.0F, 0.0F);
                          Vec3 dir(std::sin(angle), 0.0F, std::cos(angle));
                          return Mat4::lookAt(pos, pos + dir, Vec3::unitY());
                      }});
 
-    // Path 5: Worst-Case View (Corner Diagonal through Layered Arches & Shadows)
-    paths.push_back({"5. Worst-Case Corner Diagonal", framesPerPath, [](float t) {
+    // 7. Worst-case diagonal view with maximum visible geometry
+    paths.push_back({"7. Worst-case diagonal view with maximum visible geometry", framesPerPath,
+                     [](float t, world::World& /*world*/) {
                          float p = (std::sin(t * 3.14159265F) + 1.0F) * 0.5F;
                          Vec3 pos = Vec3(-4.8F, 1.6F, -9.5F) + Vec3(0.5F, 0.2F, 0.5F) * p;
                          Vec3 target = Vec3(4.5F, 4.0F, 9.5F);
                          return Mat4::lookAt(pos, target, Vec3::unitY());
                      }});
 
+    // 8. Dynamic scene with moving shadow casters
+    paths.push_back({"8. Dynamic scene with moving shadow casters", framesPerPath,
+                     [](float t, world::World& w) {
+                         // Rotate directional light every frame to invalidate shadow map
+                         float angle = t * 6.2831853F;
+                         Vec3 dir = Vec3(std::sin(angle) * 0.6F + 0.2F, 0.85F,
+                                         std::cos(angle) * 0.6F + 0.2F)
+                                        .normalized();
+                         w.getRawWorld().query<render::DirectionalLightComponent>().each(
+                             [&](flecs::entity, render::DirectionalLightComponent& light) {
+                                 light.direction = dir;
+                             });
+                         float z = -6.0F + t * 12.0F;
+                         Vec3 pos(0.0F, 2.0F, z);
+                         Vec3 target(0.0F, 2.0F, z + 4.0F);
+                         return Mat4::lookAt(pos, target, Vec3::unitY());
+                     }});
+
+    // 9. Repeated camera movement across different visibility and shadow-cache states
+    paths.push_back(
+        {"9. Repeated camera movement across different visibility and shadow-cache states",
+         framesPerPath, [](float t, world::World& w) {
+             if (t > 0.5F) {
+                 float angle = t * 12.56637F;
+                 Vec3 dir = Vec3(std::sin(angle) * 0.5F + 0.3F, 0.8F, std::cos(angle) * 0.5F + 0.3F)
+                                .normalized();
+                 w.getRawWorld().query<render::DirectionalLightComponent>().each(
+                     [&](flecs::entity, render::DirectionalLightComponent& light) {
+                         light.direction = dir;
+                     });
+             } else {
+                 Vec3 dir = Vec3(0.5F, 0.8F, 0.5F).normalized();
+                 w.getRawWorld().query<render::DirectionalLightComponent>().each(
+                     [&](flecs::entity, render::DirectionalLightComponent& light) {
+                         light.direction = dir;
+                     });
+             }
+             float angle = t * 6.2831853F;
+             Vec3 pos = Vec3(std::sin(angle) * 3.5F, 1.8F + std::cos(angle) * 1.5F,
+                             std::cos(angle) * 7.0F);
+             Vec3 target = Vec3(0.0F, 2.0F, 0.0F);
+             return Mat4::lookAt(pos, target, Vec3::unitY());
+         }});
+
+    std::filesystem::create_directories("test-assets");
+    const std::string csvPath = "test-assets/sponza_1080p_worst_case.csv";
+    std::ofstream csv(csvPath);
+    if (csv.is_open()) {
+        csv << "scenario,frame,total_gpu_ms,shadow_gpu_ms,main_pbr_gpu_ms,post_process_gpu_ms,"
+               "cpu_record_ms,queue_submit_ms,wait_idle_ms,main_draws,shadow_draws,"
+               "main_triangles,shadow_triangles,culled_primitives,fps\n";
+    }
+
     std::vector<FrameSample> allSamples;
     std::vector<PathStats> allPathStats;
 
+    auto resetLight = [&]() {
+        Vec3 dir = Vec3(0.5F, 0.8F, 0.5F).normalized();
+        world.getRawWorld().query<render::DirectionalLightComponent>().each(
+            [&](flecs::entity, render::DirectionalLightComponent& light) {
+                light.direction = dir;
+            });
+    };
+
     if (sustainedTotal > 0) {
         std::cout << ">>> Running Sustained Stress Benchmark (" << sustainedTotal
-                  << " frames continuous)...\n";
+                  << " frames continuous across all 9 scenarios)...\n";
         allSamples.reserve(static_cast<size_t>(sustainedTotal));
 
         for (int f = 0; f < sustainedTotal; ++f) {
             float progress = static_cast<float>(f % 1000) / 1000.0F;
-            // Continuous composite loop traversing paths
-            int pathIdx = (f / 1000) % 5;
-            Mat4 view = paths[static_cast<size_t>(pathIdx)].computeView(progress);
+            int pathIdx = (f / 1000) % static_cast<int>(paths.size());
+            Mat4 view = paths[static_cast<size_t>(pathIdx)].computeView(progress, world);
             Mat4 vp = proj * view;
 
             auto cmdRes = device->createCommandList();
@@ -366,6 +453,17 @@ int main(int argc, char** argv) {
                 sample.shadowTriangles = stats.shadowTriangles;
                 sample.culledPrimitives = stats.culledPrimitives;
                 allSamples.push_back(sample);
+
+                if (csv.is_open()) {
+                    double fps = sample.totalGpuMs > 0.0 ? (1000.0 / sample.totalGpuMs) : 0.0;
+                    csv << "\"Sustained\"," << f << ',' << sample.totalGpuMs << ','
+                        << sample.shadowGpuMs << ',' << sample.mainPbrGpuMs << ','
+                        << sample.postProcessGpuMs << ',' << sample.cpuRecordMs << ','
+                        << sample.queueSubmitMs << ',' << sample.waitIdleMs << ','
+                        << sample.mainDraws << ',' << sample.shadowDraws << ','
+                        << sample.mainTriangles << ',' << sample.shadowTriangles << ','
+                        << sample.culledPrimitives << ',' << fps << '\n';
+                }
             }
 
             if ((f + 1) % 1000 == 0) {
@@ -374,15 +472,17 @@ int main(int argc, char** argv) {
             }
         }
 
+        resetLight();
         auto finalStats = computeStats("10,000-Frame Sustained Run", allSamples);
         std::cout << "\n======================================================================\n";
         std::cout << "              10,000-FRAME SUSTAINED 1080P BENCHMARK RESULTS          \n";
         std::cout << "======================================================================\n";
         printPathStats(finalStats);
+        std::cout << "\n[CSV SAVED] " << csvPath << '\n';
         return (finalStats.p95GpuMs <= 16.67) ? 0 : 1;
     }
 
-    // Otherwise run per-path evaluation
+    // Otherwise run per-path evaluation across all 9 scenarios
     for (const auto& pathDef : paths) {
         std::cout << "\n>>> Evaluating " << pathDef.name << " (" << pathDef.frameCount
                   << " frames)...\n";
@@ -391,7 +491,7 @@ int main(int argc, char** argv) {
 
         for (int f = 0; f < pathDef.frameCount; ++f) {
             float t = static_cast<float>(f) / static_cast<float>(pathDef.frameCount);
-            Mat4 view = pathDef.computeView(t);
+            Mat4 view = pathDef.computeView(t, world);
             Mat4 vp = proj * view;
 
             auto cmdRes = device->createCommandList();
@@ -442,9 +542,21 @@ int main(int argc, char** argv) {
                 sample.culledPrimitives = stats.culledPrimitives;
                 pathSamples.push_back(sample);
                 allSamples.push_back(sample);
+
+                if (csv.is_open()) {
+                    double fps = sample.totalGpuMs > 0.0 ? (1000.0 / sample.totalGpuMs) : 0.0;
+                    csv << '"' << pathDef.name << "\"," << f << ',' << sample.totalGpuMs << ','
+                        << sample.shadowGpuMs << ',' << sample.mainPbrGpuMs << ','
+                        << sample.postProcessGpuMs << ',' << sample.cpuRecordMs << ','
+                        << sample.queueSubmitMs << ',' << sample.waitIdleMs << ','
+                        << sample.mainDraws << ',' << sample.shadowDraws << ','
+                        << sample.mainTriangles << ',' << sample.shadowTriangles << ','
+                        << sample.culledPrimitives << ',' << fps << '\n';
+                }
             }
         }
 
+        resetLight();
         auto pStats = computeStats(pathDef.name, pathSamples);
         printPathStats(pStats);
         allPathStats.push_back(pStats);
@@ -453,8 +565,9 @@ int main(int argc, char** argv) {
     std::cout << "\n======================================================================\n";
     std::cout << "                 OVERALL 1080P BENCHMARK SUMMARY                      \n";
     std::cout << "======================================================================\n";
-    auto overallStats = computeStats("All 5 Camera Paths Combined", allSamples);
+    auto overallStats = computeStats("All 9 Scenarios Combined", allSamples);
     printPathStats(overallStats);
+    std::cout << "\n[CSV SAVED] " << csvPath << '\n';
 
     return (overallStats.p95GpuMs <= 16.67) ? 0 : 1;
 }
