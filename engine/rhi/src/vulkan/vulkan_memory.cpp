@@ -29,9 +29,10 @@ Result<VkDeviceMemory> VulkanMemoryManager::allocateBufferMemory(VkDevice device
     vkGetBufferMemoryRequirements(device, buffer, &memReqs);
 
     VkMemoryPropertyFlags propFlags = 0;
+    bool triedDeviceLocalHost = false;
     if (usage == MemoryUsage::GpuOnly) {
         propFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-    } else {
+    } else if (usage == MemoryUsage::CpuToGpu) {
         // Prioritize device-local host-visible memory (BAR / ReBAR) for high GPU throughput
         auto devLocalHostRes =
             findMemoryType(memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT |
@@ -40,9 +41,13 @@ Result<VkDeviceMemory> VulkanMemoryManager::allocateBufferMemory(VkDevice device
         if (devLocalHostRes.hasValue()) {
             propFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                         VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+            triedDeviceLocalHost = true;
         } else {
             propFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
         }
+    } else {
+        // Readback / staging buffers (GpuToCpu) avoid exhausting limited BAR memory
+        propFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
     }
 
     auto typeRes = findMemoryType(memReqs.memoryTypeBits, propFlags);
@@ -59,6 +64,18 @@ Result<VkDeviceMemory> VulkanMemoryManager::allocateBufferMemory(VkDevice device
 
     VkDeviceMemory memory = VK_NULL_HANDLE;
     VkResult res = vkAllocateMemory(device, &allocInfo, nullptr, &memory);
+    if ((res != VK_SUCCESS || memory == VK_NULL_HANDLE) && triedDeviceLocalHost) {
+        // Graceful fallback to system host memory if BAR/ReBAR heap is exhausted
+        ENG_LOG_WARN("Vulkan",
+                     "BAR device-local memory exhausted; falling back to host system memory");
+        propFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        auto fallbackTypeRes = findMemoryType(memReqs.memoryTypeBits, propFlags);
+        if (fallbackTypeRes.hasValue()) {
+            allocInfo.memoryTypeIndex = fallbackTypeRes.value();
+            res = vkAllocateMemory(device, &allocInfo, nullptr, &memory);
+        }
+    }
+
     if (res != VK_SUCCESS || memory == VK_NULL_HANDLE) {
         ENG_LOG_ERROR("Vulkan", "Failed to allocate buffer device memory");
         return Error{.code = ErrorCode::OutOfDeviceMemory,
