@@ -1249,9 +1249,6 @@ void SceneRenderer::recordShadowPass(rhi::RhiCommandList& cmdList) {
 
     const bool applyLightCulling = settings_.performance.frustumCulling;
     const Frustum lightFrustum = Frustum::fromViewProjection(currentLightSpaceMatrix_);
-    const bool hasCameraView = !currentViewProj_.isNearlyEqual(Mat4::identity());
-    const Frustum cameraFrustum =
-        hasCameraView ? Frustum::fromViewProjection(currentViewProj_) : Frustum{};
 
     shadowCasters_.clear();
     auto& ecs = currentWorld_->getRawWorld();
@@ -1271,6 +1268,12 @@ void SceneRenderer::recordShadowPass(rhi::RhiCommandList& cmdList) {
             return;
         }
         GpuMesh* gpuMesh = currentAssetManager_->getGpuMesh(meshId);
+        if (gpuMesh == nullptr && currentDevice_ != nullptr) {
+            auto uploadRes = currentAssetManager_->uploadMesh(meshId, *currentDevice_);
+            if (uploadRes.hasValue()) {
+                gpuMesh = uploadRes.value();
+            }
+        }
         if (gpuMesh == nullptr || !gpuMesh->isValid()) {
             lastRenderStats_.culledPrimitives++;
             return;
@@ -1303,25 +1306,6 @@ void SceneRenderer::recordShadowPass(rhi::RhiCommandList& cmdList) {
             if (!lightFrustum.intersectsAABB(worldBounds)) {
                 lastRenderStats_.culledPrimitives++;
                 return;
-            }
-
-            // Directional shadow volume culling: Cull casters whose extruded shadow volume
-            // cannot reach any camera-visible surface.
-            if (hasCameraView) {
-                const float yFloor = 0.0F;
-                const float height = std::max(0.2F, worldBounds.maxBound.y - yFloor);
-                const float tMax = std::min(settings_.shadows.distance,
-                                            height / std::max(0.1F, currentLightDir_.y));
-                const Vec3 ext = -currentLightDir_ * tMax;
-
-                AABB shadowBounds = worldBounds;
-                shadowBounds.expand(worldBounds.minBound + ext);
-                shadowBounds.expand(worldBounds.maxBound + ext);
-
-                if (!cameraFrustum.intersectsAABB(shadowBounds)) {
-                    lastRenderStats_.culledPrimitives++;
-                    return;
-                }
             }
         }
 
@@ -1666,10 +1650,16 @@ void SceneRenderer::recordMainPbrPass(rhi::RhiCommandList& cmdList) {
             }
         }
 
-        const Vec3 closestPoint{
-            std::clamp(currentCameraPos_.x, worldBounds.minBound.x, worldBounds.maxBound.x),
-            std::clamp(currentCameraPos_.y, worldBounds.minBound.y, worldBounds.maxBound.y),
-            std::clamp(currentCameraPos_.z, worldBounds.minBound.z, worldBounds.maxBound.z)};
+        const float minX = std::min(worldBounds.minBound.x, worldBounds.maxBound.x);
+        const float maxX = std::max(worldBounds.minBound.x, worldBounds.maxBound.x);
+        const float minY = std::min(worldBounds.minBound.y, worldBounds.maxBound.y);
+        const float maxY = std::max(worldBounds.minBound.y, worldBounds.maxBound.y);
+        const float minZ = std::min(worldBounds.minBound.z, worldBounds.maxBound.z);
+        const float maxZ = std::max(worldBounds.minBound.z, worldBounds.maxBound.z);
+
+        const Vec3 closestPoint{std::clamp(currentCameraPos_.x, minX, maxX),
+                                std::clamp(currentCameraPos_.y, minY, maxY),
+                                std::clamp(currentCameraPos_.z, minZ, maxZ)};
         const float depthSq = (closestPoint - currentCameraPos_).lengthSq();
 
         auto resolveMaterial = [&](uint32_t matIndex) -> std::pair<rhi::DescriptorSetHandle, bool> {
@@ -2013,9 +2003,76 @@ RenderStats SceneRenderer::renderScene(world::World& world, AssetManager& assetM
                              lightingData.cameraPosAndAmbientIntensity.z);
     currentLightSpaceMatrix_ = lightSpaceMatrix;
     currentLightDir_ = dir;
-    if (!dir.isNearlyEqual(lastLightDir_) ||
+    uint64_t currentCasterChecksum = 0;
+    uint32_t casterCount = 0;
+    if (settings_.shadows.enabled) {
+        auto shadowCasterQuery = ecs.query<const MeshComponent>();
+        shadowCasterQuery.each([&](flecs::entity e, const MeshComponent& mc) {
+            if (!mc.visible || !mc.castShadows) {
+                return;
+            }
+            casterCount++;
+            uint64_t id = static_cast<uint64_t>(e.id());
+            currentCasterChecksum ^= (id * 1099511628211ULL);
+            if (e.has<world::WorldTransformComponent>()) {
+                const auto* wt = e.get<world::WorldTransformComponent>();
+                if (wt != nullptr) {
+                    float tx = wt->worldMatrix.m[3];
+                    float ty = wt->worldMatrix.m[7];
+                    float tz = wt->worldMatrix.m[11];
+                    uint32_t bx = 0;
+                    uint32_t by = 0;
+                    uint32_t bz = 0;
+                    std::memcpy(&bx, &tx, sizeof(float));
+                    std::memcpy(&by, &ty, sizeof(float));
+                    std::memcpy(&bz, &tz, sizeof(float));
+                    currentCasterChecksum ^=
+                        (static_cast<uint64_t>(bx) | (static_cast<uint64_t>(by) << 32));
+                    currentCasterChecksum ^= (static_cast<uint64_t>(bz) * 16777619ULL);
+                }
+            } else if (e.has<world::TransformComponent>()) {
+                const auto* tc = e.get<world::TransformComponent>();
+                if (tc != nullptr) {
+                    float tx = tc->transform.position.x;
+                    float ty = tc->transform.position.y;
+                    float tz = tc->transform.position.z;
+                    uint32_t bx = 0;
+                    uint32_t by = 0;
+                    uint32_t bz = 0;
+                    std::memcpy(&bx, &tx, sizeof(float));
+                    std::memcpy(&by, &ty, sizeof(float));
+                    std::memcpy(&bz, &tz, sizeof(float));
+                    currentCasterChecksum ^=
+                        (static_cast<uint64_t>(bx) | (static_cast<uint64_t>(by) << 32));
+                    currentCasterChecksum ^= (static_cast<uint64_t>(bz) * 16777619ULL);
+                }
+            } else if (e.has<physics::PhysicsTransformComponent>()) {
+                const auto* tc = e.get<physics::PhysicsTransformComponent>();
+                if (tc != nullptr) {
+                    float tx = tc->transform.position.x;
+                    float ty = tc->transform.position.y;
+                    float tz = tc->transform.position.z;
+                    uint32_t bx = 0;
+                    uint32_t by = 0;
+                    uint32_t bz = 0;
+                    std::memcpy(&bx, &tx, sizeof(float));
+                    std::memcpy(&by, &ty, sizeof(float));
+                    std::memcpy(&bz, &tz, sizeof(float));
+                    currentCasterChecksum ^=
+                        (static_cast<uint64_t>(bx) | (static_cast<uint64_t>(by) << 32));
+                    currentCasterChecksum ^= (static_cast<uint64_t>(bz) * 16777619ULL);
+                }
+            }
+        });
+    }
+
+    if (&world != lastWorld_ || casterCount != lastCasterCount_ ||
+        currentCasterChecksum != lastCasterChecksum_ || !dir.isNearlyEqual(lastLightDir_) ||
         !lightSpaceMatrix.isNearlyEqual(lastLightSpaceMatrix_)) {
         shadowDirty_ = true;
+        lastWorld_ = &world;
+        lastCasterCount_ = casterCount;
+        lastCasterChecksum_ = currentCasterChecksum;
         lastLightDir_ = dir;
         lastLightSpaceMatrix_ = lightSpaceMatrix;
     }

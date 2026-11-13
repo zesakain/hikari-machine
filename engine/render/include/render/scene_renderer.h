@@ -228,6 +228,9 @@ public:
     }
     [[nodiscard]] rhi::SamplerHandle getShadowSampler() const noexcept { return shadowSampler_; }
     [[nodiscard]] rhi::PipelineHandle getShadowPipeline() const noexcept { return shadowPipeline_; }
+    /// Forces re-recording of the directional shadow depth pass on the next renderScene call.
+    /// Thread-safety : Main thread only.
+    void invalidateShadowMap() noexcept { shadowDirty_ = true; }
     [[nodiscard]] rhi::BufferHandle getLightingUniformBuffer() const noexcept {
         return lightingUniformBuffer_;
     }
@@ -364,6 +367,9 @@ private:
     bool shadowDirty_{true};
     Vec3 lastLightDir_{Vec3::zero()};
     Mat4 lastLightSpaceMatrix_{Mat4::identity()};
+    world::World* lastWorld_{nullptr};
+    uint32_t lastCasterCount_{0};
+    uint64_t lastCasterChecksum_{0};
 };
 
 } // namespace eng::render
